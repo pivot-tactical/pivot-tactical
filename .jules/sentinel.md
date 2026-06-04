@@ -1,0 +1,4 @@
+## 2024-06-04 - Missing Authorization on CI Workflows
+**Vulnerability:** GitHub Actions workflow executing Claude Code on issue and PR comments did not check the `author_association` of the user triggering the event. Any user (including malicious outsiders) could trigger the action simply by mentioning `@claude` in an issue or PR comment.
+**Learning:** Workflows triggered by `issue_comment`, `pull_request_review_comment`, `pull_request_review`, and `issues` are executed in the context of the base repository. If they do not verify authorization, they can be abused by untrusted actors, potentially exposing secrets (like `CLAUDE_CODE_OAUTH_TOKEN` and standard `GITHUB_TOKEN`) to excessive execution or exploitation if the workflow takes inputs.
+**Prevention:** Always verify `author_association` in the `if` condition of GitHub Actions workflows triggered by public inputs (like comments). Allow only `OWNER`, `MEMBER`, or `COLLABORATOR`.
