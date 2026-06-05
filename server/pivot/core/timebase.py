@@ -39,8 +39,8 @@ def parse_iso_utc(text: str) -> datetime:
 def resolve_timezone(name: str) -> ZoneInfo:
     """Resolve a configured IANA timezone name, falling back to UTC.
 
-    The GUI offers a picker; an unknown/garbled value must never crash a
-    terminal's clock, so we degrade gracefully to UTC.
+    The Settings page offers a picker; an unknown/garbled value must never crash
+    a terminal's clock, so we degrade gracefully to UTC.
     """
     try:
         return ZoneInfo(name)

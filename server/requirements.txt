@@ -23,5 +23,6 @@ av>=12.0                  # BSD-3-Clause (PyAV; bundles ffmpeg/libopus/libvpx/li
 # --- Transcription (permissive) ---
 faster-whisper>=1.0       # MIT (CTranslate2 backend is MIT)
 
-# --- GUI (weak copyleft, dynamically linked — see REBUILD-QT.md) ---
-PySide6>=6.6              # LGPL-3.0
+# The instructor UI is browser-based; the server is headless (no Qt/PySide6).
+# The only LGPL component is libsndfile (via soundfile), dynamically linked —
+# see REBUILD-LGPL.md.

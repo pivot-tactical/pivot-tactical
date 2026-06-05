@@ -17,7 +17,7 @@ generated section by hand.
 | Class | Licences | Linked into the distributed `.exe`? |
 |-------|----------|-------------------------------------|
 | Allowed (permissive) | MIT, BSD-2/3-Clause, Apache-2.0, ISC, Python-2.0 | Yes |
-| Allowed (weak copyleft, dynamic link only) | LGPL-2.1, LGPL-3.0 | Yes — dynamically linked, replaceable (see `REBUILD-QT.md`) |
+| Allowed (weak copyleft, dynamic link only) | LGPL-2.1 | Yes — dynamically linked, replaceable (see `REBUILD-LGPL.md`) |
 | Allowed (build tool only) | GPL-2.0-with-linking-exception (PyInstaller) | No — build tool; exception permits permissive output |
 | **Denied** | GPL-2.0, GPL-3.0, AGPL-3.0 (strong copyleft) | **Never** |
 
@@ -25,7 +25,6 @@ generated section by hand.
 
 | Component | Version (pin) | Licence | Type | Obligation |
 |-----------|---------------|---------|------|------------|
-| PySide6 (Qt for Python) | 6.x | LGPL-3.0 | Weak copyleft | Dynamic link + relink ability — see `REBUILD-QT.md` |
 | aiortc | 1.x | BSD-3-Clause | Permissive | Attribution |
 | PyAV (`av`) | 12.x | BSD-3-Clause | Permissive | Attribution |
 | faster-whisper | 1.x | MIT | Permissive | Attribution |
@@ -60,8 +59,8 @@ first run or bundled; no model-weight licence conflict exists (spec §13.3).
 
 The complete, verbatim licence texts for every component above are collected in
 `legal/` at build time and shipped alongside the executable in the distribution
-ZIP (spec §13.8). The Apache-2.0 text is in `LICENSE`; the LGPL-3.0 text is in
-`legal/LGPL-3.0.txt` (added by the licence-collection step).
+ZIP (spec §13.8). The Apache-2.0 text is in `LICENSE`; the LGPL-2.1 text (for
+libsndfile) is in `legal/LGPL-2.1.txt` (added by the licence-collection step).
 
 _Last generated: pending first CI run. The list above is authored to match the
 spec dependency inventory (§13.3); exact pinned versions are written here by the

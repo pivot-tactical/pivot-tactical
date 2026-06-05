@@ -1,8 +1,8 @@
 """DB-backed runtime config accessor (spec §5.1 ``config`` table).
 
 Instructor-tunable settings (transcription, timezone, crypto, update channel,
-etc.) are persisted JSON-encoded under string keys. The GUI Settings tab and the
-admin API read/write through this store so there are no config files to edit
+etc.) are persisted JSON-encoded under string keys. The instructor Settings page
+and the admin API read/write through this store so there are no config files to edit
 (design principle §1.1).
 """
 

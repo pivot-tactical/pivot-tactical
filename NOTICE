@@ -7,8 +7,6 @@ This product includes and/or dynamically links against third-party software.
 The full licence texts are reproduced in THIRD-PARTY-LICENSES.md. A summary of
 bundled components and their licences:
 
-  PySide6 (Qt for Python)  — LGPL v3        — GUI toolkit (dynamically linked;
-                                               see REBUILD-QT.md for relink rights)
   aiortc                   — BSD-3-Clause    — WebRTC transport
   PyAV (av)                — BSD-3-Clause    — media handling for aiortc
   faster-whisper           — MIT             — speech-to-text
@@ -35,6 +33,8 @@ The Whisper model weights converted to CTranslate2 format are published by
 SYSTRAN under MIT; the underlying OpenAI Whisper models are MIT. No model-weight
 licence conflict exists.
 
-LGPL components (PySide6/Qt and libsndfile) are dynamically linked and remain
-replaceable by the end user. See REBUILD-QT.md for instructions on substituting
-or rebuilding the Qt/PySide6 libraries, satisfying the LGPL v3 relink obligation.
+The server is headless (browser-based instructor + trainees), so no Qt/PySide6 is
+bundled. The only LGPL component is libsndfile (LGPL v2.1, via soundfile); it is
+dynamically linked and remains replaceable by the end user. See REBUILD-LGPL.md
+for instructions on substituting or rebuilding it, satisfying the LGPL relink
+obligation.

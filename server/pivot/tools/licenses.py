@@ -4,7 +4,7 @@ Enforces the no-contravention requirement continuously: the build fails if any
 *runtime* dependency reports a strong-copyleft (GPL/AGPL) licence that would be
 linked into the distributed executable, unless it is explicitly allow-listed with
 justification. Weak copyleft (LGPL) is allowed because PIVOT links it dynamically
-and ships the relink instructions (REBUILD-QT.md, §13.4). Build-only tools
+and ships the relink instructions (REBUILD-LGPL.md, §13.4). Build-only tools
 (PyInstaller's GPL-with-linking-exception) are allow-listed since they are not
 redistributed inside the binary.
 

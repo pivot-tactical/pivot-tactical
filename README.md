@@ -5,12 +5,13 @@ communications for training military and emergency-services personnel in voice
 procedure, net discipline, prowords and tactical message formats (SITREP,
 SALUTE, MEDEVAC, …) — **without real radio equipment or live spectrum**.
 
-One person runs the server and acts as the **instructor**, controlling the
-exercise from a desktop window. Trainees connect from any device with a **web
-browser** over the local network — nothing to install on their side. Radios tune
-freely across the whole HF/VHF/UHF range; nets are *emergent* (anyone on the same
-frequency is on the same net, exactly like real radios), and tuning upward
-audibly cleans up from noisy low HF to near-clean UHF.
+One person runs the **headless server** and acts as the **instructor**,
+controlling the exercise from a **web browser** (protected by a password).
+Trainees connect from any device with a browser over the local network — nothing
+to install on either side. Radios tune freely across the whole HF/VHF/UHF range;
+nets are *emergent* (anyone on the same frequency is on the same net, exactly
+like real radios), and tuning upward audibly cleans up from noisy low HF to
+near-clean UHF.
 
 Licensed under **Apache-2.0**.
 
@@ -48,10 +49,10 @@ Linux Mint 21+, Pop!_OS and similar.
 
 ### Then
 
-* On first launch a short wizard sets the audio device, server port and default
-  transcription model.
-* The instructor window shows the **LAN address** (e.g. `http://192.168.1.20:8080`).
-* Trainees open that address in any browser and enter a callsign — done.
+* The server prints the **LAN address** (e.g. `http://192.168.1.20:8080`).
+  Everyone — instructor and trainees — opens that address in a browser.
+* Trainees enter a callsign. The instructor chooses **Log in as instructor** and
+  enters the password (default `instructor` on first run — change it in Settings).
 
 Your database, recordings and settings live in a data folder **next to** the
 program and survive every update and rollback. To uninstall, just delete the
@@ -59,19 +60,22 @@ folder — no registry entries, no system services.
 
 ## Using PIVOT
 
-**Instructor (the desktop window).** Start a session, then operate one or more
-radios on chosen frequencies, key up with the **PTT** button (or the spacebar),
-and toggle each radio between **Plain** and **Cypher**. Live controls let you
-worsen or improve band conditions, inject noise or jamming on a frequency or
-span, watch every connected terminal (callsign, frequency, mode, status), and
-kick a terminal if needed. Everything transmitted on the net is recorded and
+**Instructor (browser, password-protected).** Start a session, then operate one
+or more radios on chosen frequencies, key up with the **PTT** button (or the
+spacebar), and toggle each radio between **Plain** and **Cypher**. A **running
+log of events** shows every transmission live with its transcript and a play
+button for the audio. Controls let you worsen or improve band conditions, inject
+noise or jamming on a frequency or span, watch every connected terminal
+(callsign, frequency, mode, status), kick a terminal, change settings, and change
+the instructor password. Everything transmitted on the net is recorded and
 transcribed.
 
-**Trainees (the browser).** Enter a callsign to join, tune the radio (type a
+**Trainees (browser).** Enter a callsign to join, tune the radio (type a
 frequency or step up/down), choose Plain or Cypher, and **hold PTT / spacebar**
-to transmit. A live ops-room clock shows the configured time zone. Whether anyone
-hears you depends on who else is tuned to your frequency and their crypto mode —
-just like a real radio.
+to transmit. A live ops-room clock shows the configured time zone. Trainees only
+operate their own radio — no settings, no logs. Whether anyone hears you depends
+on who else is tuned to your frequency and their crypto mode — just like a real
+radio.
 
 **After Action Review (AAR).** Open the AAR from the browser to replay a session:
 a timeline of every transmission with timestamp, callsign, frequency, who copied
@@ -119,12 +123,12 @@ upstream dependency licence; the dependency licences ship with every download.
 * [`NOTICE`](NOTICE) — attribution for Apache-2.0 and bundled components.
 * [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md) — full dependency licence
   inventory and the allow/deny policy (enforced in CI).
-* [`REBUILD-QT.md`](REBUILD-QT.md) — how to substitute or rebuild the LGPL
-  components, satisfying the relink obligation.
+* [`REBUILD-LGPL.md`](REBUILD-LGPL.md) — how to substitute or rebuild the LGPL
+  component, satisfying the relink obligation.
 
-The only weak-copyleft components — **PySide6 (Qt for Python)** (LGPL-3.0) and
-**libsndfile** (LGPL-2.1, via `soundfile`) — are dynamically linked and remain
-replaceable. No GPL/AGPL strong-copyleft library is linked into the distributed
-program. PyInstaller (GPL with a linking exception) is a build tool only and is
-not redistributed inside it. The audio engine is built entirely on numpy + scipy
+The server is headless (no Qt/PySide6). The only weak-copyleft component is
+**libsndfile** (LGPL-2.1, via `soundfile`) — dynamically linked and replaceable.
+No GPL/AGPL strong-copyleft library is linked into the distributed program.
+PyInstaller (GPL with a linking exception) is a build tool only and is not
+redistributed inside it. The audio engine is built entirely on numpy + scipy
 (BSD), keeping the signal path fully permissive.

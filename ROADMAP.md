@@ -3,21 +3,28 @@
 Maps **PIVOT Spec v1.6** to the codebase. Legend:
 
 - ✅ **Done** — implemented and covered by tests
-- 🟡 **Wired** — implemented but needs a native extra (`audio`/`gui`) or hardware
-  to exercise end-to-end; structure and control-plane done, media/UI not headless-testable
+- 🟡 **Wired** — backend/control-plane done and tested; needs a native extra
+  (`audio`/`transcription`), hardware, or the browser instructor console to
+  exercise end-to-end
 - ⬜ **Planned** — designed/scaffolded, not yet built out
+
+> **Architecture note:** the desktop PySide6 GUI from spec §7.1 has been replaced
+> by a **headless server + browser-based instructor** (password-authenticated).
+> Instructor controls are gated by an instructor token rather than loopback
+> (§8.4). Rows that referenced the GUI now map to the instructor console in
+> `frontend/`.
 
 ## 3. Functional Requirements
 
 | Spec | Area | Status | Where |
 |------|------|--------|-------|
-| 3.1.1 | Server status, session control, terminal count, clock | ✅ | `gui/tabs/status.py`, `api/rest.py` |
+| 3.1.1 | Server status, session control, terminal count, clock | ✅ / 🟡 | `api/rest.py` (session/status); instructor console UI in `frontend/` |
 | 3.1.2 | Free tuning, emergent nets, band noise profile | ✅ | `core/bands.py`, `core/radios.py` |
-| 3.1.2a | Multiple instructor radios | ✅ | `runtime/manager.py`, `gui/tabs/band_radios.py` |
-| 3.1.3 | Instructor transmit (select + PTT, labelled INSTRUCTOR) | ✅ / 🟡 | `gui/tabs/instructor.py` (PTT timing done; media via router) |
-| 3.1.4 | Live terminal monitor | ✅ | `runtime/manager.py::monitor_snapshot`, `gui/tabs/instructor.py` |
+| 3.1.2a | Multiple instructor radios | ✅ | `runtime/manager.py`, `api/rest.py`, `api/ws.py` (instr_*) |
+| 3.1.3 | Instructor transmit (select + PTT, labelled INSTRUCTOR) | ✅ / 🟡 | `api/ws.py` instr_ptt_* (timing done; media via router) |
+| 3.1.4 | Live terminal monitor | ✅ | `runtime/manager.py::monitor_snapshot`, broadcast over `/ws` |
 | 3.1.5 | Scenario controls (noise burst, jamming, atmospheric, curve, kick) | ✅ | `runtime/manager.py`, `api/rest.py::admin_scenario` |
-| 3.1.6 | Transcription config (model/compute/lang/threshold/skip) | ✅ | `config.py`, `gui/tabs/settings.py`, `transcription/` |
+| 3.1.6 | Transcription config (model/compute/lang/threshold/skip) | ✅ | `config.py`, `api/rest.py::admin_update_settings`, `transcription/` |
 | 3.2.1 | Login (callsign, no password, persists, dup flagging) | ✅ | `api/rest.py`, `frontend/src/views/Login.tsx` |
 | 3.2.2 | Radio panel (tune, mode toggle, signal, PTT, clock, state machine) | ✅ | `frontend/src/views/Radio.tsx` |
 | 3.2.3 | Crypto sync behaviour (sync tone, delay, abort) | ✅ | `runtime/manager.py`, `api/ws.py`, frontend |
@@ -33,7 +40,7 @@ Maps **PIVOT Spec v1.6** to the codebase. Legend:
 | 3.6.3 | Clean/Dirty + Plain/Cypher playback toggles | ✅ | `audio/render.py`, `api/rest.py::event_audio` |
 | 3.6.4 | Export (text / CSV / ZIP) | ✅ | `exporting.py` |
 | 3.7 | Version management & updates | ✅ / ⬜ | `updates/manager.py` (policy ✅; Windows swap helper ⬜) |
-| 3.8 | Time & clock (UTC store, configurable display zone, live) | ✅ | `core/timebase.py`, clocks in GUI + frontend |
+| 3.8 | Time & clock (UTC store, configurable display zone, live) | ✅ | `core/timebase.py`, seven-segment clock in `frontend/` |
 
 ## 4. DSP & Audio Processing
 
@@ -60,23 +67,23 @@ Maps **PIVOT Spec v1.6** to the codebase. Legend:
 | 6.2 | WebSocket channels (envelope, state sync, PTT) | ✅ | `api/ws.py` |
 | 6.3 | WebRTC audio router (per-listener render, fan-out) | 🟡 | `audio/router.py` (orchestration), `audio/mixer.py` (pure core ✅) |
 
-## 7. User Interface
+## 7. User Interface (browser — instructor + trainee)
 
 | Spec | Area | Status | Where |
 |------|------|--------|-------|
-| 7.1 | Instructor window + tabs | ✅ | `gui/` |
-| 7.2 | Trainee web UI (login/radio/AAR) | ✅ | `frontend/src/` |
-| 7.3 | Visual style (dark, tactical cues, seven-segment, large PTT) | ✅ | `gui/theme.py`, `frontend/src/styles.css` |
+| 7.1 | Instructor console (radios, live event log, monitor, scenario, settings, password) — **browser, replaces the §7.1 desktop GUI** | 🟡 | `frontend/` (building); backend ✅ in `api/`, `runtime/` |
+| 7.2 | Trainee web UI (login + radio) | ✅ | `frontend/src/` |
+| 7.3 | Visual style (dark, tactical cues, seven-segment, large PTT) | ✅ | `frontend/src/styles.css` |
 
 ## 8–13. Non-functional, build, licensing
 
 | Spec | Area | Status | Where |
 |------|------|--------|-------|
 | 8.3 | Reliability (flush per event, reconnect, mode preserved) | ✅ | `db/database.py` (WAL), `runtime/manager.py`, frontend reconnect |
-| 8.4 | Security (LAN-only, local-only admin, checksum verify) | ✅ | `api/deps.py::require_local`, `updates/` |
+| 8.4 | Security (LAN-only; **instructor password + bearer token** instead of loopback-only; checksum verify) | ✅ | `auth.py`, `api/deps.py::require_instructor`, `updates/` |
 | 8.6 | Logging | 🟡 | loggers in place; rotating-file config in packaging |
 | 9.1–9.4 | Build, distribution, updates, uninstall | 🟡 | `packaging/pivot.spec`, `gen_buildinfo.py`, `.github/workflows/release.yml` (tag-driven Windows `.zip` + Linux x86_64 `.tar.gz` to GitHub Releases, with SHA-256 sidecars the updater verifies). Platform-aware asset selection in `updates/manager.py`. |
-| 13.6 | Compliance artefacts (LICENSE/NOTICE/THIRD-PARTY/REBUILD-QT) | ✅ | repo root |
+| 13.6 | Compliance artefacts (LICENSE/NOTICE/THIRD-PARTY/REBUILD-LGPL) | ✅ | repo root |
 | 13.7 | Build-time licence verification | ✅ | `tools/licenses.py`, `.github/workflows/ci.yml` |
 
 ## Acceptance criteria (§12) coverage in tests
@@ -97,4 +104,5 @@ update/downgrade/rollback/offline-import (#22–#24), and the licence policy
 - Rotating-file logging configuration and audio-router log (§8.6).
 - Streaming (block-based) DSP filters for the live path; the offline/whole-buffer
   chain is shared today (§4, §8.1).
-- Full noise-vs-frequency curve editor in the GUI (§7.1, post-v1 per §11).
+- Full noise-vs-frequency curve editor in the instructor console (§7.1, post-v1
+  per §11).

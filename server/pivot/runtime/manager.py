@@ -5,8 +5,8 @@ tuning and mode changes, the PTT/crypto-sync/on-air/recording lifecycle, event
 logging with the correct audibility (spec §3.5.3), instructor radios and scenario
 controls, and the pub/sub that pushes state to clients.
 
-It deliberately holds no FastAPI or Qt types so it can be driven by the API, the
-GUI, or tests equally. Audio *media* (mic capture / Opus encode) is the audio
+It deliberately holds no FastAPI types so it can be driven by the API, background
+workers, or tests equally. Audio *media* (mic capture / Opus encode) is the audio
 router's job (§6.3); this class owns the control decisions and the recording tap.
 """
 
@@ -88,9 +88,9 @@ class SessionManager:
         self.terminals: dict[str, TerminalInfo] = {}
         self._active_tx: dict[str, _TxAccumulator] = {}
         self._subscribers: set[asyncio.Queue] = set()
-        # The server's asyncio loop, set by the app on startup. Lets the GUI
-        # thread broadcast safely into the server loop (the GUI and server share
-        # one manager, spec §2.3).
+        # The server's asyncio loop, set by the app on startup. Lets background
+        # threads (e.g. the transcription worker) broadcast safely into the
+        # server loop via call_soon_threadsafe.
         self.loop: asyncio.AbstractEventLoop | None = None
         # Optional async transcription worker (§3.5.2). Attached by the app when
         # the transcription extra is available; events are queued on PTT release.
@@ -109,7 +109,7 @@ class SessionManager:
     def broadcast(self, message_type: str, payload: dict) -> None:
         """Fan a ``{type, payload}`` envelope out to all subscribers (§6.2).
 
-        Safe to call from the GUI thread: if the server loop is known and we are
+        Safe to call from another thread: if the server loop is known and we are
         not running on it, the fan-out is marshalled onto that loop.
         """
         msg = {"type": message_type, "payload": payload}

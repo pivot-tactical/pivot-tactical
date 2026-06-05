@@ -2,7 +2,7 @@
 
 These modules are pure (no I/O, no heavy native dependencies) so they can be
 unit-tested in isolation and reused by the API layer, the DSP engine, the audio
-router and the GUI alike:
+router and the instructor console alike:
 
 * :mod:`pivot.core.bands`   — frequency model: region classification and the
   continuous noise/fading-vs-frequency curve (spec §3.1.2, §4.1).

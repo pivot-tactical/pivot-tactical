@@ -4,13 +4,14 @@
 # release workflow runs it on each OS and packages dist/RadioTrainer/ as a
 # win64 .zip or a linux-x86_64 .tar.gz.
 #
-# Built in --onedir mode so the Qt/PySide6 shared libraries remain separate,
-# replaceable files — satisfying the LGPL v3 relink obligation (§13.4, see
-# REBUILD-QT.md). Explicit hidden imports cover faster-whisper, CTranslate2,
-# PyAV (av) and aiortc native deps (§9.1, §10 risk register). The built React
-# frontend (frontend/dist) and the legal files are bundled as data (at the
-# bundle root, found via sys._MEIPASS) so all attribution travels with the
-# binary (§13.8).
+# Built in --onedir mode so the one LGPL component, libsndfile (LGPL-2.1, via
+# soundfile), stays a separate, replaceable shared library — satisfying the LGPL
+# relink obligation (§13.4, see REBUILD-LGPL.md). The server is headless, so no
+# Qt/PySide6 is bundled. Explicit hidden imports cover faster-whisper,
+# CTranslate2, PyAV (av) and aiortc native deps (§9.1, §10 risk register). The
+# built React frontend (frontend/dist) and the legal files are bundled as data
+# (at the bundle root, found via sys._MEIPASS) so all attribution travels with
+# the binary (§13.8).
 #
 #   Build:  pyinstaller packaging/pivot.spec
 #   Output: dist/RadioTrainer/RadioTrainer(.exe)
@@ -37,7 +38,7 @@ datas = [
     (str(REPO / "LICENSE"), "."),
     (str(REPO / "NOTICE"), "."),
     (str(REPO / "THIRD-PARTY-LICENSES.md"), "."),
-    (str(REPO / "REBUILD-QT.md"), "."),
+    (str(REPO / "REBUILD-LGPL.md"), "."),
 ]
 if FRONTEND_DIST.is_dir():
     # Served by FastAPI at the LAN address; located via PIVOT_FRONTEND_DIST or
@@ -64,12 +65,12 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="RadioTrainer",
-    console=False,  # GUI app; use --headless from a console for server-only
+    console=True,  # headless server: log to the console; the UI is in the browser
     icon=None,
 )
 coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    name="RadioTrainer",  # dist/RadioTrainer/ — onedir keeps Qt swappable (§13.4)
+    name="RadioTrainer",  # dist/RadioTrainer/ — onedir keeps libsndfile swappable (§13.4)
 )

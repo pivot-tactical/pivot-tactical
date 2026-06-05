@@ -9,8 +9,9 @@ Two layers:
   touch training data (spec §3.7.9).
 
 * :data:`DEFAULT_CONFIG` — *runtime, instructor-tunable* settings persisted in
-  the SQLite ``config`` table and edited through the GUI (no config files to
-  hand-edit, per the design principles §1.1). The DB-backed accessor is
+  the SQLite ``config`` table and edited through the instructor Settings page in
+  the browser (no config files to hand-edit, per the design principles §1.1). The
+  DB-backed accessor is
   :class:`pivot.db.config_store.ConfigStore`.
 """
 

@@ -1,24 +1,23 @@
-"""PIVOT entry point (spec §2.3).
+"""PIVOT entry point — headless server.
 
-On a normal Windows deployment the executable shows the PySide6 instructor window
-on the main thread and runs FastAPI (HTTP + WebSocket + WebRTC signalling) on a
-background thread. For headless/dev use (or when PySide6 is not installed) the
-server runs in the foreground.
+The server runs headless: both the instructor and the trainees use a web
+browser over the LAN (the instructor authenticates with a password). There is no
+desktop GUI.
 
-    python -m pivot                 # GUI + server (falls back to headless)
-    python -m pivot --headless      # server only
-    python -m pivot --port 9000     # override bind port
+    python -m pivot                 # run the server
+    python -m pivot --port 9000     # override the bind port
+    python -m pivot --data-dir DIR  # override the data directory
 """
 
 from __future__ import annotations
 
 import argparse
 import socket
-import threading
 
 import uvicorn
 
 from pivot.api.app import create_app
+from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD, AuthService
 from pivot.config import Settings
 from pivot.db.database import init_database
 from pivot.runtime.manager import SessionManager
@@ -38,11 +37,12 @@ def _lan_ip() -> str:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(prog="pivot", description="PIVOT radio voice trainer")
-    p.add_argument("--headless", action="store_true", help="run the server without the GUI")
+    p = argparse.ArgumentParser(prog="pivot", description="PIVOT radio voice trainer (headless)")
     p.add_argument("--host", default=None, help="bind host (default from settings)")
     p.add_argument("--port", type=int, default=None, help="bind port (default 8080)")
     p.add_argument("--data-dir", default=None, help="override the data directory")
+    # Accepted but ignored: the server is always headless now.
+    p.add_argument("--headless", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--version", action="store_true", help="print version and exit")
     return p.parse_args(argv)
 
@@ -60,18 +60,9 @@ def _settings_from_args(args: argparse.Namespace) -> Settings:
     return Settings(**overrides)
 
 
-def run_server(settings: Settings, manager: SessionManager | None = None) -> None:
+def run_server(settings: Settings, manager: SessionManager) -> None:
     app = create_app(settings, manager=manager)
     uvicorn.run(app, host=settings.host, port=settings.port, log_level="info")
-
-
-def run_server_thread(settings: Settings, manager: SessionManager | None = None) -> threading.Thread:
-    app = create_app(settings, manager=manager)
-    config = uvicorn.Config(app, host=settings.host, port=settings.port, log_level="info")
-    server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True, name="pivot-server")
-    thread.start()
-    return thread
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -81,27 +72,24 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     settings = _settings_from_args(args)
-    print(f"PIVOT {version_info.version} — LAN address: http://{_lan_ip()}:{settings.port}")
-
-    # One shared SessionManager so the instructor GUI and the trainee server
-    # operate on the same live state (§2.3).
     db = init_database(settings)
     manager = SessionManager(db, settings)
 
-    if args.headless:
-        run_server(settings, manager)
-        return 0
+    # Seed the instructor password on first run and warn if it is still default.
+    auth = AuthService(db)
+    auth.ensure_default()
 
-    # Try to launch the GUI; fall back to headless if PySide6 is unavailable.
-    try:
-        from pivot.gui.app import run_gui
-    except Exception as exc:  # ImportError or platform/display issue
-        print(f"GUI unavailable ({exc}); running headless. Use --headless to silence.")
-        run_server(settings, manager)
-        return 0
+    ip = _lan_ip()
+    print(f"PIVOT {version_info.version} — open http://{ip}:{settings.port} in a browser")
+    print("  Trainees: enter a callsign.  Instructor: 'Log in as instructor'.")
+    if auth.is_default():
+        print(
+            f"  NOTE: instructor password is the default ('{DEFAULT_INSTRUCTOR_PASSWORD}'). "
+            "Change it in Settings after logging in."
+        )
 
-    run_server_thread(settings, manager)
-    return run_gui(settings, manager)
+    run_server(settings, manager)
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
