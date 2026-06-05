@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
-import { MicCapture, playClick, playSyncTone } from "../audio";
+import { AudioIO, playClick, playSyncTone } from "../audio";
 import type { LoginResponse, RadioMode, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
 
@@ -37,9 +37,18 @@ export function Radio({
   const [mode, setMode] = useState<RadioMode>(login.mode ?? "Plain");
   const [phase, setPhase] = useState<TxPhase>("IDLE");
   const [entry, setEntry] = useState(formatMHz(initialHz));
-  const mic = useRef(new MicCapture());
+  const audio = useRef(new AudioIO());
   const region = regionFor(freqHz);
   const transmitting = phase !== "IDLE";
+
+  // Play incoming voice; enable audio on the first user gesture (autoplay rules).
+  useEffect(() => {
+    socket.onAudio((buf) => audio.current.play(buf));
+    const enable = () => audio.current.init().catch(() => {});
+    window.addEventListener("pointerdown", enable, { once: true });
+    window.addEventListener("keydown", enable, { once: true });
+    return () => audio.current.close();
+  }, [socket]);
 
   // --- WebSocket-driven state machine (§3.2.3) ---
   useEffect(() => {
@@ -69,7 +78,8 @@ export function Radio({
     if (transmitting) return;
     playClick();
     try {
-      await mic.current.start(); // capture handed to WebRTC transport (scaffold)
+      // Capture mic and stream PCM frames to the server while keyed (§6.3).
+      await audio.current.startCapture((pcm) => socket.sendAudio(pcm));
     } catch {
       /* permission denied: control still proceeds; no audio reaches the net */
     }
@@ -78,7 +88,7 @@ export function Radio({
 
   const endTx = useCallback(() => {
     playClick(700);
-    mic.current.stop();
+    audio.current.stopCapture();
     // Releasing during sync is an abort; otherwise a normal end (§3.2.3).
     if (phase === "CRYPTO_SYNC") socket.pttAbort();
     else socket.pttEnd();

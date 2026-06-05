@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, getToken } from "../api";
-import { playClick, playSyncTone } from "../audio";
+import { AudioIO, playClick, playSyncTone } from "../audio";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
 import type { EventRow, RadioState, Terminal, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
@@ -25,6 +25,7 @@ export function InstructorConsole({
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionName, setSessionName] = useState("");
   const socketRef = useRef<PivotSocket | null>(null);
+  const audio = useRef(new AudioIO());
 
   useEffect(() => {
     const sock = new PivotSocket({ token: getToken() || "" });
@@ -36,8 +37,15 @@ export function InstructorConsole({
     );
     sock.on("session_started", () => setSessionActive(true));
     sock.on("session_ended", () => setSessionActive(false));
+    sock.onAudio((buf) => audio.current.play(buf)); // hear trainees on instructor radios
     sock.connect();
     socketRef.current = sock;
+
+    // Enable audio on the first user gesture (autoplay rules).
+    const io = audio.current;
+    const enable = () => io.init().catch(() => {});
+    window.addEventListener("pointerdown", enable, { once: true });
+    window.addEventListener("keydown", enable, { once: true });
 
     api.instructorRadios().then(setRadios).catch(() => {});
     api.terminals().then((t) => {
@@ -45,7 +53,10 @@ export function InstructorConsole({
       setTerminals(t.terminals.filter((x) => !x.is_instructor));
     }).catch(() => {});
 
-    return () => sock.disconnect();
+    return () => {
+      sock.disconnect();
+      io.close();
+    };
   }, []);
 
   async function toggleSession() {
@@ -87,7 +98,7 @@ export function InstructorConsole({
       </nav>
 
       <main className="console__body">
-        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} onChange={setRadios} />}
+        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} />}
         {tab === "log" && <LiveLogTab events={events} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
         {tab === "scenario" && <ScenarioTab />}
@@ -101,8 +112,8 @@ export function InstructorConsole({
 
 const fmtMHz = (hz: number) => (hz / 1e6).toFixed(3);
 
-function RadiosTab({ radios, socket, onChange }: {
-  radios: RadioState[]; socket: PivotSocket | null; onChange: (r: RadioState[]) => void;
+function RadiosTab({ radios, socket, audio, onChange }: {
+  radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [phase, setPhase] = useState<TxPhase>("IDLE");
@@ -122,19 +133,25 @@ function RadiosTab({ radios, socket, onChange }: {
     return () => offs.forEach((o) => o && o());
   }, [socket, radios, onChange]);
 
-  const startTx = useCallback(() => {
+  const startTx = useCallback(async () => {
     if (!socket || !active || phase !== "IDLE") return;
     playClick();
+    try {
+      await audio.startCapture((pcm) => socket.sendAudio(pcm));
+    } catch {
+      /* mic blocked: control proceeds, no audio reaches the net */
+    }
     socket.instrPttStart(active.radio_id, active.frequency, active.mode);
-  }, [socket, active, phase]);
+  }, [socket, active, phase, audio]);
 
   const endTx = useCallback(() => {
     if (!socket || !active) return;
     playClick(700);
+    audio.stopCapture();
     if (phase === "CRYPTO_SYNC") socket.instrPttAbort(active.radio_id);
     else socket.instrPttEnd(active.radio_id);
     setPhase("IDLE");
-  }, [socket, active, phase]);
+  }, [socket, active, phase, audio]);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => { if (e.code === "Space" && !e.repeat && !typing(e)) { e.preventDefault(); startTx(); } };

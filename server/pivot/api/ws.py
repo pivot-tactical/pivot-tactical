@@ -1,30 +1,34 @@
 """The single ``/ws`` WebSocket channel (spec §6.2, §6.3; roles per direction).
 
-Two connection modes, distinguished at connect time:
+Carries three kinds of traffic on one socket:
 
-* **Trainee** (``?name=&trainee_id=``) — bound to its own radio. Handles
-  ``tune``/``mode_change``/``ptt_*``/``heartbeat`` and receives state pushes.
-* **Instructor** (``?token=<bearer>``) — authenticated; receives the same state
-  pushes (so the live event log, monitor and band updates stream in) and may
-  drive any *instructor* radio via ``instr_*`` messages.
+* **JSON control** (text frames) — tune/mode/PTT lifecycle and state pushes.
+* **Audio** (binary frames) — 16-bit/16 kHz mono PCM. Inbound frames are the
+  operator's mic while keyed; the server taps them for the per-station recording
+  and renders them per listener on the same net, pushing the result back as
+  binary frames to each listener's socket (the WebSocket audio transport, §6.3).
 
-The server owns crypto-sync timing for both: a Cypher ``ptt_start`` schedules the
-station on-air after the configured delay, and an abort arriving first cancels it
-(§3.2.3). Voice media travels over WebRTC, not this socket.
+Two connection modes: **trainee** (``?name=&trainee_id=``, bound to its own
+radio) and **instructor** (``?token=``, drives any instructor radio). The server
+owns crypto-sync timing for both (§3.2.3).
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from pivot.audio.pcm import pcm16_to_float32
 from pivot.core.crypto import RadioMode
 from pivot.core.radios import RadioBusyError
 
 router = APIRouter()
+
+_AUDIO_QUEUE_MAX = 64  # ~1.3 s of 20 ms frames; drop rather than lag on a slow client
 
 
 @router.websocket("/ws")
@@ -52,7 +56,10 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
     radio_id = info["radio_id"]
 
     queue = manager.subscribe()
+    audio_out: asyncio.Queue = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
+    manager.register_audio_sink(radio_id, _sink(audio_out))
     outbound = asyncio.create_task(_pump_outbound(ws, queue))
+    audio_pump = asyncio.create_task(_pump_audio(ws, audio_out))
     sync_task: asyncio.Task | None = None
 
     await ws.send_json({"type": "welcome", "payload": {"role": "trainee", **info}})
@@ -60,7 +67,13 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
 
     try:
         while True:
-            data = await ws.receive_json()
+            message = await ws.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            if message.get("bytes") is not None:
+                manager.route_tx_frame(radio_id, pcm16_to_float32(message["bytes"]))
+                continue
+            data = json.loads(message["text"])
             mtype = data.get("type")
             payload = data.get("payload") or {}
 
@@ -88,15 +101,14 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
             elif mtype == "ptt_abort":
                 sync_task = _cancel(sync_task)
                 await ws.send_json({"type": "ptt_aborted", "payload": manager.ptt_abort(radio_id) or {}})
-            elif mtype in ("webrtc_offer", "webrtc_answer", "webrtc_ice"):
-                await _handle_signalling(ws, manager, radio_id, mtype, payload)
             else:
                 await ws.send_json({"type": "error", "payload": {"detail": f"unknown: {mtype}"}})
     except WebSocketDisconnect:
         pass
     finally:
         _cancel(sync_task)
-        await _shutdown(outbound, manager, queue)
+        manager.unregister_audio_sink(radio_id)
+        await _shutdown([outbound, audio_pump], manager, queue)
         manager.disconnect(trainee_id)
 
 
@@ -107,9 +119,22 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
 
 async def _instructor_session(ws: WebSocket, manager) -> None:
     queue = manager.subscribe()
+    audio_out: asyncio.Queue = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
+    sink = _sink(audio_out)
     outbound = asyncio.create_task(_pump_outbound(ws, queue))
+    audio_pump = asyncio.create_task(_pump_audio(ws, audio_out))
     sync_task: asyncio.Task | None = None
+    active_tx: str | None = None  # the instructor radio currently keyed
 
+    # The instructor hears on every one of their radios.
+    bound: set[str] = set()
+
+    def bind_radios() -> None:
+        for r in manager.instructor_radios():
+            manager.register_audio_sink(r["radio_id"], sink)
+            bound.add(r["radio_id"])
+
+    bind_radios()
     await ws.send_json({"type": "welcome", "payload": {"role": "instructor"}})
     await ws.send_json({"type": "band_profile_update", "payload": manager.band_profile_snapshot()})
     await ws.send_json({"type": "instructor_radios", "payload": manager.instructor_radios()})
@@ -124,7 +149,14 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
 
     try:
         while True:
-            data = await ws.receive_json()
+            message = await ws.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            if message.get("bytes") is not None:
+                if active_tx is not None:
+                    manager.route_tx_frame(active_tx, pcm16_to_float32(message["bytes"]))
+                continue
+            data = json.loads(message["text"])
             mtype = data.get("type")
             payload = data.get("payload") or {}
             try:
@@ -138,31 +170,37 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
                     await ws.send_json({"type": "mode_changed",
                                         "payload": manager.set_mode(rid, RadioMode(payload["mode"]))})
                 elif mtype == "instr_add_radio":
-                    radio = manager.add_instructor_radio(payload.get("label"),
-                                                         payload.get("frequency", "145.500 MHz"))
+                    manager.add_instructor_radio(payload.get("label"),
+                                                 payload.get("frequency", "145.500 MHz"))
+                    bind_radios()
                     await ws.send_json({"type": "instructor_radios",
                                         "payload": manager.instructor_radios()})
-                    _ = radio
                 elif mtype == "instr_remove_radio":
-                    manager.remove_instructor_radio(payload.get("radio_id", ""))
+                    rid = payload.get("radio_id", "")
+                    manager.remove_instructor_radio(rid)
+                    manager.unregister_audio_sink(rid)
+                    bound.discard(rid)
                     await ws.send_json({"type": "instructor_radios",
                                         "payload": manager.instructor_radios()})
                 elif mtype == "instr_ptt_start":
                     rid = radio_id_of(payload)
                     result = manager.ptt_start(rid, frequency=payload.get("frequency"),
                                                tx_mode=RadioMode(payload["tx_mode"]) if payload.get("tx_mode") else None)
+                    active_tx = rid
                     await ws.send_json({"type": "ptt_started", "payload": result})
                     if result["sync_applies"]:
                         sync_task = asyncio.create_task(
                             _schedule_on_air(ws, manager, rid, result["sync_delay_ms"]))
                 elif mtype == "instr_ptt_end":
                     sync_task = _cancel(sync_task)
-                    await ws.send_json({"type": "ptt_ended",
-                                        "payload": manager.ptt_end(radio_id_of(payload)) or {}})
+                    rid = radio_id_of(payload)
+                    active_tx = None
+                    await ws.send_json({"type": "ptt_ended", "payload": manager.ptt_end(rid) or {}})
                 elif mtype == "instr_ptt_abort":
                     sync_task = _cancel(sync_task)
-                    await ws.send_json({"type": "ptt_aborted",
-                                        "payload": manager.ptt_abort(radio_id_of(payload)) or {}})
+                    rid = radio_id_of(payload)
+                    active_tx = None
+                    await ws.send_json({"type": "ptt_aborted", "payload": manager.ptt_abort(rid) or {}})
                 else:
                     await ws.send_json({"type": "error", "payload": {"detail": f"unknown: {mtype}"}})
             except (RadioBusyError, KeyError, ValueError) as exc:
@@ -171,7 +209,9 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
         pass
     finally:
         _cancel(sync_task)
-        await _shutdown(outbound, manager, queue)
+        for rid in bound:
+            manager.unregister_audio_sink(rid)
+        await _shutdown([outbound, audio_pump], manager, queue)
 
 
 # --------------------------------------------------------------------------- #
@@ -179,12 +219,32 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def _sink(audio_out: asyncio.Queue):
+    """A non-blocking sink that drops a frame if the client is backed up."""
+    def put(data: bytes) -> None:
+        try:
+            audio_out.put_nowait(data)
+        except asyncio.QueueFull:
+            pass
+    return put
+
+
 async def _pump_outbound(ws: WebSocket, queue: asyncio.Queue) -> None:
-    """Forward broadcast messages from the manager to this client."""
+    """Forward JSON broadcast messages from the manager to this client."""
     try:
         while True:
             msg = await queue.get()
             await ws.send_json(msg)
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+
+
+async def _pump_audio(ws: WebSocket, audio_out: asyncio.Queue) -> None:
+    """Forward rendered PCM frames to this client as binary."""
+    try:
+        while True:
+            data = await audio_out.get()
+            await ws.send_bytes(data)
     except (WebSocketDisconnect, RuntimeError):
         pass
 
@@ -203,21 +263,12 @@ async def _schedule_on_air(ws: WebSocket, manager, radio_id: str, delay_ms: int)
     await ws.send_json({"type": "secure_tx", "payload": {"radio_id": radio_id}})
 
 
-async def _handle_signalling(ws: WebSocket, manager, radio_id: str, mtype: str, payload: dict) -> None:
-    """Tunnel WebRTC signalling to the audio router if one is attached (§6.3)."""
-    router_obj = getattr(ws.app.state, "audio_router", None)
-    if router_obj is None:
-        await ws.send_json({"type": "webrtc_unavailable", "payload": {"detail": "audio router not started"}})
-        return
-    answer = await router_obj.handle_signalling(radio_id, mtype, payload)
-    if answer is not None:
-        await ws.send_json(answer)
-
-
-async def _shutdown(outbound: asyncio.Task, manager, queue: asyncio.Queue) -> None:
-    outbound.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await outbound
+async def _shutdown(tasks: list[asyncio.Task], manager, queue: asyncio.Queue) -> None:
+    for task in tasks:
+        task.cancel()
+    for task in tasks:
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
     manager.unsubscribe(queue)
 
 

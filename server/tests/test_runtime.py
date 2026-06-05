@@ -138,6 +138,43 @@ def test_mode_persists_across_reconnect(manager):
     assert "7.055" in info["frequency"]
 
 
+def test_route_tx_frame_records_and_renders_to_listeners(manager):
+    manager.start_session("EX")
+    manager.login("TX", "tx")
+    manager.login("RX", "rx")
+    manager.tune("tx", "14.250 MHz")
+    manager.tune("rx", "14.250 MHz")
+
+    rx_frames, tx_frames = [], []
+    manager.register_audio_sink("rx", rx_frames.append)
+    manager.register_audio_sink("tx", tx_frames.append)  # transmitter is half-duplex
+
+    manager.ptt_start("tx")  # plain -> on air immediately
+    frame = (0.3 * np.sin(2 * np.pi * 440 * np.arange(320) / 16000)).astype(np.float32)
+    manager.route_tx_frame("tx", frame)
+
+    # Listener received a rendered PCM frame; the transmitter heard nothing.
+    assert rx_frames and isinstance(rx_frames[0], (bytes, bytearray))
+    assert tx_frames == []
+
+    # The frame was tapped for the recording; on release the event has audio.
+    event = manager.ptt_end("tx")
+    assert event["duration_ms"] > 0
+    assert (manager.settings.recordings_dir / event["audio_path"]).exists()
+
+
+def test_route_tx_frame_ignored_when_not_on_air(manager):
+    manager.start_session("EX")
+    manager.login("TX", "tx")
+    manager.tune("tx", "14.250 MHz")
+    got = []
+    manager.register_audio_sink("tx", got.append)
+    # Not keyed -> frame is ignored (no recording, no render).
+    frame = np.zeros(320, dtype=np.float32)
+    manager.route_tx_frame("tx", frame)
+    assert got == []
+
+
 def test_instructor_radio_lifecycle(manager):
     r = manager.add_instructor_radio("Radio 1", "40.000 MHz")
     assert r["is_instructor"] is True

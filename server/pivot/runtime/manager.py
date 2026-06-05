@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from pivot.audio.mixer import distinct_renders, group_renders, render_net_frame
+from pivot.audio.pcm import float32_to_pcm16
 from pivot.config import RECORDING_SAMPLE_RATE, Settings
 from pivot.core.bands import (
     BandProfile,
@@ -37,6 +39,7 @@ from pivot.core.timebase import to_iso_utc, utc_now
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
 from pivot.db.database import Database
+from pivot.dsp.engine import DspEngine
 
 DEFAULT_FREQUENCY_HZ = 145_500_000.0  # a quiet VHF spot to power on at
 
@@ -88,6 +91,10 @@ class SessionManager:
         self.terminals: dict[str, TerminalInfo] = {}
         self._active_tx: dict[str, _TxAccumulator] = {}
         self._subscribers: set[asyncio.Queue] = set()
+        # Live audio: DSP engine + per-radio outbound sinks (a callable that
+        # delivers rendered PCM bytes to that radio's WebSocket, §6.3).
+        self.engine = DspEngine(sample_rate=RECORDING_SAMPLE_RATE)
+        self._audio_sinks: dict[str, object] = {}
         # The server's asyncio loop, set by the app on startup. Lets background
         # threads (e.g. the transcription worker) broadcast safely into the
         # server loop via call_soon_threadsafe.
@@ -283,6 +290,51 @@ class SessionManager:
         acc = self._active_tx.get(radio_id)
         if acc is not None:
             acc.audio_chunks.append(np.asarray(audio, dtype=np.float32).reshape(-1))
+
+    # -- live audio routing (§6.3) ----------------------------------------- #
+
+    def register_audio_sink(self, radio_id: str, sink) -> None:
+        """Register a ``sink(bytes)`` that delivers rendered PCM to a radio's
+        WebSocket. Called by the WS handler on connect."""
+        self._audio_sinks[radio_id] = sink
+
+    def unregister_audio_sink(self, radio_id: str) -> None:
+        self._audio_sinks.pop(radio_id, None)
+
+    def route_tx_frame(self, radio_id: str, pcm: np.ndarray) -> None:
+        """Tap a transmitter's mic frame for recording, then render it per
+        listener on the same net and push the result to each listener's sink.
+
+        The transmitter is half-duplex (never hears itself). Single-transmitter
+        renders (clear voice / encrypted hash) are exact; live collision renders
+        are approximate (each socket only carries its own frames), while the
+        per-station recording remains clean and correct (§3.5.1).
+        """
+        radio = self.registry.get(radio_id)
+        if radio is None or not radio.on_air or pcm.size == 0:
+            return
+        # Recording tap (clean, pre-DSP).
+        self.push_tx_audio(radio_id, pcm)
+
+        freq = radio.frequency_hz
+        render_map = self.registry.render_map_for_net(freq)
+        needed = distinct_renders(render_map)
+        if not needed:
+            return
+        conditions = self.band_profile.conditions_at(freq)
+        rendered = render_net_frame({radio_id: pcm}, conditions, needed, self.engine)
+        for reception, listeners in group_renders(render_map).items():
+            frame = rendered.get(reception)
+            if frame is None:
+                continue
+            data = float32_to_pcm16(frame)
+            for listener_id in listeners:
+                sink = self._audio_sinks.get(listener_id)
+                if sink is not None:
+                    try:
+                        sink(data)
+                    except Exception:  # a slow/closed sink must not break routing
+                        pass
 
     def ptt_end(self, radio_id: str, audio: np.ndarray | None = None) -> dict | None:
         """Key up (§3.2.3). Finalise recording + event with audibility."""

@@ -11,6 +11,7 @@ export class PivotSocket {
   private heartbeat?: number;
   private reconnectTimer?: number;
   private closed = false;
+  private audioHandler?: (buf: ArrayBuffer) => void;
 
   constructor(query: Record<string, string>) {
     const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -21,11 +22,16 @@ export class PivotSocket {
   connect() {
     this.closed = false;
     this.ws = new WebSocket(this.url);
+    this.ws.binaryType = "arraybuffer";
     this.ws.onopen = () => {
       this.emit("open", {});
       this.heartbeat = window.setInterval(() => this.send("heartbeat", {}), 10000);
     };
     this.ws.onmessage = (ev) => {
+      if (typeof ev.data !== "string") {
+        this.audioHandler?.(ev.data as ArrayBuffer); // binary = rendered PCM
+        return;
+      }
       try {
         const msg = JSON.parse(ev.data);
         this.emit(msg.type, msg.payload);
@@ -64,6 +70,14 @@ export class PivotSocket {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type, payload }));
     }
+  }
+
+  // Voice frames (16 kHz mono PCM) — sent while keyed, received from listeners.
+  sendAudio(pcm: ArrayBuffer) {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(pcm);
+  }
+  onAudio(handler: (buf: ArrayBuffer) => void) {
+    this.audioHandler = handler;
   }
 
   // Trainee PTT/control (operates the socket's own radio).

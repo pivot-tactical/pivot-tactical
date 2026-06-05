@@ -281,6 +281,27 @@ def test_instructor_websocket_rejects_unauthenticated_control(client):
         assert _recv_until(wsconn, "error")["payload"]["detail"].startswith("unknown")
 
 
+def test_websocket_audio_frame_is_recorded(client):
+    # A binary PCM frame sent while keyed is tapped for the recording, so the
+    # event ends with non-zero duration and a WAV on disk.
+    from pivot.audio.pcm import float32_to_pcm16
+
+    client.post("/api/admin/session/start", json={"name": "AUDIO"})
+    with client.websocket_connect("/ws?name=TX&trainee_id=tx-audio") as wsconn:
+        wsconn.receive_json()  # welcome
+        wsconn.receive_json()  # band profile
+        wsconn.send_json({"type": "ptt_start",
+                          "payload": {"frequency": "145.500 MHz", "tx_mode": "Plain"}})
+        _recv_until(wsconn, "ptt_started")
+        frame = float32_to_pcm16(
+            (0.2 * np.sin(2 * np.pi * 440 * np.arange(1600) / 16000)).astype(np.float32)
+        )
+        wsconn.send_bytes(frame)
+        wsconn.send_json({"type": "ptt_end", "payload": {}})
+        ended = _recv_until(wsconn, "ptt_ended")
+        assert ended["payload"]["duration_ms"] > 0
+
+
 def _recv_until(wsconn, mtype, limit=20):
     for _ in range(limit):
         msg = wsconn.receive_json()
