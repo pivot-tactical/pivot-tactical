@@ -169,10 +169,19 @@ def event_audio(
         row = repo.get_event(s, event_id)
         if row is None:
             raise HTTPException(status_code=404, detail="event not found")
+        # No WAV on disk means no audio was captured for this transmission (the
+        # voice transport is not yet wired — see ROADMAP). Return a clean 404
+        # rather than letting soundfile raise a 500.
+        if not (manager.settings.recordings_dir / row.audio_path).exists():
+            raise HTTPException(
+                status_code=404, detail="no recording was captured for this transmission"
+            )
         try:
             wav = render_event_wav_bytes(row, manager.settings.recordings_dir, mode, view)
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="recording missing") from exc
+        except Exception as exc:  # decode/render failure must not 500
+            raise HTTPException(
+                status_code=422, detail=f"could not render recording: {exc}"
+            ) from exc
     return Response(content=wav, media_type="audio/wav")
 
 

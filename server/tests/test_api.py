@@ -241,6 +241,21 @@ def test_update_check_graceful_when_unreachable(client, monkeypatch):
     assert r["reachable"] is False and r["available"] == []
 
 
+def test_event_audio_404_when_no_recording(client):
+    # An event logged without captured audio (no voice transport) has no WAV on
+    # disk; playback must 404 gracefully, not 500.
+    manager = client.app.state.manager
+    manager.start_session("EX")
+    manager.login("ALPHA", "t-1")
+    manager.login("BRAVO", "t-2")
+    manager.tune("t-1", "14.250 MHz")
+    manager.tune("t-2", "14.250 MHz")
+    manager.ptt_start("t-1")
+    event = manager.ptt_end("t-1")  # no audio argument -> no recording file
+    r = client.get(f"/api/events/{event['event_id']}/audio?mode=clean")
+    assert r.status_code == 404
+
+
 def test_instructor_websocket_controls_radio(client):
     # WS uses the real AuthService token (the require_instructor override only
     # affects REST). Issue a token and add an instructor radio to drive.
