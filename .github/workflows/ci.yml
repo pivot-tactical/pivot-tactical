@@ -62,4 +62,9 @@ jobs:
 
       - name: Frontend licence summary (spec §13.7)
         working-directory: frontend
-        run: npx --yes license-checker --production --summary || true
+        env:
+          npm_config_loglevel: error # silence license-checker's own npm deprecation chatter
+        # --excludePrivatePackages drops our own (private, unpublished) package,
+        # which license-checker would otherwise label "UNLICENSED". Informational
+        # summary; the enforced denylist gate is the Python scan in the backend job.
+        run: npx --yes license-checker --production --summary --excludePrivatePackages || true
