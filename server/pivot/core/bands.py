@@ -164,7 +164,7 @@ class BandConditions:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "BandConditions":
+    def from_dict(cls, d: dict) -> BandConditions:
         """Reconstruct stored conditions for AAR Dirty re-render (spec §4.5)."""
         return cls(
             freq_hz=float(d["freq_hz"]),
@@ -321,7 +321,7 @@ class BandProfile:
         ]
 
     @classmethod
-    def from_curve_json(cls, data: list[dict], **kwargs) -> "BandProfile":
+    def from_curve_json(cls, data: list[dict], **kwargs) -> BandProfile:
         anchors = [
             CurveAnchor(
                 freq_hz=float(d["freq_hz"]),
@@ -333,7 +333,7 @@ class BandProfile:
         ]
         return cls(anchors=anchors, **kwargs)
 
-    def with_atmospheric(self, multiplier: float) -> "BandProfile":
+    def with_atmospheric(self, multiplier: float) -> BandProfile:
         return replace(self, atmospheric_multiplier=multiplier)
 
 

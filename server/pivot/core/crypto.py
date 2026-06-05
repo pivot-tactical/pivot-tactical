@@ -30,7 +30,7 @@ class RadioMode(str, Enum):
     PLAIN = "Plain"
     CYPHER = "Cypher"
 
-    def toggled(self) -> "RadioMode":
+    def toggled(self) -> RadioMode:
         return RadioMode.CYPHER if self is RadioMode.PLAIN else RadioMode.PLAIN
 
 

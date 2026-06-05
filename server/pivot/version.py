@@ -47,7 +47,7 @@ class SemVer:
     build: str | None = field(default=None, compare=False)
 
     @classmethod
-    def parse(cls, text: str) -> "SemVer":
+    def parse(cls, text: str) -> SemVer:
         m = _SEMVER_RE.match(text.strip())
         if not m:
             raise ValueError(f"not a semantic version: {text!r}")
@@ -62,7 +62,7 @@ class SemVer:
         )
 
     @classmethod
-    def try_parse(cls, text: str) -> "SemVer | None":
+    def try_parse(cls, text: str) -> SemVer | None:
         try:
             return cls.parse(text)
         except ValueError:

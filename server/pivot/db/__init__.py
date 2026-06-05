@@ -7,8 +7,8 @@ update or rollback (spec §3.7.9, §5).
 
 from pivot.db.database import Database, get_database, init_database
 from pivot.db.models import (
-    Base,
     BandProfileRow,
+    Base,
     ConfigRow,
     EventRow,
     InstructorRadioRow,

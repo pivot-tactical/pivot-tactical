@@ -13,6 +13,8 @@ import enum
 
 from sqlalchemy import (
     Enum as SAEnum,
+)
+from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
@@ -134,7 +136,7 @@ class SessionRow(Base):
     started_at: Mapped[str] = mapped_column(String(32))
     ended_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
-    events: Mapped[list["EventRow"]] = relationship(
+    events: Mapped[list[EventRow]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )
 
@@ -169,7 +171,7 @@ class EventRow(Base):
         _str_enum(TranscriptionStatus), default=TranscriptionStatus.PENDING
     )
 
-    session: Mapped["SessionRow"] = relationship(back_populates="events")
+    session: Mapped[SessionRow] = relationship(back_populates="events")
 
     def to_dict(self) -> dict:
         """Flat dict for the AAR API and CSV export (§3.6.4)."""

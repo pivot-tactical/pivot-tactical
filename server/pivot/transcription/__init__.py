@@ -11,9 +11,9 @@ and CI run without the model/runtime present; tests inject a fake transcriber.
 """
 
 from pivot.transcription.worker import (
+    Transcriber,
     TranscriptionResult,
     TranscriptionWorker,
-    Transcriber,
 )
 
 __all__ = ["TranscriptionResult", "TranscriptionWorker", "Transcriber"]

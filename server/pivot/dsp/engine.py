@@ -15,7 +15,7 @@ import numpy as np
 from pivot.core.bands import BandConditions
 from pivot.core.crypto import Reception
 from pivot.dsp.fading import apply_fading
-from pivot.dsp.filters import bandpass, normalise_rms, rms, soft_clip
+from pivot.dsp.filters import bandpass, normalise_rms, soft_clip
 from pivot.dsp.hash_gen import encrypted_hash
 from pivot.dsp.noise import add_noise_for_snr, band_noise, qrm_tones
 from pivot.dsp.tone import ptt_click, squelch_tail

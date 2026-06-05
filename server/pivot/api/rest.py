@@ -6,6 +6,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
+from pivot import exporting
 from pivot.api.deps import get_manager, require_local
 from pivot.api.schemas import (
     LoginRequest,
@@ -18,11 +19,9 @@ from pivot.api.schemas import (
     TuneRequest,
 )
 from pivot.audio.render import AarCryptoView, PlaybackMode, render_event_wav_bytes
-from pivot.core.bands import parse_frequency
 from pivot.core.radios import RadioBusyError
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
-from pivot import exporting
 
 router = APIRouter(prefix="/api")
 

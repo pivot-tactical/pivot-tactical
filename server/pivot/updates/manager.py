@@ -53,7 +53,7 @@ class Release:
         return SemVer.try_parse(self.tag)
 
     @classmethod
-    def from_github(cls, data: dict, asset_pattern: str = "win64") -> "Release":
+    def from_github(cls, data: dict, asset_pattern: str = "win64") -> Release:
         """Build from a GitHub releases API element (§3.7.3)."""
         asset_url = asset_name = ""
         for asset in data.get("assets", []):

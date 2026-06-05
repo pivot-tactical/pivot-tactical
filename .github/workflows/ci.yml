@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend tests + licence scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install (base runtime deps + test tools)
+        run: |
+          python -m pip install --upgrade pip
+          # Base deps are all permissive/testable; native extras (aiortc,
+          # faster-whisper, PySide6) are intentionally NOT installed here.
+          pip install -e ./server
+          pip install pytest pytest-asyncio httpx ruff
+
+      - name: Lint
+        run: ruff check server/pivot
+
+      - name: Run tests
+        working-directory: server
+        run: python -m pytest -q
+
+      - name: Licence policy scan (spec §13.7)
+        working-directory: server
+        # Fails the build on any GPL/AGPL strong-copyleft runtime dependency.
+        run: python -m pivot.tools.licenses --check
+
+  frontend:
+    name: Frontend build + licence summary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install & build
+        working-directory: frontend
+        run: |
+          npm install
+          npm run build
+
+      - name: Frontend licence summary (spec §13.7)
+        working-directory: frontend
+        run: npx --yes license-checker --production --summary || true

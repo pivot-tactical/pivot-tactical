@@ -18,7 +18,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from pivot.api import rest, ws
-from pivot.config import Settings, settings as default_settings
+from pivot.config import Settings
+from pivot.config import settings as default_settings
 from pivot.db.database import init_database
 from pivot.runtime.manager import SessionManager
 from pivot.version import version_info

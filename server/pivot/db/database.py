@@ -67,8 +67,8 @@ class Database:
         """Populate config defaults and the single band_profile row on first run."""
         import json
 
-        from pivot.core.bands import BandProfile
         from pivot.config import DEFAULT_CONFIG
+        from pivot.core.bands import BandProfile
         from pivot.db.models import BandProfileRow, ConfigRow
 
         with self.session() as sess:
