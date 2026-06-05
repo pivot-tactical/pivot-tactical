@@ -1,14 +1,24 @@
 name: CI
 
-# Run on PRs, and on direct pushes to main. Limiting `push` to main avoids the
-# duplicate run you get when a push to a PR branch fires BOTH `push` and
-# `pull_request` for the same commit — feature branches are covered by the PR.
+# Single pipeline so the prerelease build can depend on CI via `needs` (job
+# dependencies only work within one workflow). Order of operations on a PR:
+#   backend (licence → lint → tests) + frontend  ──►  prerelease build ──► publish
+# The prerelease jobs only start once CI has passed, so a broken commit never
+# produces a published build.
+#
+# `push` is limited to main to avoid the duplicate run you get when a PR-branch
+# push fires both `push` and `pull_request` for the same commit.
 on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened]
 
-# Cancel an in-progress run when a newer commit supersedes it (saves minutes).
+permissions:
+  contents: read
+
+# Cancel an in-progress run (CI *and* its prerelease build) when a newer commit
+# supersedes it — only the latest commit on a branch is built.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -70,3 +80,191 @@ jobs:
         # which license-checker would otherwise label "UNLICENSED". Informational
         # summary; the enforced denylist gate is the Python scan in the backend job.
         run: npx --yes license-checker --production --summary --excludePrivatePackages || true
+
+  # Detect whether a PR commit changed anything worth building (skip a 20-min
+  # native build for doc-only commits).
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: detect
+        shell: bash
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          if [ -z "$base" ] || [ -z "$head" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if git diff --name-only "$base" "$head" \
+               | grep -vqE '\.md$|^LICENSE$|^NOTICE$|^REBUILD-LGPL\.md$'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---- Prerelease: only after CI passes, only on same-repo PRs with code ----
+  prerelease-build:
+    name: Prerelease ${{ matrix.artifact }}
+    needs: [backend, frontend, changes]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: win64
+          - os: ubuntu-22.04
+            artifact: linux-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compute prerelease version
+        shell: bash
+        run: |
+          base=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('server/pivot/version.py').read_text()).group(1))")
+          echo "PIVOT_VERSION=${base}-dev.${{ github.run_number }}" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build frontend
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r server/requirements.txt
+          pip install pyinstaller
+          pip install ./server --no-deps
+
+      - name: Embed build info (prerelease version)
+        shell: bash
+        env:
+          PIVOT_BUILD_VERSION: ${{ env.PIVOT_VERSION }}
+        run: python packaging/gen_buildinfo.py
+
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm packaging/pivot.spec
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = "RadioTrainer-v$env:PIVOT_VERSION-win64.zip"
+          Compress-Archive -Path dist/RadioTrainer -DestinationPath $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          "$hash  $archive" | Out-File "$archive.sha256" -Encoding ascii -NoNewline
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          archive="RadioTrainer-v$PIVOT_VERSION-linux-x86_64.tar.gz"
+          tar -czf "$archive" -C dist RadioTrainer
+          sha256sum "$archive" > "$archive.sha256"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prerelease-${{ matrix.artifact }}
+          path: |
+            RadioTrainer-*.zip
+            RadioTrainer-*.tar.gz
+            RadioTrainer-*.sha256
+          if-no-files-found: error
+
+  prerelease-publish:
+    needs: prerelease-build
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # publish prerelease + tags
+      pull-requests: write # post the version↔commit comment
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compute prerelease version
+        shell: bash
+        run: |
+          base=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('server/pivot/version.py').read_text()).group(1))")
+          echo "PIVOT_VERSION=${base}-dev.${{ github.run_number }}" >> "$GITHUB_ENV"
+
+      - name: Collect artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+          merge-multiple: true
+
+      - name: Publish prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.PIVOT_VERSION }}
+          name: PIVOT v${{ env.PIVOT_VERSION }} (prerelease)
+          prerelease: true
+          target_commitish: ${{ github.event.pull_request.head.sha }}
+          files: dist-artifacts/RadioTrainer-*
+          fail_on_unmatched_files: true
+
+      - name: Comment version ↔ commit on the PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = process.env.PIVOT_VERSION;
+            const tag = `v${version}`;
+            const sha = context.payload.pull_request.head.sha.substring(0, 7);
+            const url = `https://github.com/${context.repo.owner}/${context.repo.repo}/releases/tag/${tag}`;
+            const when = new Date().toISOString().replace('T', ' ').substring(0, 16) + ' UTC';
+            const marker = '<!-- pivot-prerelease -->';
+            const row = `| \`${tag}\` | \`${sha}\` | [download](${url}) | ${when} |`;
+            const header = [
+              marker,
+              '### 🤖 Prerelease test builds',
+              'Install a build, then in **Settings → Updates** choose the *Include prereleases* channel.',
+              '',
+              '| Version | Commit | Download | Built |',
+              '|---|---|---|---|',
+            ].join('\n');
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo, issue_number: context.issue.number, per_page: 100,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            let rows = existing ? existing.body.split('\n').filter((l) => l.startsWith('| `v')) : [];
+            rows = [row, ...rows].slice(0, 8);
+            const body = `${header}\n${rows.join('\n')}`;
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+            }
+
+      - name: Prune old dev prereleases (keep newest 10)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: releases } = await github.rest.repos.listReleases({ ...context.repo, per_page: 100 });
+            const dev = releases
+              .filter((r) => r.prerelease && r.tag_name.includes('-dev.'))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            for (const r of dev.slice(10)) {
+              await github.rest.repos.deleteRelease({ ...context.repo, release_id: r.id });
+              try {
+                await github.rest.git.deleteRef({ ...context.repo, ref: `tags/${r.tag_name}` });
+              } catch (e) { /* tag already gone */ }
+            }
