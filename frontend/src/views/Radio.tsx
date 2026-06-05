@@ -9,7 +9,11 @@ import { PivotSocket } from "../ws";
 // PTT control with the IDLE → CRYPTO SYNC → SECURE TX / TX state machine, and a
 // corner seven-segment clock.
 
-const STEP_HZ = 12500; // tuning step for up/down (12.5 kHz)
+const STEP_HZ = 12_500; // tuning step for up/down (12.5 kHz)
+
+function snapToStep(hz: number): number {
+  return Math.round(hz / STEP_HZ) * STEP_HZ;
+}
 
 function regionFor(hz: number): { label: string; signal: number } {
   // Client-side approximation of the band profile for the signal bar (§3.2.2).
@@ -20,7 +24,7 @@ function regionFor(hz: number): { label: string; signal: number } {
 }
 
 function formatMHz(hz: number): string {
-  return (hz / 1e6).toFixed(3);
+  return (hz / 1e6).toFixed(4);
 }
 
 export function Radio({
@@ -118,10 +122,10 @@ export function Radio({
   }, [startTx, endTx]);
 
   function applyTune(hz: number) {
-    const clamped = Math.max(1.6e6, Math.min(3e9, hz));
-    setFreqHz(clamped);
-    setEntry(formatMHz(clamped));
-    socket.tune(`${formatMHz(clamped)} MHz`);
+    const snapped = Math.max(1.6e6, Math.min(3e9, snapToStep(hz)));
+    setFreqHz(snapped);
+    setEntry(formatMHz(snapped));
+    socket.tune(`${formatMHz(snapped)} MHz`);
   }
 
   function toggleMode() {

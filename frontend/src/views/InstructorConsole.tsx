@@ -110,7 +110,15 @@ export function InstructorConsole({
 
 // --------------------------------------------------------------------------- //
 
-const fmtMHz = (hz: number) => (hz / 1e6).toFixed(3);
+const STEP_HZ = 12_500;
+const fmtMHz = (hz: number) => (hz / 1e6).toFixed(4);
+function snapToStep(hz: number): number {
+  return Math.round(hz / STEP_HZ) * STEP_HZ;
+}
+function snapMHzInput(mhzStr: string, fallback = 30): number {
+  const hz = (parseFloat(mhzStr) || fallback) * 1e6;
+  return snapToStep(hz);
+}
 
 function RadiosTab({ radios, socket, audio, onChange }: {
   radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
@@ -161,7 +169,9 @@ function RadiosTab({ radios, socket, audio, onChange }: {
   }, [startTx, endTx]);
 
   async function addRadio() {
-    const r = await api.addInstructorRadio(`${parseFloat(newFreq) || 30} MHz`);
+    const snapped = snapMHzInput(newFreq, 30);
+    setNewFreq(fmtMHz(snapped));
+    const r = await api.addInstructorRadio(`${fmtMHz(snapped)} MHz`);
     onChange([...radios, r]);
   }
   async function removeRadio(id: string) {
@@ -188,7 +198,14 @@ function RadiosTab({ radios, socket, audio, onChange }: {
                 <td className="mono">{r.name}</td>
                 <td className="mono">
                   <input className="input mono w110" defaultValue={fmtMHz(r.frequency_hz)}
-                    onKeyDown={(e) => { if (e.key === "Enter") socket?.instrTune(r.radio_id, `${(e.target as HTMLInputElement).value} MHz`); }} />
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const el = e.target as HTMLInputElement;
+                        const snapped = snapMHzInput(el.value, r.frequency_hz / 1e6);
+                        el.value = fmtMHz(snapped);
+                        socket?.instrTune(r.radio_id, `${fmtMHz(snapped)} MHz`);
+                      }
+                    }} />
                 </td>
                 <td>{r.band_region}</td>
                 <td>
