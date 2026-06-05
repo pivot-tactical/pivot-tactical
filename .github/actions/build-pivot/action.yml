@@ -22,6 +22,13 @@ runs:
         base=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('server/pivot/version.py').read_text()).group(1))")
         echo "PIVOT_VERSION=${base}-dev.${{ github.run_number }}" >> "$GITHUB_ENV"
 
+    # Generate _buildinfo BEFORE installing the package, so the version is baked
+    # into the source that gets installed/bundled (else the app reports the base
+    # version and the prerelease update channel sees no updates).
+    - name: Embed build info (prerelease version)
+      shell: bash
+      run: PIVOT_BUILD_VERSION="$PIVOT_VERSION" python packaging/gen_buildinfo.py
+
     - uses: actions/setup-node@v4
       with:
         node-version: "22"
@@ -38,10 +45,6 @@ runs:
         pip install -r server/requirements.txt
         pip install pyinstaller
         pip install ./server --no-deps
-
-    - name: Embed build info (prerelease version)
-      shell: bash
-      run: PIVOT_BUILD_VERSION="$PIVOT_VERSION" python packaging/gen_buildinfo.py
 
     - name: Build with PyInstaller
       shell: bash

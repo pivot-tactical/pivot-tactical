@@ -37,3 +37,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# CI-generated build identity (version/SHA/date)
+server/pivot/_buildinfo.py

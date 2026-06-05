@@ -41,19 +41,29 @@ jobs:
           npm ci
           npm run build
 
-      # --- python runtime + native media/GUI deps + PyInstaller ---
+      # --- python runtime + native media deps + PyInstaller ---
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Version from tag
+        shell: bash
+        run: |
+          ver="${{ github.ref_name }}"
+          if [[ "$ver" =~ ^v[0-9] ]]; then ver="${ver#v}"; else ver="0.0.0-dev"; fi
+          echo "PIVOT_BUILD_VERSION=$ver" >> "$GITHUB_ENV"
+
+      # Generate _buildinfo BEFORE installing, so the tag version is baked into
+      # the installed/bundled package (not the base __version__).
+      - name: Embed build info (version, git SHA, date)
+        run: python packaging/gen_buildinfo.py
+
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r server/requirements.txt
           pip install pyinstaller
           pip install ./server --no-deps
-
-      - name: Embed build info (version, git SHA, date)
-        run: python packaging/gen_buildinfo.py
 
       - name: Build with PyInstaller
         run: pyinstaller --noconfirm packaging/pivot.spec

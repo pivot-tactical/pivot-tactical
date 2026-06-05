@@ -29,6 +29,13 @@ hidden = []
 for pkg in ("faster_whisper", "ctranslate2", "av", "aiortc", "av.audio", "scipy.signal"):
     hidden += collect_submodules(pkg)
 
+# The CI-generated build info (prerelease version / git SHA / date) is imported
+# lazily, so PyInstaller's analysis misses it. Add it explicitly when present so
+# the packaged app reports its real version instead of the base __version__
+# (which breaks the prerelease update channel — every -dev.N would sort below it).
+if (SERVER / "pivot" / "_buildinfo.py").exists():
+    hidden.append("pivot._buildinfo")
+
 binaries = []
 for pkg in ("av", "ctranslate2", "aiortc"):
     binaries += collect_dynamic_libs(pkg)
