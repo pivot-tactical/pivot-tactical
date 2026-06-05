@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend tests + licence scan
+    name: Backend tests & licence
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,7 +57,7 @@ jobs:
         run: python -m pytest -q
 
   frontend:
-    name: Frontend build + licence summary
+    name: Frontend build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -86,6 +86,7 @@ jobs:
   # tool logs (.claude/**), docs, LICENSE/NOTICE — anything that doesn't change
   # what gets shipped.
   changes:
+    name: Detect changes
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.detect.outputs.code }}
@@ -124,7 +125,7 @@ jobs:
 
   # ---- Prerelease: only after CI passes, only on same-repo PRs with code ----
   prerelease-build:
-    name: Prerelease ${{ matrix.artifact }}
+    name: Prerelease build (${{ matrix.artifact }})
     needs: [backend, frontend, changes]
     if: >-
       github.event_name == 'pull_request' &&
@@ -202,6 +203,7 @@ jobs:
           if-no-files-found: error
 
   prerelease-publish:
+    name: Prerelease publish
     needs: prerelease-build
     if: >-
       github.event_name == 'pull_request' &&
