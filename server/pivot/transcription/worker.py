@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -55,6 +56,9 @@ class TranscriptionWorker:
         self._queue: queue.Queue[str] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        # Called with the event_id after each event is processed (any outcome),
+        # so the instructor's live log can refresh that row (§3.5.2).
+        self.on_complete: Callable[[str], None] | None = None
 
     # -- lifecycle --------------------------------------------------------- #
 
@@ -87,7 +91,16 @@ class TranscriptionWorker:
     # -- core (synchronous, directly testable) ----------------------------- #
 
     def process_event(self, event_id: str) -> TranscriptionStatus:
-        """Transcribe one event and persist the result. Returns the new status."""
+        """Transcribe one event, persist the result, and notify listeners."""
+        status = self._process(event_id)
+        if self.on_complete is not None:
+            try:
+                self.on_complete(event_id)
+            except Exception:  # a listener error must not affect transcription
+                log.exception("on_complete callback failed for %s", event_id)
+        return status
+
+    def _process(self, event_id: str) -> TranscriptionStatus:
         with self.db.session() as s:
             cfg = ConfigStore(s)
             language = str(cfg.get("whisper_language", "en"))

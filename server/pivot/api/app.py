@@ -19,11 +19,32 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from pivot.api import rest, ws
+from pivot.auth import AuthService
 from pivot.config import Settings
 from pivot.config import settings as default_settings
 from pivot.db.database import init_database
 from pivot.runtime.manager import SessionManager
 from pivot.version import version_info
+
+
+def _maybe_start_transcription(manager: SessionManager, cfg: Settings):
+    """Start the async transcription worker if faster-whisper is installed.
+
+    Returns the worker (already started and wired to the manager) or None. The
+    worker broadcasts ``transcription_updated`` via ``manager.notify_transcription``
+    so the instructor's live log fills in transcripts as they complete (§3.5.2).
+    """
+    try:
+        import faster_whisper  # noqa: F401
+    except Exception:
+        return None
+    from pivot.transcription.worker import TranscriptionWorker
+
+    worker = TranscriptionWorker(manager.db, cfg)
+    worker.on_complete = manager.notify_transcription
+    manager.transcription_worker = worker
+    worker.start()
+    return worker
 
 
 def frontend_dist_dir() -> Path | None:
@@ -67,10 +88,23 @@ def create_app(settings: Settings | None = None, manager: SessionManager | None 
             app.state.db = db
             app.state.manager = SessionManager(db, cfg)
         app.state.settings = cfg
-        # Record the running loop so GUI-thread broadcasts marshal correctly.
+        # Record the running loop so cross-thread broadcasts marshal correctly.
         app.state.manager.loop = asyncio.get_running_loop()
         app.state.audio_router = None  # set by the audio plane when available
-        yield
+
+        # Instructor authentication: seed the default password on first run.
+        app.state.auth = AuthService(app.state.manager.db)
+        app.state.auth.ensure_default()
+
+        # Async transcription worker — only started if faster-whisper is present
+        # (the live event log still works without it; transcripts stay pending).
+        worker = _maybe_start_transcription(app.state.manager, cfg)
+        app.state.transcription_worker = worker
+        try:
+            yield
+        finally:
+            if worker is not None:
+                worker.stop()
 
     app = FastAPI(
         title="PIVOT — Procedural Interactive Voice Operations Trainer",

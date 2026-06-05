@@ -1,17 +1,22 @@
-"""REST endpoints (spec §6.1)."""
+"""REST endpoints (spec §6.1; auth per product direction).
+
+Trainee endpoints are open (callsign only). Instructor/admin endpoints require a
+valid instructor bearer token (:func:`pivot.api.deps.require_instructor`).
+"""
 
 from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 
 from pivot import exporting
-from pivot.api.deps import get_manager, require_local
+from pivot.api.deps import get_auth, get_manager, require_instructor
 from pivot.api.schemas import (
     LoginRequest,
     LoginResponse,
     ModeRequest,
+    PasswordChangeRequest,
     RadioResponse,
     ScenarioRequest,
     SessionResponse,
@@ -19,25 +24,71 @@ from pivot.api.schemas import (
     TuneRequest,
 )
 from pivot.audio.render import AarCryptoView, PlaybackMode, render_event_wav_bytes
+from pivot.core.crypto import RadioMode
 from pivot.core.radios import RadioBusyError
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
 
 router = APIRouter(prefix="/api")
 
+# Config keys the instructor may change from the Settings page.
+_SETTABLE_KEYS = {
+    "whisper_model",
+    "whisper_compute_type",
+    "whisper_language",
+    "transcription_confidence_threshold",
+    "transcription_skip_under_seconds",
+    "whisper_initial_prompt",
+    "whisper_custom_vocabulary",
+    "display_timezone",
+    "crypto_enabled",
+    "crypto_delay_ms",
+    "crypto_tone_preset",
+    "tuning_step_hz",
+    "update_channel",
+    "update_check_on_startup",
+    "log_level",
+}
 
-# --- trainee --------------------------------------------------------------- #
+
+# --- auth / login ---------------------------------------------------------- #
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(req: LoginRequest, manager=Depends(get_manager)) -> LoginResponse:
+def login(req: LoginRequest, manager=Depends(get_manager), auth=Depends(get_auth)) -> LoginResponse:
+    """Trainee login (callsign) or instructor login (password → bearer token)."""
+    if req.role == "instructor":
+        if not req.password or not auth.verify(req.password):
+            raise HTTPException(status_code=401, detail="invalid instructor password")
+        return LoginResponse(
+            role="instructor",
+            token=auth.issue_token(),
+            must_change_password=auth.is_default(),
+        )
+
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="callsign required")
     trainee_id = req.trainee_id or str(uuid.uuid4())
-    info = manager.login(req.name.strip(), trainee_id)
-    return LoginResponse(**info)
+    info = manager.login(name, trainee_id)
+    return LoginResponse(role="trainee", **info)
+
+
+@router.post("/logout")
+def logout(request: Request, auth=Depends(get_auth)) -> dict:
+    """Revoke the caller's instructor token, if any."""
+    from pivot.api.deps import _extract_token
+
+    auth.revoke(_extract_token(request, request.headers.get("authorization")))
+    return {"ok": True}
+
+
+# --- trainee radio --------------------------------------------------------- #
 
 
 @router.post("/radio/tune", response_model=RadioResponse)
 def tune(req: TuneRequest, manager=Depends(get_manager)) -> RadioResponse:
+    _reject_instructor_radio(manager, req.radio_id)
     try:
         return RadioResponse(**manager.tune(req.radio_id, req.frequency))
     except RadioBusyError as exc:
@@ -50,6 +101,7 @@ def tune(req: TuneRequest, manager=Depends(get_manager)) -> RadioResponse:
 
 @router.post("/radio/mode", response_model=RadioResponse)
 def set_mode(req: ModeRequest, manager=Depends(get_manager)) -> RadioResponse:
+    _reject_instructor_radio(manager, req.radio_id)
     try:
         return RadioResponse(**manager.set_mode(req.radio_id, req.mode))
     except RadioBusyError as exc:
@@ -63,10 +115,11 @@ def band_profile(manager=Depends(get_manager)) -> dict:
     return manager.band_profile_snapshot()
 
 
-# --- AAR / sessions -------------------------------------------------------- #
+# --- AAR / sessions (instructor only) -------------------------------------- #
 
 
-@router.get("/sessions", response_model=list[SessionResponse])
+@router.get("/sessions", response_model=list[SessionResponse],
+            dependencies=[Depends(require_instructor)])
 def list_sessions(manager=Depends(get_manager)) -> list[SessionResponse]:
     with manager.db.session() as s:
         out = []
@@ -83,13 +136,13 @@ def list_sessions(manager=Depends(get_manager)) -> list[SessionResponse]:
     return out
 
 
-@router.get("/sessions/{session_id}/events")
+@router.get("/sessions/{session_id}/events", dependencies=[Depends(require_instructor)])
 def session_events(session_id: str, manager=Depends(get_manager)) -> list[dict]:
     with manager.db.session() as s:
         return [e.to_dict() for e in repo.list_events(s, session_id)]
 
 
-@router.delete("/sessions/{session_id}")
+@router.delete("/sessions/{session_id}", dependencies=[Depends(require_instructor)])
 def delete_session(session_id: str, manager=Depends(get_manager)) -> dict:
     with manager.db.session() as s:
         ok = repo.delete_session(s, session_id)
@@ -98,14 +151,17 @@ def delete_session(session_id: str, manager=Depends(get_manager)) -> dict:
     return {"deleted": session_id}
 
 
-@router.get("/events/{event_id}/audio")
+@router.get("/events/{event_id}/audio", dependencies=[Depends(require_instructor)])
 def event_audio(
     event_id: str,
     mode: PlaybackMode = Query(PlaybackMode.CLEAN),
     view: AarCryptoView = Query(AarCryptoView.PLAIN),
     manager=Depends(get_manager),
 ) -> Response:
-    """Stream clean or DSP-re-rendered audio for an event (§3.6.3, §4.5)."""
+    """Stream clean or DSP-re-rendered audio for an event (§3.6.3, §4.5).
+
+    Instructor-only: students operate their radio and do not browse recordings.
+    """
     with manager.db.session() as s:
         row = repo.get_event(s, event_id)
         if row is None:
@@ -117,7 +173,7 @@ def event_audio(
     return Response(content=wav, media_type="audio/wav")
 
 
-@router.post("/sessions/{session_id}/export")
+@router.post("/sessions/{session_id}/export", dependencies=[Depends(require_instructor)])
 def export_session(
     session_id: str,
     fmt: str = Query("zip", pattern="^(zip|text|csv)$"),
@@ -137,10 +193,10 @@ def export_session(
                     headers=_attachment(f"{session_id}.zip"))
 
 
-# --- instructor / admin (local only, §8.4) --------------------------------- #
+# --- instructor / admin (instructor token required) ------------------------ #
 
 
-@router.get("/admin/terminals", dependencies=[Depends(require_local)])
+@router.get("/admin/terminals", dependencies=[Depends(require_instructor)])
 def admin_terminals(manager=Depends(get_manager)) -> dict:
     return {
         "session_active": manager.session_active,
@@ -149,17 +205,17 @@ def admin_terminals(manager=Depends(get_manager)) -> dict:
     }
 
 
-@router.post("/admin/session/start", dependencies=[Depends(require_local)])
+@router.post("/admin/session/start", dependencies=[Depends(require_instructor)])
 def admin_start_session(req: StartSessionRequest, manager=Depends(get_manager)) -> dict:
     return manager.start_session(req.name)
 
 
-@router.post("/admin/session/end", dependencies=[Depends(require_local)])
+@router.post("/admin/session/end", dependencies=[Depends(require_instructor)])
 def admin_end_session(manager=Depends(get_manager)) -> dict:
     return manager.end_session() or {"ended": None}
 
 
-@router.post("/admin/scenario", dependencies=[Depends(require_local)])
+@router.post("/admin/scenario", dependencies=[Depends(require_instructor)])
 def admin_scenario(req: ScenarioRequest, manager=Depends(get_manager)) -> dict:
     """Apply one or more scenario changes (§3.1.5)."""
     if req.atmospheric_multiplier is not None:
@@ -179,21 +235,21 @@ def admin_scenario(req: ScenarioRequest, manager=Depends(get_manager)) -> dict:
     return manager.band_profile_snapshot()
 
 
-@router.get("/admin/instructor-radios", dependencies=[Depends(require_local)])
+@router.get("/admin/instructor-radios", dependencies=[Depends(require_instructor)])
 def admin_list_instructor_radios(manager=Depends(get_manager)) -> list[dict]:
     return manager.instructor_radios()
 
 
-@router.post("/admin/instructor-radios", dependencies=[Depends(require_local)])
+@router.post("/admin/instructor-radios", dependencies=[Depends(require_instructor)])
 def admin_add_instructor_radio(
-    label: str | None = None,
-    frequency: str = "145.500 MHz",
+    label: str | None = Body(default=None),
+    frequency: str = Body(default="145.500 MHz"),
     manager=Depends(get_manager),
 ) -> dict:
     return manager.add_instructor_radio(label, frequency)
 
 
-@router.delete("/admin/instructor-radios/{radio_id}", dependencies=[Depends(require_local)])
+@router.delete("/admin/instructor-radios/{radio_id}", dependencies=[Depends(require_instructor)])
 def admin_remove_instructor_radio(radio_id: str, manager=Depends(get_manager)) -> dict:
     ok = manager.remove_instructor_radio(radio_id)
     if not ok:
@@ -201,15 +257,72 @@ def admin_remove_instructor_radio(radio_id: str, manager=Depends(get_manager)) -
     return {"removed": radio_id}
 
 
-@router.get("/config", dependencies=[Depends(require_local)])
+@router.post("/admin/instructor-radios/{radio_id}/tune", dependencies=[Depends(require_instructor)])
+def admin_tune_instructor_radio(
+    radio_id: str, frequency: str = Body(..., embed=True), manager=Depends(get_manager)
+) -> dict:
+    try:
+        return manager.tune(radio_id, frequency)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="unknown radio") from exc
+    except RadioBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/admin/instructor-radios/{radio_id}/mode", dependencies=[Depends(require_instructor)])
+def admin_mode_instructor_radio(
+    radio_id: str, mode: RadioMode = Body(..., embed=True), manager=Depends(get_manager)
+) -> dict:
+    try:
+        return manager.set_mode(radio_id, mode)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="unknown radio") from exc
+    except RadioBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/admin/config", dependencies=[Depends(require_instructor)])
 def admin_config(manager=Depends(get_manager)) -> dict:
     with manager.db.session() as s:
         return ConfigStore(s).all()
 
 
+@router.post("/admin/settings", dependencies=[Depends(require_instructor)])
+def admin_update_settings(updates: dict = Body(...), manager=Depends(get_manager)) -> dict:
+    """Persist instructor-tunable settings (whitelisted keys). Timezone, crypto
+    enable and crypto delay are applied live."""
+    applied: dict = {}
+    with manager.db.session() as s:
+        cfg = ConfigStore(s)
+        for key, value in updates.items():
+            if key not in _SETTABLE_KEYS:
+                continue
+            cfg.set(key, value)
+            applied[key] = value
+    if "display_timezone" in applied:
+        manager.set_display_timezone(applied["display_timezone"])
+    if "crypto_enabled" in applied:
+        manager.set_crypto_enabled(bool(applied["crypto_enabled"]))
+    if "crypto_delay_ms" in applied:
+        manager.band_profile.crypto_delay_ms = int(applied["crypto_delay_ms"])
+    return {"applied": applied}
+
+
+@router.post("/admin/password", dependencies=[Depends(require_instructor)])
+def admin_change_password(req: PasswordChangeRequest, auth=Depends(get_auth)) -> dict:
+    """Change the instructor password (invalidates all instructor sessions)."""
+    if not auth.verify(req.current_password):
+        raise HTTPException(status_code=403, detail="current password incorrect")
+    auth.set_password(req.new_password)
+    return {"changed": True}
+
+
+# --- public status --------------------------------------------------------- #
+
+
 @router.get("/status")
 def status(request: Request, manager=Depends(get_manager)) -> dict:
-    """Public health/info endpoint for the Status tab and trainee connect."""
+    """Public health/info endpoint for the login screen and trainee connect."""
     from pivot.version import version_info
 
     with manager.db.session() as s:
@@ -222,6 +335,16 @@ def status(request: Request, manager=Depends(get_manager)) -> dict:
         "terminals": len(manager.terminals),
         "display_timezone": tz,
     }
+
+
+# --- helpers --------------------------------------------------------------- #
+
+
+def _reject_instructor_radio(manager, radio_id: str) -> None:
+    """Trainees may only operate their own radio, never an instructor radio."""
+    radio = manager.registry.get(radio_id)
+    if radio is not None and radio.is_instructor:
+        raise HTTPException(status_code=403, detail="instructor radio")
 
 
 def _attachment(filename: str) -> dict:

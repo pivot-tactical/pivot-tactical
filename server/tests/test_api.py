@@ -5,14 +5,23 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pivot.api.app import create_app
-from pivot.api.deps import require_local
+from pivot.api.deps import require_instructor
+from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD
 
 
 @pytest.fixture
 def client(settings):
+    """Client with instructor auth bypassed (admin routes reachable)."""
     app = create_app(settings)
-    # TestClient reports host "testclient"; treat admin routes as local in tests.
-    app.dependency_overrides[require_local] = lambda: None
+    app.dependency_overrides[require_instructor] = lambda: None
+    with TestClient(app) as c:
+        yield c
+
+
+@pytest.fixture
+def raw_client(settings):
+    """Client with auth enforced, for testing the auth boundary itself."""
+    app = create_app(settings)
     with TestClient(app) as c:
         yield c
 
@@ -66,11 +75,56 @@ def test_admin_scenario(client):
     assert r.json()["jamming"] == [[14_200_000, 14_300_000]]
 
 
-def test_local_only_guard_blocks_remote(settings):
-    # Without the override, admin endpoints must reject non-loopback callers.
-    app = create_app(settings)
-    with TestClient(app) as c:
-        assert c.get("/api/admin/terminals").status_code == 403
+def test_admin_requires_instructor_token(raw_client):
+    # Without a valid instructor token, admin endpoints reject the caller.
+    assert raw_client.get("/api/admin/terminals").status_code == 401
+
+
+def test_instructor_login_and_authenticated_admin(raw_client):
+    # Wrong password is rejected.
+    bad = raw_client.post("/api/login", json={"role": "instructor", "password": "nope"})
+    assert bad.status_code == 401
+
+    # Default password logs in and returns a bearer token + change-me flag.
+    r = raw_client.post("/api/login", json={"role": "instructor",
+                                            "password": DEFAULT_INSTRUCTOR_PASSWORD})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["role"] == "instructor"
+    assert body["must_change_password"] is True
+    token = body["token"]
+
+    # The token authorises admin endpoints.
+    headers = {"Authorization": f"Bearer {token}"}
+    assert raw_client.get("/api/admin/terminals", headers=headers).status_code == 200
+
+
+def test_change_password_and_relogin(raw_client):
+    token = raw_client.post(
+        "/api/login", json={"role": "instructor", "password": DEFAULT_INSTRUCTOR_PASSWORD}
+    ).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Change the password; the old token is invalidated.
+    r = raw_client.post("/api/admin/password",
+                        json={"current_password": DEFAULT_INSTRUCTOR_PASSWORD,
+                              "new_password": "range-safety"}, headers=headers)
+    assert r.status_code == 200
+    assert raw_client.get("/api/admin/terminals", headers=headers).status_code == 401
+
+    # New password works and no longer flags must_change_password.
+    r = raw_client.post("/api/login", json={"role": "instructor", "password": "range-safety"})
+    assert r.status_code == 200 and r.json()["must_change_password"] is False
+
+
+def test_trainee_cannot_operate_instructor_radio(client):
+    # Create an instructor radio, then attempt to tune it via the open trainee
+    # endpoint — rejected regardless of auth (the guard is in the endpoint).
+    radio = client.post("/api/admin/instructor-radios",
+                        json={"frequency": "30.000 MHz"}).json()
+    r = client.post("/api/radio/tune",
+                    json={"radio_id": radio["radio_id"], "frequency": "31.0 MHz"})
+    assert r.status_code == 403
 
 
 def test_sessions_events_and_export(client, settings):
@@ -149,6 +203,31 @@ def test_websocket_plain_ptt_creates_event(client):
         wsconn.send_json({"type": "ptt_end", "payload": {}})
         ended = _recv_until(wsconn, "ptt_ended")
         assert ended["payload"]["audibility"] == "Heard"
+
+
+def test_instructor_websocket_controls_radio(client):
+    # WS uses the real AuthService token (the require_instructor override only
+    # affects REST). Issue a token and add an instructor radio to drive.
+    token = client.app.state.auth.issue_token()
+    radio = client.post("/api/admin/instructor-radios", json={"frequency": "40.000 MHz"}).json()
+
+    with client.websocket_connect(f"/ws?token={token}") as wsconn:
+        welcome = wsconn.receive_json()
+        assert welcome["type"] == "welcome" and welcome["payload"]["role"] == "instructor"
+
+        wsconn.send_json({"type": "instr_tune",
+                          "payload": {"radio_id": radio["radio_id"], "frequency": "41.000 MHz"}})
+        ack = _recv_until(wsconn, "tuned")
+        assert "41.000" in ack["payload"]["frequency"]
+
+
+def test_instructor_websocket_rejects_unauthenticated_control(client):
+    # No token -> trainee session; instr_* messages are unknown to it.
+    with client.websocket_connect("/ws?name=NOPE&trainee_id=x") as wsconn:
+        wsconn.receive_json()  # welcome (trainee)
+        wsconn.receive_json()  # band profile
+        wsconn.send_json({"type": "instr_tune", "payload": {"radio_id": "instr-1"}})
+        assert _recv_until(wsconn, "error")["payload"]["detail"].startswith("unknown")
 
 
 def _recv_until(wsconn, mtype, limit=20):

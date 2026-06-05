@@ -8,16 +8,28 @@ from pivot.core.crypto import RadioMode
 
 
 class LoginRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=32)
+    # Trainees send a callsign; instructors send role="instructor" + password.
+    name: str | None = Field(default=None, max_length=32)
+    role: str = "trainee"  # "trainee" | "instructor"
+    password: str | None = None
     trainee_id: str | None = None  # browser-generated UUID; created if absent
 
 
 class LoginResponse(BaseModel):
-    trainee_id: str
-    radio_id: str
-    frequency: str
-    frequency_hz: float
-    mode: str
+    role: str
+    token: str | None = None          # instructor bearer token
+    must_change_password: bool = False  # true while the default password is in use
+    # Trainee radio fields (absent for instructors):
+    trainee_id: str | None = None
+    radio_id: str | None = None
+    frequency: str | None = None
+    frequency_hz: float | None = None
+    mode: str | None = None
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=4, max_length=128)
 
 
 class TuneRequest(BaseModel):

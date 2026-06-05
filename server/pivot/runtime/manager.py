@@ -455,8 +455,18 @@ class SessionManager:
         event = self._write_event(acc, sync_status, audibility, clean)
         self._touch_monitor()
         if event is not None:
-            self.broadcast("event_logged", {"event_id": event["event_id"]})
+            # Push the full event so the instructor's live log renders it
+            # immediately; the transcript fills in later via notify_transcription.
+            self.broadcast("event_logged", event)
         return event
+
+    def notify_transcription(self, event_id: str) -> None:
+        """Broadcast a transcription update for ``event_id`` (called by the
+        transcription worker on completion, §3.5.2)."""
+        with self.db.session() as s:
+            row = repo.get_event(s, event_id)
+            if row is not None:
+                self.broadcast("transcription_updated", row.to_dict())
 
     def _collect_audio(self, acc: _TxAccumulator, audio: np.ndarray | None) -> np.ndarray | None:
         if audio is not None:
