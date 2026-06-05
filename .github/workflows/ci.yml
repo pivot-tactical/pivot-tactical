@@ -28,9 +28,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           # Base deps are all permissive/testable; native extras (aiortc,
-          # faster-whisper, PySide6) are intentionally NOT installed here.
+          # faster-whisper) are intentionally NOT installed here.
           pip install -e ./server
           pip install pytest pytest-asyncio httpx ruff
+
+      # Licence gate runs FIRST so a compliance problem fails fast, before we
+      # spend time linting and testing (spec §13.7).
+      - name: Licence policy scan (spec §13.7)
+        working-directory: server
+        # Fails the build on any GPL/AGPL strong-copyleft runtime dependency.
+        run: python -m pivot.tools.licenses --check
 
       - name: Lint
         run: ruff check server/pivot
@@ -38,11 +45,6 @@ jobs:
       - name: Run tests
         working-directory: server
         run: python -m pytest -q
-
-      - name: Licence policy scan (spec §13.7)
-        working-directory: server
-        # Fails the build on any GPL/AGPL strong-copyleft runtime dependency.
-        run: python -m pivot.tools.licenses --check
 
   frontend:
     name: Frontend build + licence summary

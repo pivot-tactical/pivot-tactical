@@ -132,6 +132,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(updates),
     }),
+  checkUpdates: () =>
+    jsonFetch<{
+      current_version: string;
+      channel: string;
+      auto_update: boolean;
+      reachable: boolean;
+      error: string | null;
+      available: { tag: string; prerelease: boolean; standing: string; published_at: string }[];
+    }>("/api/admin/updates/check"),
 
   // --- instructor: AAR / history ---
   sessions: () => jsonFetch<SessionSummary[]>("/api/sessions"),

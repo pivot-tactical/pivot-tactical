@@ -39,7 +39,7 @@ Maps **PIVOT Spec v1.6** to the codebase. Legend:
 | 3.6.1–3.6.2 | AAR session list + event timeline | ✅ | `frontend/src/views/AAR.tsx`, `api/rest.py` |
 | 3.6.3 | Clean/Dirty + Plain/Cypher playback toggles | ✅ | `audio/render.py`, `api/rest.py::event_audio` |
 | 3.6.4 | Export (text / CSV / ZIP) | ✅ | `exporting.py` |
-| 3.7 | Version management & updates | ✅ / ⬜ | `updates/manager.py` (policy ✅; Windows swap helper ⬜) |
+| 3.7 | Version management & updates | ✅ / ⬜ | `updates/manager.py` + `updates/github.py` + `/api/admin/updates/check` (release check, Stable/Include-prereleases channel, auto-update flag — all ✅); platform swap helper ⬜ |
 | 3.8 | Time & clock (UTC store, configurable display zone, live) | ✅ | `core/timebase.py`, seven-segment clock in `frontend/` |
 
 ## 4. DSP & Audio Processing
@@ -82,7 +82,7 @@ Maps **PIVOT Spec v1.6** to the codebase. Legend:
 | 8.3 | Reliability (flush per event, reconnect, mode preserved) | ✅ | `db/database.py` (WAL), `runtime/manager.py`, frontend reconnect |
 | 8.4 | Security (LAN-only; **instructor password + bearer token** instead of loopback-only; checksum verify) | ✅ | `auth.py`, `api/deps.py::require_instructor`, `updates/` |
 | 8.6 | Logging | 🟡 | loggers in place; rotating-file config in packaging |
-| 9.1–9.4 | Build, distribution, updates, uninstall | 🟡 | `packaging/pivot.spec`, `gen_buildinfo.py`, `.github/workflows/release.yml` (tag-driven Windows `.zip` + Linux x86_64 `.tar.gz` to GitHub Releases, with SHA-256 sidecars the updater verifies). Platform-aware asset selection in `updates/manager.py`. |
+| 9.1–9.4 | Build, distribution, updates, uninstall | 🟡 | `packaging/pivot.spec`, `gen_buildinfo.py`; `release.yml` (tag-driven Windows `.zip` + Linux x86_64 `.tar.gz` to GitHub Releases, SHA-256 sidecars); `prerelease.yml` (per-PR-commit auto-incrementing `-dev.N` prereleases + self-updating PR comment mapping version→commit). Platform-aware asset selection in `updates/manager.py`. |
 | 13.6 | Compliance artefacts (LICENSE/NOTICE/THIRD-PARTY/REBUILD-LGPL) | ✅ | repo root |
 | 13.7 | Build-time licence verification | ✅ | `tools/licenses.py`, `.github/workflows/ci.yml` |
 

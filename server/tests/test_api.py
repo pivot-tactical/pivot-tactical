@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from pivot.api.app import create_app
 from pivot.api.deps import require_instructor
 from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD
+from pivot.db.config_store import ConfigStore
 
 
 @pytest.fixture
@@ -203,6 +204,41 @@ def test_websocket_plain_ptt_creates_event(client):
         wsconn.send_json({"type": "ptt_end", "payload": {}})
         ended = _recv_until(wsconn, "ptt_ended")
         assert ended["payload"]["audibility"] == "Heard"
+
+
+_FAKE_RELEASES = [
+    {"tag_name": "1.1.0", "name": "1.1.0", "prerelease": False, "assets": [
+        {"name": "RadioTrainer-v1.1.0-win64.zip", "browser_download_url": "http://x/w"}]},
+    {"tag_name": "1.2.0-rc.1", "name": "rc", "prerelease": True, "assets": [
+        {"name": "RadioTrainer-v1.2.0-rc.1-win64.zip", "browser_download_url": "http://x/r"}]},
+    {"tag_name": "0.9.0", "name": "old", "prerelease": False, "assets": []},
+]
+
+
+def test_update_check_respects_channel(client, monkeypatch):
+    monkeypatch.setattr("pivot.updates.github.fetch_releases", lambda *a, **k: _FAKE_RELEASES)
+    with client.app.state.manager.db.session() as s:
+        ConfigStore(s).set("github_repo", "pivot-tactical/pivot-tactical")
+
+    # Stable channel: prerelease excluded, only 1.1.0 is an available update.
+    r = client.get("/api/admin/updates/check").json()
+    assert r["reachable"] is True and r["current_version"] == "1.0.0"
+    assert [a["tag"] for a in r["available"]] == ["1.1.0"]
+
+    # Include prereleases: the rc shows up too (newest first).
+    with client.app.state.manager.db.session() as s:
+        ConfigStore(s).set("update_channel", "include_prereleases")
+    r = client.get("/api/admin/updates/check").json()
+    assert [a["tag"] for a in r["available"]] == ["1.2.0-rc.1", "1.1.0"]
+
+
+def test_update_check_graceful_when_unreachable(client, monkeypatch):
+    def boom(*a, **k):
+        raise OSError("no network")
+
+    monkeypatch.setattr("pivot.updates.github.fetch_releases", boom)
+    r = client.get("/api/admin/updates/check").json()
+    assert r["reachable"] is False and r["available"] == []
 
 
 def test_instructor_websocket_controls_radio(client):

@@ -18,6 +18,31 @@ def test_semver_ordering():
     assert SemVer.parse("v1.2.3") == SemVer.parse("1.2.3")
 
 
+def test_prerelease_dev_versions_order_correctly():
+    """Auto-incrementing prerelease builds (1.0.0-dev.N) must order numerically
+    and sit below the eventual stable release (§3.7.3)."""
+    assert SemVer.parse("1.0.0-dev.41") < SemVer.parse("1.0.0-dev.42")
+    assert SemVer.parse("1.0.0-dev.42") < SemVer.parse("1.0.0")
+    # Numeric, not lexical: dev.2 < dev.10.
+    assert SemVer.parse("1.0.0-dev.2") < SemVer.parse("1.0.0-dev.10")
+
+
+def test_gen_buildinfo_render_embeds_optional_version():
+    import importlib.util
+    import pathlib
+
+    path = pathlib.Path(__file__).resolve().parents[2] / "packaging" / "gen_buildinfo.py"
+    spec = importlib.util.spec_from_file_location("gen_buildinfo", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    base = mod.render("abc1234", "2026-06-05")
+    assert 'GIT_SHA = "abc1234"' in base and "VERSION" not in base
+
+    pre = mod.render("abc1234", "2026-06-05", "1.0.0-dev.42")
+    assert 'VERSION = "1.0.0-dev.42"' in pre
+
+
 def test_prerelease_sorts_below_release():
     # A pre-release precedes its release (SemVer §11, used by update ordering).
     assert SemVer.parse("1.0.0-rc.1") < SemVer.parse("1.0.0")

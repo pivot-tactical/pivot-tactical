@@ -1,15 +1,19 @@
 """Generate ``pivot/_buildinfo.py`` at build time (spec §3.7.2).
 
 Embeds the git commit SHA and build date so the running executable can report
-its exact build identity in the About tab and window title. Run in CI right
-before PyInstaller:
+its exact build identity in About / the title bar. For **prerelease** builds the
+release workflow also passes ``PIVOT_BUILD_VERSION`` (e.g. ``1.0.0-dev.42``),
+which is embedded as ``VERSION`` so the app reports the prerelease version and
+the update manager can order it against published releases (§3.7.3).
 
-    python packaging/gen_buildinfo.py
+    python packaging/gen_buildinfo.py                       # sha + date
+    PIVOT_BUILD_VERSION=1.0.0-dev.42 python packaging/gen_buildinfo.py
 """
 
 from __future__ import annotations
 
 import datetime as _dt
+import os
 import subprocess
 from pathlib import Path
 
@@ -28,15 +32,24 @@ def _git_sha() -> str:
     return "unknown"
 
 
+def render(sha: str, build_date: str, version: str | None = None) -> str:
+    """Render the _buildinfo.py module text (pure; unit-tested)."""
+    lines = [
+        '"""Generated at build time — do not edit (spec §3.7.2)."""',
+        f'GIT_SHA = "{sha}"',
+        f'BUILD_DATE = "{build_date}"',
+    ]
+    if version:
+        lines.append(f'VERSION = "{version}"')
+    return "\n".join(lines) + "\n"
+
+
 def main() -> None:
     sha = _git_sha()
     build_date = _dt.date.today().isoformat()
-    TARGET.write_text(
-        '"""Generated at build time — do not edit (spec §3.7.2)."""\n'
-        f'GIT_SHA = "{sha}"\n'
-        f'BUILD_DATE = "{build_date}"\n'
-    )
-    print(f"wrote {TARGET} (sha={sha[:10]}, date={build_date})")
+    version = os.environ.get("PIVOT_BUILD_VERSION", "").strip() or None
+    TARGET.write_text(render(sha, build_date, version))
+    print(f"wrote {TARGET} (sha={sha[:10]}, date={build_date}, version={version or '(base)'})")
 
 
 if __name__ == "__main__":

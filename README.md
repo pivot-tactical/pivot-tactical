@@ -95,6 +95,9 @@ out-of-band action that is **never** run during an exercise:
   download, no internet — for fast recovery from a bad update.
 * **Offline import** lets fully air-gapped sites apply a release package copied in
   on removable media. Every package is verified by SHA-256 before it is applied.
+* **Channels.** Settings → Updates offers *Stable only* (default) or *Include
+  prereleases*. Normal users stay on stable; testers can opt into the automatic
+  `-dev.N` prerelease builds produced for each change (and turn on auto-update).
 
 Updates only ever replace the program folder; your database and recordings live
 outside it and are never touched.

@@ -298,13 +298,25 @@ function SettingsTab({ mustChangePassword, onTimezone }: { mustChangePassword: b
   const [saved, setSaved] = useState(false);
   const [pw, setPw] = useState({ current: "", next: "" });
   const [pwMsg, setPwMsg] = useState("");
+  const [upd, setUpd] = useState<Awaited<ReturnType<typeof api.checkUpdates>> | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  async function checkUpdates() {
+    setChecking(true);
+    try {
+      setUpd(await api.checkUpdates());
+    } finally {
+      setChecking(false);
+    }
+  }
 
   useEffect(() => { api.getConfig().then(setCfg).catch(() => {}); }, []);
   const set = (k: string, v: any) => setCfg((c) => ({ ...c, [k]: v }));
 
   async function save() {
     const keys = ["whisper_model", "whisper_compute_type", "transcription_confidence_threshold",
-      "transcription_skip_under_seconds", "display_timezone", "crypto_delay_ms"];
+      "transcription_skip_under_seconds", "display_timezone", "crypto_delay_ms",
+      "update_channel", "auto_update", "update_check_on_startup"];
     const updates: Record<string, unknown> = {};
     keys.forEach((k) => (updates[k] = cfg[k]));
     await api.updateSettings(updates);
@@ -327,6 +339,18 @@ function SettingsTab({ mustChangePassword, onTimezone }: { mustChangePassword: b
     <div className="grid2">
       <section className="card pad">
         <h3>Settings</h3>
+        <Field label="Update channel">
+          <select className="input" value={cfg.update_channel || "stable"}
+            onChange={(e) => set("update_channel", e.target.value)}>
+            <option value="stable">Stable only</option>
+            <option value="include_prereleases">Include prereleases (test builds)</option>
+          </select>
+        </Field>
+        <label className="row gap" style={{ marginBottom: 12 }}>
+          <input type="checkbox" checked={!!cfg.auto_update}
+            onChange={(e) => set("auto_update", e.target.checked)} />
+          Automatically update to the newest version on the chosen channel
+        </label>
         <Field label="Whisper model">
           <select className="input" value={cfg.whisper_model || "small"} onChange={(e) => set("whisper_model", e.target.value)}>
             {["tiny", "base", "small", "medium", "large-v3"].map((m) => <option key={m}>{m}</option>)}
@@ -363,6 +387,32 @@ function SettingsTab({ mustChangePassword, onTimezone }: { mustChangePassword: b
         </Field>
         <button className="btn btn--primary" disabled={pw.next.length < 4} onClick={changePassword}>Change Password</button>
         {pwMsg && <p className="muted mt">{pwMsg}</p>}
+      </section>
+
+      <section className="card pad">
+        <h3>Updates</h3>
+        <button className="btn" onClick={checkUpdates} disabled={checking}>
+          {checking ? "Checking…" : "Check for updates"}
+        </button>
+        {upd && (
+          <div className="mt">
+            <div className="muted mono">
+              Current {upd.current_version} · channel {upd.channel}
+              {upd.auto_update ? " · auto-update on" : ""}
+            </div>
+            {!upd.reachable && <p className="login__hint">Offline — use offline import (GitHub unreachable).</p>}
+            {upd.reachable && upd.available.length === 0 && <p className="muted mt">Up to date.</p>}
+            {upd.available.map((a) => (
+              <div className="row between mt" key={a.tag}>
+                <span className="mono">{a.tag} {a.prerelease ? "· prerelease" : ""}</span>
+                <span className="muted">{a.standing}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="muted mt">
+          Updates are applied out-of-band, never during a session. Air-gapped sites use offline import.
+        </p>
       </section>
     </div>
   );

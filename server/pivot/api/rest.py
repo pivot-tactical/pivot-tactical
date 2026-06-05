@@ -47,6 +47,9 @@ _SETTABLE_KEYS = {
     "tuning_step_hz",
     "update_channel",
     "update_check_on_startup",
+    "auto_update",
+    "github_repo",
+    "github_token",
     "log_level",
 }
 
@@ -315,6 +318,60 @@ def admin_change_password(req: PasswordChangeRequest, auth=Depends(get_auth)) ->
         raise HTTPException(status_code=403, detail="current password incorrect")
     auth.set_password(req.new_password)
     return {"changed": True}
+
+
+@router.get("/admin/updates/check", dependencies=[Depends(require_instructor)])
+def admin_check_updates(manager=Depends(get_manager)) -> dict:
+    """Check GitHub for releases on the configured channel (§3.7.3).
+
+    Out-of-band and internet-touching; degrades gracefully (``reachable: false``)
+    so air-gapped sites can ignore it and use offline import instead (§3.7.1).
+    """
+    from pivot.updates import github
+    from pivot.updates.manager import UpdateManager, classify_release
+    from pivot.version import SemVer, version_info
+
+    with manager.db.session() as s:
+        cfg = ConfigStore(s).all()
+    repo = str(cfg.get("github_repo") or "")
+    token = str(cfg.get("github_token") or "") or None
+    channel = str(cfg.get("update_channel", "stable"))
+    include_pre = channel == "include_prereleases"
+
+    mgr = UpdateManager(
+        version_info.version, manager.settings.versions_dir, include_prereleases=include_pre
+    )
+    result = {
+        "current_version": version_info.version,
+        "channel": channel,
+        "auto_update": bool(cfg.get("auto_update", False)),
+        "reachable": True,
+        "error": None,
+        "releases": [],
+        "available": [],
+    }
+    try:
+        raw = github.fetch_releases(repo, token)
+    except Exception as exc:  # network/HTTP/JSON — stay graceful for air-gapped
+        result["reachable"] = False
+        result["error"] = str(exc)
+        return result
+
+    cur = SemVer.parse(version_info.version)
+
+    def to_dict(r) -> dict:
+        return {
+            "tag": r.tag,
+            "name": r.name,
+            "published_at": r.published_at,
+            "prerelease": r.prerelease,
+            "asset_name": r.asset_name,
+            "standing": classify_release(r, cur).value,
+        }
+
+    result["releases"] = [to_dict(r) for r in mgr.list_releases(raw)]
+    result["available"] = [to_dict(r) for r in mgr.available_updates(raw)]
+    return result
 
 
 # --- public status --------------------------------------------------------- #

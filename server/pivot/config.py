@@ -97,6 +97,7 @@ DEFAULT_CONFIG: dict[str, object] = {
     "github_token": "",
     "update_check_on_startup": False,
     "update_channel": "stable",          # stable / include_prereleases
+    "auto_update": False,                # apply updates automatically on check
     "retained_versions": 3,
     "verify_checksums": True,
     # --- audio / logging (§7.1, §8.6) ---

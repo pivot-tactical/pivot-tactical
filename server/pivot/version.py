@@ -117,12 +117,21 @@ class VersionInfo:
         return f"PIVOT {self.version} ({self.git_sha[:7]})"
 
 
-def _read_buildinfo() -> tuple[str, str] | None:
-    """Read CI-generated build metadata if present (packaged builds)."""
+def _read_buildinfo() -> tuple[str, str, str | None] | None:
+    """Read CI-generated build metadata if present (packaged builds).
+
+    Returns ``(git_sha, build_date, version_override)``. The version override is
+    set for prerelease builds so the running app reports e.g. ``1.0.0-dev.42``
+    and the update manager can order it against published releases (§3.7.3).
+    """
     try:
         from pivot import _buildinfo  # type: ignore
 
-        return _buildinfo.GIT_SHA, _buildinfo.BUILD_DATE
+        return (
+            _buildinfo.GIT_SHA,
+            _buildinfo.BUILD_DATE,
+            getattr(_buildinfo, "VERSION", None),
+        )
     except Exception:
         return None
 
@@ -147,7 +156,8 @@ def _discover_git_sha() -> str:
 def get_version_info() -> VersionInfo:
     bi = _read_buildinfo()
     if bi is not None:
-        return VersionInfo(__version__, bi[0], bi[1])
+        git_sha, build_date, version_override = bi
+        return VersionInfo(version_override or __version__, git_sha, build_date)
     return VersionInfo(__version__, _discover_git_sha(), "dev")
 
 
