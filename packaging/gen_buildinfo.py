@@ -44,12 +44,33 @@ def render(sha: str, build_date: str, version: str | None = None) -> str:
     return "\n".join(lines) + "\n"
 
 
+def patch_version(version: str) -> bool:
+    """Rewrite ``__version__`` in version.py to the build version.
+
+    This is the bulletproof path: version.py is always imported (never lazily),
+    so the frozen app reports the right version even if PyInstaller misses the
+    lazily-imported _buildinfo module. Returns True if a substitution was made.
+    """
+    import re
+
+    vp = TARGET.parent / "version.py"
+    text = vp.read_text()
+    new, n = re.subn(r'__version__ = "[^"]*"', f'__version__ = "{version}"', text, count=1)
+    if n:
+        vp.write_text(new)
+    return bool(n)
+
+
 def main() -> None:
     sha = _git_sha()
     build_date = _dt.date.today().isoformat()
     version = os.environ.get("PIVOT_BUILD_VERSION", "").strip() or None
     TARGET.write_text(render(sha, build_date, version))
-    print(f"wrote {TARGET} (sha={sha[:10]}, date={build_date}, version={version or '(base)'})")
+    patched = patch_version(version) if version else False
+    print(
+        f"wrote {TARGET} (sha={sha[:10]}, date={build_date}, "
+        f"version={version or '(base)'}, patched_version_py={patched})"
+    )
 
 
 if __name__ == "__main__":
