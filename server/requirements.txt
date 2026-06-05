@@ -1,0 +1,27 @@
+# PIVOT runtime dependencies (packaged build).
+# Licence class noted per spec §13.3; CI denies GPL/AGPL strong-copyleft linkage.
+#
+# --- Core API / data (permissive) ---
+fastapi>=0.110            # MIT
+uvicorn[standard]>=0.27   # BSD-3-Clause
+starlette>=0.36           # BSD-3-Clause (FastAPI dep, pinned for clarity)
+sqlalchemy>=2.0           # MIT
+pydantic>=2.6             # MIT
+pydantic-settings>=2.1    # MIT
+websockets>=12.0          # BSD-3-Clause
+python-multipart>=0.0.9   # Apache-2.0 (form/file uploads: offline update import)
+
+# --- DSP (permissive, BSD) ---
+numpy>=1.26               # BSD-3-Clause
+scipy>=1.11               # BSD-3-Clause
+soundfile>=0.12           # BSD-3-Clause (native libsndfile is LGPL-2.1, dynamically linked)
+
+# --- Voice transport (permissive) ---
+aiortc>=1.6               # BSD-3-Clause
+av>=12.0                  # BSD-3-Clause (PyAV; bundles ffmpeg/libopus/libvpx/libsrtp)
+
+# --- Transcription (permissive) ---
+faster-whisper>=1.0       # MIT (CTranslate2 backend is MIT)
+
+# --- GUI (weak copyleft, dynamically linked — see REBUILD-QT.md) ---
+PySide6>=6.6              # LGPL-3.0

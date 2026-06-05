@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.spec.bak
+
+# PIVOT runtime data directory (lives OUTSIDE the swappable app folder, per spec 3.7.9)
+/data/
+*.db
+*.db-journal
+/recordings/
+/logs/
+/versions/
+/staging/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# faster-whisper model cache
+/models/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
