@@ -9,6 +9,7 @@ routers, and serves the built React frontend so trainees reach the UI at
 from __future__ import annotations
 
 import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -35,7 +36,11 @@ def frontend_dist_dir() -> Path | None:
     env = os.environ.get("PIVOT_FRONTEND_DIST")
     if env:
         candidates.append(Path(env))
-    # PyInstaller: frontend added via --add-data lands next to the package.
+    # PyInstaller bundle: --add-data places the build at the bundle root
+    # (sys._MEIPASS) under 'frontend_dist'. Covers both --onedir and --onefile.
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / "frontend_dist")
     candidates.append(Path(__file__).resolve().parent.parent / "frontend_dist")
     # Repo layout: server/pivot/api/app.py -> repo/frontend/dist
     candidates.append(Path(__file__).resolve().parents[3] / "frontend" / "dist")

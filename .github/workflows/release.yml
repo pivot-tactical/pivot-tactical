@@ -1,0 +1,106 @@
+name: Release
+
+# Builds the distributable bundles and publishes them to GitHub Releases when a
+# version tag (vX.Y.Z) is pushed. The in-app updater consumes exactly these
+# assets: a per-platform archive plus its SHA-256 sidecar, verified before any
+# staged swap (spec §3.7.5). Run manually via "Run workflow" to validate a build
+# without cutting a release (artifacts are uploaded, nothing is published).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # publish release assets
+
+jobs:
+  build:
+    name: Build ${{ matrix.artifact }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x86_64 only. Linux is built on an older LTS to keep the glibc floor
+          # low so it runs on common distros (Ubuntu 22.04+, Debian 12+, …).
+          - os: windows-latest
+            artifact: win64
+          - os: ubuntu-22.04
+            artifact: linux-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- frontend (embedded into the bundle and served at the LAN address) ---
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      # --- python runtime + native media/GUI deps + PyInstaller ---
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r server/requirements.txt
+          pip install pyinstaller
+          pip install ./server --no-deps
+
+      - name: Embed build info (version, git SHA, date)
+        run: python packaging/gen_buildinfo.py
+
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm packaging/pivot.spec
+
+      # --- package + checksum (one archive per platform) ---
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          if ($ver -notmatch '^v\d') { $ver = "v0.0.0-dev" }
+          $archive = "RadioTrainer-$ver-win64.zip"
+          Compress-Archive -Path dist/RadioTrainer -DestinationPath $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          "$hash  $archive" | Out-File "$archive.sha256" -Encoding ascii -NoNewline
+          "ARTIFACT=$archive" | Out-File $env:GITHUB_ENV -Append -Encoding ascii
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          ver="${{ github.ref_name }}"
+          [[ "$ver" =~ ^v[0-9] ]] || ver="v0.0.0-dev"
+          archive="RadioTrainer-$ver-linux-x86_64.tar.gz"
+          tar -czf "$archive" -C dist RadioTrainer
+          sha256sum "$archive" > "$archive.sha256"
+          echo "ARTIFACT=$archive" >> "$GITHUB_ENV"
+
+      # --- always keep the build as a workflow artifact (for dispatch runs) ---
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RadioTrainer-${{ matrix.artifact }}
+          path: |
+            RadioTrainer-*.zip
+            RadioTrainer-*.tar.gz
+            RadioTrainer-*.sha256
+          if-no-files-found: error
+
+      # --- publish to the GitHub Release on a tag ---
+      - name: Publish to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            RadioTrainer-*.zip
+            RadioTrainer-*.tar.gz
+            RadioTrainer-*.sha256
+          fail_on_unmatched_files: true
+          generate_release_notes: true

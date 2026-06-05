@@ -7,6 +7,7 @@ from pivot.updates.manager import (
     ReleaseStanding,
     UpdateManager,
     classify_release,
+    default_asset_pattern,
     filter_channel,
     order_releases,
     verify_sha256,
@@ -56,20 +57,45 @@ def test_available_updates_filters_newer():
     assert [r.tag for r in updates] == ["1.1.0"]
 
 
-def test_release_from_github_picks_win64_asset():
-    data = {
+def _release_data():
+    return {
         "tag_name": "1.2.0",
         "name": "Release 1.2.0",
         "prerelease": False,
         "body": "notes",
         "assets": [
-            {"name": "RadioTrainer-v1.2.0-linux.zip", "browser_download_url": "http://x/linux"},
+            {
+                "name": "RadioTrainer-v1.2.0-linux-x86_64.tar.gz",
+                "browser_download_url": "http://x/linux",
+            },
             {"name": "RadioTrainer-v1.2.0-win64.zip", "browser_download_url": "http://x/win"},
         ],
     }
-    r = Release.from_github(data)
+
+
+def test_release_from_github_picks_win64_zip():
+    r = Release.from_github(_release_data(), asset_pattern="win64")
     assert r.asset_name == "RadioTrainer-v1.2.0-win64.zip"
     assert r.asset_url == "http://x/win"
+
+
+def test_release_from_github_picks_linux_tarball():
+    r = Release.from_github(_release_data(), asset_pattern="linux-x86_64")
+    assert r.asset_name == "RadioTrainer-v1.2.0-linux-x86_64.tar.gz"
+    assert r.asset_url == "http://x/linux"
+
+
+def test_default_asset_pattern_matches_current_platform():
+    import sys
+
+    pattern = default_asset_pattern()
+    if sys.platform.startswith("win"):
+        assert pattern == "win64"
+    elif sys.platform.startswith("linux"):
+        assert pattern.startswith("linux-")
+    # from_github with no pattern uses the running platform's build.
+    r = Release.from_github(_release_data())
+    assert pattern in r.asset_name or r.asset_name == ""
 
 
 def test_verify_sha256(tmp_path):

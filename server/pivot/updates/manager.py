@@ -20,12 +20,37 @@ from __future__ import annotations
 
 import hashlib
 import json
+import platform
 import shutil
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
 from pivot.version import SemVer
+
+
+def default_asset_pattern() -> str:
+    """The release-asset name fragment for the current platform (§3.7.5).
+
+    Matches the artifact names produced by the release workflow, so the in-app
+    updater downloads the right build for the OS it is running on:
+    ``win64`` (.zip), ``linux-x86_64`` / ``linux-arm64`` (.tar.gz).
+    """
+    if sys.platform.startswith("win"):
+        return "win64"
+    if sys.platform.startswith("linux"):
+        machine = platform.machine().lower()
+        if machine in ("aarch64", "arm64"):
+            return "linux-arm64"
+        return "linux-x86_64"
+    if sys.platform == "darwin":
+        return "macos"
+    return "win64"
+
+
+# Archive extensions the updater accepts for a release asset.
+_ASSET_EXTENSIONS = (".zip", ".tar.gz")
 
 
 class ReleaseStanding(str, Enum):
@@ -53,12 +78,17 @@ class Release:
         return SemVer.try_parse(self.tag)
 
     @classmethod
-    def from_github(cls, data: dict, asset_pattern: str = "win64") -> Release:
-        """Build from a GitHub releases API element (§3.7.3)."""
+    def from_github(cls, data: dict, asset_pattern: str | None = None) -> Release:
+        """Build from a GitHub releases API element (§3.7.3).
+
+        ``asset_pattern`` selects the platform build; when omitted it defaults to
+        the current platform's pattern so the running app picks its own OS asset.
+        """
+        pattern = asset_pattern or default_asset_pattern()
         asset_url = asset_name = ""
         for asset in data.get("assets", []):
             name = asset.get("name", "")
-            if asset_pattern in name and name.endswith(".zip"):
+            if pattern in name and name.endswith(_ASSET_EXTENSIONS):
                 asset_url = asset.get("browser_download_url", "")
                 asset_name = name
                 break
@@ -149,19 +179,23 @@ class UpdateManager:
         retained_count: int = 3,
         include_prereleases: bool = False,
         releases_provider=None,
+        asset_pattern: str | None = None,
     ) -> None:
         self.current_version = current_version
         self.versions_dir = Path(versions_dir)
         self.retained_count = retained_count
         self.include_prereleases = include_prereleases
         self._releases_provider = releases_provider
+        # Which platform build to offer (win64 / linux-x86_64 / …). Defaults to
+        # the OS the app is running on (§3.7.5).
+        self.asset_pattern = asset_pattern or default_asset_pattern()
 
     # -- discovery --------------------------------------------------------- #
 
     def list_releases(self, raw: list[dict] | None = None) -> list[Release]:
         """Return channel-filtered, newest-first releases (§3.7.3)."""
         data = raw if raw is not None else (self._releases_provider() if self._releases_provider else [])
-        releases = [Release.from_github(d) for d in data]
+        releases = [Release.from_github(d, self.asset_pattern) for d in data]
         releases = filter_channel(releases, self.include_prereleases)
         return order_releases(releases)
 

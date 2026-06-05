@@ -1,11 +1,16 @@
 # PyInstaller spec for PIVOT (spec §9.1, §13.4).
 #
+# Cross-platform: the same spec builds the Windows (.exe) and Linux bundles; the
+# release workflow runs it on each OS and packages dist/RadioTrainer/ as a
+# win64 .zip or a linux-x86_64 .tar.gz.
+#
 # Built in --onedir mode so the Qt/PySide6 shared libraries remain separate,
 # replaceable files — satisfying the LGPL v3 relink obligation (§13.4, see
 # REBUILD-QT.md). Explicit hidden imports cover faster-whisper, CTranslate2,
 # PyAV (av) and aiortc native deps (§9.1, §10 risk register). The built React
-# frontend (frontend/dist) and the legal files are bundled as data so all
-# attribution travels with the binary (§13.8).
+# frontend (frontend/dist) and the legal files are bundled as data (at the
+# bundle root, found via sys._MEIPASS) so all attribution travels with the
+# binary (§13.8).
 #
 #   Build:  pyinstaller packaging/pivot.spec
 #   Output: dist/RadioTrainer/RadioTrainer(.exe)

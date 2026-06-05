@@ -1,141 +1,112 @@
 # PIVOT — Procedural Interactive Voice Operations Trainer (Tactical)
 
-A self-hosted, **LAN-only** software system that simulates VHF/UHF/HF radio voice
+A self-hosted, **LAN-only** application that simulates VHF/UHF/HF radio voice
 communications for training military and emergency-services personnel in voice
 procedure, net discipline, prowords and tactical message formats (SITREP,
 SALUTE, MEDEVAC, …) — **without real radio equipment or live spectrum**.
 
-The server runs as a single application on one machine. The operator is the
-**instructor**, controlling the exercise from a desktop GUI. Trainees connect
-from any device with a **web browser** over the LAN — zero install. Radios are
-free-tuning across the whole HF/VHF/UHF range; nets are *emergent* (anyone on the
-same frequency is on the same net, exactly like real radios), and tuning upward
+One person runs the server and acts as the **instructor**, controlling the
+exercise from a desktop window. Trainees connect from any device with a **web
+browser** over the local network — nothing to install on their side. Radios tune
+freely across the whole HF/VHF/UHF range; nets are *emergent* (anyone on the same
+frequency is on the same net, exactly like real radios), and tuning upward
 audibly cleans up from noisy low HF to near-clean UHF.
 
-Built per **PIVOT Spec v1.6**. Licensed under **Apache-2.0**.
+Licensed under **Apache-2.0**.
 
-> **Status:** active development. The core domain logic, DSP engine, data layer,
-> live runtime, REST + WebSocket API, transcription worker, update manager, the
-> React trainee UI and the PySide6 instructor GUI are implemented with a
-> 156-test suite. The WebRTC media plane (aiortc) and the Windows packaged build
-> are scaffolded and wired but require the native `audio`/`gui` extras to run.
-> See [`ROADMAP.md`](ROADMAP.md) for a section-by-section status map.
+> **Status:** PIVOT is in active development. Prebuilt downloads are published on
+> the [**Releases**](../../releases) page; until the first release is cut, that
+> page may be empty.
 
 ---
 
-## Architecture
-
-```
-Server machine                          Trainee terminals (any browser)
-└─ pivot (single process)               └─ http://[server-ip]:8080
-   ├─ PySide6 GUI (instructor)             ├─ Login (callsign)
-   ├─ FastAPI (HTTP + WebSocket)           ├─ Radio panel (mic via WebRTC + PTT)
-   ├─ WebRTC audio router (aiortc)         └─ AAR (after-action review)
-   ├─ DSP engine (numpy/scipy)
-   ├─ faster-whisper (transcription)
-   └─ SQLite (config + sessions + events)
-```
-
-* **Per-listener audio** is the defining constraint: a single transmission is
-  heard differently by different receivers on the same frequency (clear voice,
-  encrypted hash, or a collision render), so the server renders per listener and
-  WebRTC carries it to the browser. See spec Appendix A.
-* **Continuous band model:** one DSP chain whose noise/fading vary continuously
-  with the tuned frequency, plus a global atmospheric multiplier and instructor
-  jamming.
-* **Crypto is per-radio** (Plain/Cypher), persists across retuning, and never
-  auto-resets. Permissive cypher receive: a cypher set decodes plain too.
-
-## Repository layout
-
-```
-server/            Python backend (pip-installable package `pivot`)
-  pivot/
-    core/          Pure domain logic: bands, crypto matrix, radios, time
-    dsp/           numpy/scipy DSP engine (noise, fading, hash, tones)
-    db/            SQLAlchemy models, migrations, repository, config store
-    runtime/       SessionManager — the live control plane
-    audio/         recording tap, AAR re-render, WebRTC router + mixer
-    transcription/ async faster-whisper worker
-    updates/       version management, rollback, offline import
-    api/           FastAPI REST + WebSocket app
-    gui/           PySide6 instructor station
-    tools/         build-time licence verification
-  tests/           156-test suite
-frontend/          React + Vite + TypeScript trainee UI
-packaging/         PyInstaller spec + build-info generator
-```
-
 ## Quickstart
 
-PIVOT ships as a single self-contained Windows download — no install, nothing to
-configure, and zero install for trainees (spec §1.1).
+PIVOT is a single self-contained download — no installer, no dependencies, and
+nothing for trainees to set up.
 
-1. Download `RadioTrainer-v1.0-win64.zip` from the repository's **Releases** page.
+### Windows
+
+1. Download `RadioTrainer-vX.Y.Z-win64.zip` from the [Releases](../../releases) page.
 2. Unzip it anywhere (e.g. the desktop) and run **`RadioTrainer.exe`**.
-3. On first launch a short wizard sets the audio device, server port and default
-   faster-whisper model (§9.2).
-4. The instructor window shows the **LAN address** (e.g.
-   `http://192.168.1.20:8080`). Trainees open that address in any browser and
-   enter a callsign — nothing to install on their side.
 
-The database, recordings and settings live in a data folder beside the executable
-and survive any update or rollback. To uninstall, just delete the folder — no
-registry entries, no services (§9.4).
+### Linux (x86_64)
 
-> Prebuilt release ZIPs are produced by the packaging step below and published to
-> GitHub Releases. While the packaged build is being finalised, run from source.
+Runs on common glibc-based distributions — Ubuntu 22.04+, Debian 12+, Fedora 36+,
+Linux Mint 21+, Pop!_OS and similar.
 
-## Building from source
+1. Download `RadioTrainer-vX.Y.Z-linux-x86_64.tar.gz` from the [Releases](../../releases) page.
+2. Extract and run it:
 
-**Backend** (the core install needs no native media/GUI deps):
+   ```bash
+   tar -xzf RadioTrainer-vX.Y.Z-linux-x86_64.tar.gz
+   ./RadioTrainer/RadioTrainer
+   ```
 
-```bash
-python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -e ./server
-pip install pytest pytest-asyncio httpx ruff     # dev tools
+   On a headless server (no desktop), start the server only with
+   `./RadioTrainer/RadioTrainer --headless`.
 
-cd server && python -m pytest -q                  # run the test suite
-python -m pivot --headless                        # run the server only
-```
+### Then
 
-Open `http://localhost:8080`. For the full experience add the native extras:
+* On first launch a short wizard sets the audio device, server port and default
+  transcription model.
+* The instructor window shows the **LAN address** (e.g. `http://192.168.1.20:8080`).
+* Trainees open that address in any browser and enter a callsign — done.
 
-```bash
-pip install -e "./server[audio,transcription,gui]"   # aiortc, faster-whisper, PySide6
-python -m pivot                                       # GUI + server
-```
+Your database, recordings and settings live in a data folder **next to** the
+program and survive every update and rollback. To uninstall, just delete the
+folder — no registry entries, no system services.
 
-**Frontend** (the trainee UI):
+## Using PIVOT
 
-```bash
-cd frontend
-npm install
-npm run dev        # dev server on :5173, proxies /api + /ws to :8080
-npm run build      # production build -> frontend/dist (served by FastAPI)
-```
+**Instructor (the desktop window).** Start a session, then operate one or more
+radios on chosen frequencies, key up with the **PTT** button (or the spacebar),
+and toggle each radio between **Plain** and **Cypher**. Live controls let you
+worsen or improve band conditions, inject noise or jamming on a frequency or
+span, watch every connected terminal (callsign, frequency, mode, status), and
+kick a terminal if needed. Everything transmitted on the net is recorded and
+transcribed.
 
-### Packaging the Windows executable
+**Trainees (the browser).** Enter a callsign to join, tune the radio (type a
+frequency or step up/down), choose Plain or Cypher, and **hold PTT / spacebar**
+to transmit. A live ops-room clock shows the configured time zone. Whether anyone
+hears you depends on who else is tuned to your frequency and their crypto mode —
+just like a real radio.
 
-```bash
-cd frontend && npm ci && npm run build && cd ..
-python packaging/gen_buildinfo.py                # embed git SHA + build date
-pyinstaller packaging/pivot.spec                 # -> dist/RadioTrainer/, zip for release
-```
+**After Action Review (AAR).** Open the AAR from the browser to replay a session:
+a timeline of every transmission with timestamp, callsign, frequency, who copied
+it, crypto mode and the transcribed text (low-confidence lines flagged amber).
+Toggle **Clean/Dirty** to hear the raw voice or the radio-processed audio, and
+**Plain/Cypher** to hear cypher transmissions as clear voice or as the encrypted
+hash. Export a session as text, CSV, or a ZIP with all audio.
 
-`--onedir` mode keeps the Qt/PySide6 libraries as separate, replaceable files,
-satisfying the LGPL relink obligation (see below). Distribute the ZIP with
-`LICENSE`, `NOTICE` and `THIRD-PARTY-LICENSES.md` alongside the binary. The
-SQLite database, recordings and settings live in a data directory **outside** the
-swappable application folder so they survive any update or rollback.
+## Updating
 
-## Testing & CI
+PIVOT updates itself from this repository's GitHub Releases — an explicit,
+out-of-band action that is **never** run during an exercise:
 
-`python -m pytest` runs the full suite (domain logic, DSP behaviour, data layer,
-runtime lifecycle, REST + WebSocket, transcription, updates, mixer, licence
-policy). CI additionally runs `ruff`, builds the frontend, and enforces the
-licence policy — the build **fails** on any GPL/AGPL strong-copyleft runtime
-dependency (`python -m pivot.tools.licenses --check`).
+* **Check for updates** lists newer and older releases with their notes; update
+  to the latest, update to a chosen release, or **downgrade** to an older one.
+* **Roll back to previous** instantly swaps back to the last version you ran — no
+  download, no internet — for fast recovery from a bad update.
+* **Offline import** lets fully air-gapped sites apply a release package copied in
+  on removable media. Every package is verified by SHA-256 before it is applied.
+
+Updates only ever replace the program folder; your database and recordings live
+outside it and are never touched.
+
+## How it works
+
+* **Per-listener audio.** A single transmission can sound different to different
+  receivers on the same frequency — clear voice, an encrypted hash, or a garbled
+  collision — so the server renders audio for each listener and delivers it over
+  WebRTC straight to the browser.
+* **Continuous band model.** One processing chain whose noise and fading vary
+  continuously with frequency (worst at low HF, near-clean at UHF), plus a global
+  atmospheric control and instructor jamming.
+* **Per-radio crypto.** Plain/Cypher is a property of each radio, persists across
+  retuning, and never auto-resets. A cypher-capable set decodes plain too; only a
+  plain receiver hearing a cypher transmission gets the undecodable hash.
 
 ---
 
@@ -143,7 +114,7 @@ dependency (`python -m pivot.tools.licenses --check`).
 
 PIVOT is released under the **Apache License 2.0** (see [`LICENSE`](LICENSE)). A
 core project requirement is that the project licence does not contravene any
-upstream dependency licence.
+upstream dependency licence; the dependency licences ship with every download.
 
 * [`NOTICE`](NOTICE) — attribution for Apache-2.0 and bundled components.
 * [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md) — full dependency licence
@@ -151,13 +122,9 @@ upstream dependency licence.
 * [`REBUILD-QT.md`](REBUILD-QT.md) — how to substitute or rebuild the LGPL
   components, satisfying the relink obligation.
 
-**Weak-copyleft (LGPL) components, dynamically linked and replaceable:**
-
-* **PySide6 (Qt for Python)** — LGPL-3.0. The GUI binding; kept as separate
-  shared libraries so users can swap their own build (see `REBUILD-QT.md`).
-* **libsndfile** (via `soundfile`) — LGPL-2.1. Loaded dynamically by name.
-
-No GPL/AGPL strong-copyleft library is linked into the distributed executable.
-PyInstaller (GPL with a linking exception) is a build tool only and is not
-redistributed inside the binary. The DSP engine is implemented entirely on
-numpy + scipy (BSD), keeping the audio path fully permissive.
+The only weak-copyleft components — **PySide6 (Qt for Python)** (LGPL-3.0) and
+**libsndfile** (LGPL-2.1, via `soundfile`) — are dynamically linked and remain
+replaceable. No GPL/AGPL strong-copyleft library is linked into the distributed
+program. PyInstaller (GPL with a linking exception) is a build tool only and is
+not redistributed inside it. The audio engine is built entirely on numpy + scipy
+(BSD), keeping the signal path fully permissive.

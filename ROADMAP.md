@@ -75,7 +75,7 @@ Maps **PIVOT Spec v1.6** to the codebase. Legend:
 | 8.3 | Reliability (flush per event, reconnect, mode preserved) | ✅ | `db/database.py` (WAL), `runtime/manager.py`, frontend reconnect |
 | 8.4 | Security (LAN-only, local-only admin, checksum verify) | ✅ | `api/deps.py::require_local`, `updates/` |
 | 8.6 | Logging | 🟡 | loggers in place; rotating-file config in packaging |
-| 9.1–9.4 | Build, distribution, updates, uninstall | 🟡 | `packaging/pivot.spec`, `gen_buildinfo.py` |
+| 9.1–9.4 | Build, distribution, updates, uninstall | 🟡 | `packaging/pivot.spec`, `gen_buildinfo.py`, `.github/workflows/release.yml` (tag-driven Windows `.zip` + Linux x86_64 `.tar.gz` to GitHub Releases, with SHA-256 sidecars the updater verifies). Platform-aware asset selection in `updates/manager.py`. |
 | 13.6 | Compliance artefacts (LICENSE/NOTICE/THIRD-PARTY/REBUILD-QT) | ✅ | repo root |
 | 13.7 | Build-time licence verification | ✅ | `tools/licenses.py`, `.github/workflows/ci.yml` |
 
@@ -92,7 +92,8 @@ update/downgrade/rollback/offline-import (#22–#24), and the licence policy
 ## Notable follow-ups
 
 - WebRTC media end-to-end (browser ↔ aiortc) and Opus encode tuning (§6.3).
-- Windows updater helper performing the staged swap + relaunch (§3.7.5).
+- Platform updater helper (Windows + Linux) performing the staged swap +
+  relaunch, and downloading the verified release asset for the running OS (§3.7.5).
 - Rotating-file logging configuration and audio-router log (§8.6).
 - Streaming (block-based) DSP filters for the live path; the offline/whole-buffer
   chain is shared today (§4, §8.1).
