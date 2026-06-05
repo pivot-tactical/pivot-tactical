@@ -1,13 +1,17 @@
 // Shared types mirroring the PIVOT API (spec §6).
 
 export type RadioMode = "Plain" | "Cypher";
+export type Role = "trainee" | "instructor";
 
 export interface LoginResponse {
-  trainee_id: string;
-  radio_id: string;
-  frequency: string;
-  frequency_hz: number;
-  mode: RadioMode;
+  role: Role;
+  token?: string | null;
+  must_change_password?: boolean;
+  trainee_id?: string;
+  radio_id?: string;
+  frequency?: string;
+  frequency_hz?: number;
+  mode?: RadioMode;
 }
 
 export interface RadioState {
@@ -19,6 +23,10 @@ export interface RadioState {
   band_region: string;
   mode: RadioMode;
   status: string;
+}
+
+export interface Terminal extends RadioState {
+  last_activity: string;
 }
 
 export interface SessionSummary {

@@ -25,6 +25,7 @@ venv/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+*.tsbuildinfo
 *.local
 
 # faster-whisper model cache

@@ -27,17 +27,16 @@ export function Radio({
   socket,
   login,
   timezone,
-  onOpenAar,
 }: {
   socket: PivotSocket;
   login: LoginResponse;
   timezone: string;
-  onOpenAar: () => void;
 }) {
-  const [freqHz, setFreqHz] = useState(login.frequency_hz);
-  const [mode, setMode] = useState<RadioMode>(login.mode);
+  const initialHz = login.frequency_hz ?? 145_500_000;
+  const [freqHz, setFreqHz] = useState(initialHz);
+  const [mode, setMode] = useState<RadioMode>(login.mode ?? "Plain");
   const [phase, setPhase] = useState<TxPhase>("IDLE");
-  const [entry, setEntry] = useState(formatMHz(login.frequency_hz));
+  const [entry, setEntry] = useState(formatMHz(initialHz));
   const mic = useRef(new MicCapture());
   const region = regionFor(freqHz);
   const transmitting = phase !== "IDLE";
@@ -191,11 +190,6 @@ export function Radio({
         </button>
       </div>
 
-      <footer className="radio__footer">
-        <button className="btn btn--ghost" onClick={onOpenAar}>
-          After Action Review →
-        </button>
-      </footer>
     </div>
   );
 }

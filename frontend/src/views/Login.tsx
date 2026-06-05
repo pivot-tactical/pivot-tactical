@@ -1,20 +1,27 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 
-// Login view (spec §3.2.1, §7.2.1): single callsign field, no password.
-// Includes the mic-permission check called out in the risk register (§10).
+// Login view (spec §3.2.1, §7.2.1). Trainees enter a callsign (no password);
+// the instructor chooses "Log in as instructor" and enters the password.
 const NAME_RE = /^[A-Za-z0-9 -]{1,32}$/;
 
-export function Login({ onJoin }: { onJoin: (name: string) => void }) {
+export function Login({
+  onTrainee,
+  onInstructor,
+}: {
+  onTrainee: (name: string) => Promise<void> | void;
+  onInstructor: (password: string) => Promise<void>;
+}) {
+  const [mode, setMode] = useState<"trainee" | "instructor">("trainee");
   const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
   const [online, setOnline] = useState<boolean | null>(null);
   const [micOk, setMicOk] = useState<boolean | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api
-      .status()
-      .then(() => setOnline(true))
-      .catch(() => setOnline(false));
+    api.status().then(() => setOnline(true)).catch(() => setOnline(false));
   }, []);
 
   const valid = NAME_RE.test(name.trim());
@@ -29,36 +36,78 @@ export function Login({ onJoin }: { onJoin: (name: string) => void }) {
     }
   }
 
+  async function submitInstructor() {
+    setError("");
+    setBusy(true);
+    try {
+      await onInstructor(password);
+    } catch {
+      setError("Incorrect password.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="login">
       <div className="card login__card">
         <h1 className="login__title">PIVOT</h1>
         <p className="login__subtitle">Procedural Interactive Voice Operations Trainer</p>
 
-        <label className="field">
-          <span>Name / Callsign</span>
-          <input
-            className="input mono"
-            value={name}
-            maxLength={32}
-            placeholder="e.g. ALPHA-1"
-            autoFocus
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && valid && onJoin(name.trim())}
-          />
-        </label>
-
-        <button className="btn btn--primary" disabled={!valid} onClick={() => onJoin(name.trim())}>
-          Join Net
-        </button>
+        {mode === "trainee" ? (
+          <>
+            <label className="field">
+              <span>Name / Callsign</span>
+              <input
+                className="input mono"
+                value={name}
+                maxLength={32}
+                placeholder="e.g. ALPHA-1"
+                autoFocus
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && valid && onTrainee(name.trim())}
+              />
+            </label>
+            <button className="btn btn--primary" disabled={!valid} onClick={() => onTrainee(name.trim())}>
+              Join Net
+            </button>
+            <button className="btn btn--ghost login__switch" onClick={() => { setMode("instructor"); setError(""); }}>
+              Log in as instructor →
+            </button>
+          </>
+        ) : (
+          <>
+            <label className="field">
+              <span>Instructor Password</span>
+              <input
+                className="input mono"
+                type="password"
+                value={password}
+                autoFocus
+                placeholder="default: instructor"
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submitInstructor()}
+              />
+            </label>
+            {error && <p className="login__hint">{error}</p>}
+            <button className="btn btn--primary" disabled={busy || !password} onClick={submitInstructor}>
+              {busy ? "Signing in…" : "Sign In"}
+            </button>
+            <button className="btn btn--ghost login__switch" onClick={() => { setMode("trainee"); setError(""); }}>
+              ← Back to trainee login
+            </button>
+          </>
+        )}
 
         <div className="login__status">
           <StatusDot ok={online} label={online == null ? "Connecting…" : online ? "Server online" : "Server unreachable"} />
-          <button className="btn btn--ghost" onClick={checkMic}>
-            {micOk == null ? "Check microphone" : micOk ? "Microphone OK" : "Microphone blocked"}
-          </button>
+          {mode === "trainee" && (
+            <button className="btn btn--ghost" onClick={checkMic}>
+              {micOk == null ? "Check microphone" : micOk ? "Microphone OK" : "Microphone blocked"}
+            </button>
+          )}
         </div>
-        {micOk === false && (
+        {mode === "trainee" && micOk === false && (
           <p className="login__hint">
             Allow microphone access in your browser to transmit. Use a Chromium-based browser for best results.
           </p>

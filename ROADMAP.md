@@ -18,7 +18,7 @@ Maps **PIVOT Spec v1.6** to the codebase. Legend:
 
 | Spec | Area | Status | Where |
 |------|------|--------|-------|
-| 3.1.1 | Server status, session control, terminal count, clock | ✅ / 🟡 | `api/rest.py` (session/status); instructor console UI in `frontend/` |
+| 3.1.1 | Server status, session control, terminal count, clock | ✅ | `api/rest.py` + instructor console (`frontend/`) |
 | 3.1.2 | Free tuning, emergent nets, band noise profile | ✅ | `core/bands.py`, `core/radios.py` |
 | 3.1.2a | Multiple instructor radios | ✅ | `runtime/manager.py`, `api/rest.py`, `api/ws.py` (instr_*) |
 | 3.1.3 | Instructor transmit (select + PTT, labelled INSTRUCTOR) | ✅ / 🟡 | `api/ws.py` instr_ptt_* (timing done; media via router) |
@@ -71,7 +71,7 @@ Maps **PIVOT Spec v1.6** to the codebase. Legend:
 
 | Spec | Area | Status | Where |
 |------|------|--------|-------|
-| 7.1 | Instructor console (radios, live event log, monitor, scenario, settings, password) — **browser, replaces the §7.1 desktop GUI** | 🟡 | `frontend/` (building); backend ✅ in `api/`, `runtime/` |
+| 7.1 | Instructor console (radios + PTT, live event log, monitor, scenario, settings, password) — **browser, replaces the §7.1 desktop GUI** | ✅ | `frontend/src/views/InstructorConsole.tsx`, `api/`, `runtime/` |
 | 7.2 | Trainee web UI (login + radio) | ✅ | `frontend/src/` |
 | 7.3 | Visual style (dark, tactical cues, seven-segment, large PTT) | ✅ | `frontend/src/styles.css` |
 
