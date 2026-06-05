@@ -6,7 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "pivot-tactical"
 version = "1.0.0"
 description = "PIVOT — Procedural Interactive Voice Operations Trainer (Tactical). LAN-only radio voice-procedure trainer."
-readme = "../README.md"
+# NOTE: no `readme` here — setuptools refuses files outside the package root
+# (server/), and the project README lives at the repo root. See README.md.
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "PIVOT Tactical Contributors" }]
