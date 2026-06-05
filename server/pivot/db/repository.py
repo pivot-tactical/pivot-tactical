@@ -19,6 +19,7 @@ from pivot.db.models import (
     BandProfileRow,
     EventRow,
     InstructorRadioRow,
+    RadioStateRow,
     SessionRow,
     TraineeRow,
     TranscriptionStatus,
@@ -176,6 +177,49 @@ def set_transcription(
     row.transcription = text_value
     row.transcription_confidence = confidence
     row.transcription_status = status
+    return row
+
+
+# --- radio_state (persistent per-terminal freq + mode) --------------------- #
+
+
+def get_radio_state(session: Session, session_id: str, trainee_id: str) -> RadioStateRow | None:
+    return session.scalars(
+        select(RadioStateRow).where(
+            RadioStateRow.session_id == session_id,
+            RadioStateRow.trainee_id == trainee_id,
+        )
+    ).first()
+
+
+def upsert_radio_state(
+    session: Session,
+    session_id: str,
+    trainee_id: str,
+    frequency: str,
+    mode: RadioMode,
+) -> RadioStateRow:
+    """Persist a terminal's frequency + crypto mode so it survives a rejoin.
+
+    Mode is never auto-reset (spec §3.4.4); restoring this row on reconnect is
+    how a dropped terminal resumes on its tuned frequency with mode preserved
+    (§8.3).
+    """
+    row = get_radio_state(session, session_id, trainee_id)
+    now = to_iso_utc(utc_now())
+    if row is None:
+        row = RadioStateRow(
+            session_id=session_id,
+            trainee_id=trainee_id,
+            frequency=frequency,
+            mode=mode,
+            updated_at=now,
+        )
+        session.add(row)
+    else:
+        row.frequency = frequency
+        row.mode = mode
+        row.updated_at = now
     return row
 
 

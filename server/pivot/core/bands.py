@@ -146,6 +146,41 @@ class BandConditions:
     def snr_linear(self) -> float:
         return 10.0 ** (self.snr_db / 20.0)
 
+    def to_dict(self) -> dict:
+        """Serialise for the event's ``dsp_profile_json`` (spec §3.5.3, §4.5)."""
+        return {
+            "freq_hz": self.freq_hz,
+            "region": self.region.value,
+            "snr_db": self.snr_db,
+            "pink_weight": self.pink_weight,
+            "fading_depth_db": self.fading_depth_db,
+            "fading_rate_hz": self.fading_rate_hz,
+            "selective_fading": self.selective_fading,
+            "qrm": self.qrm,
+            "bandpass_low_hz": self.bandpass_low_hz,
+            "bandpass_high_hz": self.bandpass_high_hz,
+            "squelch_tail_ms": self.squelch_tail_ms,
+            "jammed": self.jammed,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "BandConditions":
+        """Reconstruct stored conditions for AAR Dirty re-render (spec §4.5)."""
+        return cls(
+            freq_hz=float(d["freq_hz"]),
+            region=BandRegion(d["region"]),
+            snr_db=float(d["snr_db"]),
+            pink_weight=float(d["pink_weight"]),
+            fading_depth_db=float(d["fading_depth_db"]),
+            fading_rate_hz=float(d["fading_rate_hz"]),
+            selective_fading=bool(d["selective_fading"]),
+            qrm=bool(d["qrm"]),
+            bandpass_low_hz=float(d["bandpass_low_hz"]),
+            bandpass_high_hz=float(d["bandpass_high_hz"]),
+            squelch_tail_ms=float(d["squelch_tail_ms"]),
+            jammed=bool(d.get("jammed", False)),
+        )
+
 
 @dataclass(frozen=True)
 class CurveAnchor:
