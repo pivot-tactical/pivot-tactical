@@ -66,9 +66,29 @@ frontend/          React + Vite + TypeScript trainee UI
 packaging/         PyInstaller spec + build-info generator
 ```
 
-## Quickstart (development)
+## Quickstart
 
-**Backend** (core install needs no native media/GUI deps):
+PIVOT ships as a single self-contained Windows download — no install, nothing to
+configure, and zero install for trainees (spec §1.1).
+
+1. Download `RadioTrainer-v1.0-win64.zip` from the repository's **Releases** page.
+2. Unzip it anywhere (e.g. the desktop) and run **`RadioTrainer.exe`**.
+3. On first launch a short wizard sets the audio device, server port and default
+   faster-whisper model (§9.2).
+4. The instructor window shows the **LAN address** (e.g.
+   `http://192.168.1.20:8080`). Trainees open that address in any browser and
+   enter a callsign — nothing to install on their side.
+
+The database, recordings and settings live in a data folder beside the executable
+and survive any update or rollback. To uninstall, just delete the folder — no
+registry entries, no services (§9.4).
+
+> Prebuilt release ZIPs are produced by the packaging step below and published to
+> GitHub Releases. While the packaged build is being finalised, run from source.
+
+## Building from source
+
+**Backend** (the core install needs no native media/GUI deps):
 
 ```bash
 python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
@@ -95,12 +115,12 @@ npm run dev        # dev server on :5173, proxies /api + /ws to :8080
 npm run build      # production build -> frontend/dist (served by FastAPI)
 ```
 
-## Packaging (Windows executable)
+### Packaging the Windows executable
 
 ```bash
 cd frontend && npm ci && npm run build && cd ..
 python packaging/gen_buildinfo.py                # embed git SHA + build date
-pyinstaller packaging/pivot.spec                 # -> dist/RadioTrainer/
+pyinstaller packaging/pivot.spec                 # -> dist/RadioTrainer/, zip for release
 ```
 
 `--onedir` mode keeps the Qt/PySide6 libraries as separate, replaceable files,
