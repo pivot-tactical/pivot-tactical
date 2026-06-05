@@ -1,9 +1,17 @@
 name: CI
 
+# Run on PRs, and on direct pushes to main. Limiting `push` to main avoids the
+# duplicate run you get when a push to a PR branch fires BOTH `push` and
+# `pull_request` for the same commit — feature branches are covered by the PR.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+
+# Cancel an in-progress run when a newer commit supersedes it (saves minutes).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
