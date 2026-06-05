@@ -41,6 +41,14 @@ from pivot.db.database import Database
 DEFAULT_FREQUENCY_HZ = 145_500_000.0  # a quiet VHF spot to power on at
 
 
+def _on_loop(loop: asyncio.AbstractEventLoop) -> bool:
+    """True if the calling thread is running ``loop`` right now."""
+    try:
+        return asyncio.get_running_loop() is loop
+    except RuntimeError:
+        return False
+
+
 @dataclass
 class TerminalInfo:
     """A connected trainee terminal (spec §3.1.4 live monitor)."""
@@ -80,6 +88,10 @@ class SessionManager:
         self.terminals: dict[str, TerminalInfo] = {}
         self._active_tx: dict[str, _TxAccumulator] = {}
         self._subscribers: set[asyncio.Queue] = set()
+        # The server's asyncio loop, set by the app on startup. Lets the GUI
+        # thread broadcast safely into the server loop (the GUI and server share
+        # one manager, spec §2.3).
+        self.loop: asyncio.AbstractEventLoop | None = None
         # Optional async transcription worker (§3.5.2). Attached by the app when
         # the transcription extra is available; events are queued on PTT release.
         self.transcription_worker = None
@@ -95,8 +107,19 @@ class SessionManager:
         self._subscribers.discard(q)
 
     def broadcast(self, message_type: str, payload: dict) -> None:
-        """Fan a ``{type, payload}`` envelope out to all subscribers (§6.2)."""
+        """Fan a ``{type, payload}`` envelope out to all subscribers (§6.2).
+
+        Safe to call from the GUI thread: if the server loop is known and we are
+        not running on it, the fan-out is marshalled onto that loop.
+        """
         msg = {"type": message_type, "payload": payload}
+        loop = self.loop
+        if loop is not None and not _on_loop(loop):
+            loop.call_soon_threadsafe(self._fanout, msg)
+        else:
+            self._fanout(msg)
+
+    def _fanout(self, msg: dict) -> None:
         for q in list(self._subscribers):
             try:
                 q.put_nowait(msg)

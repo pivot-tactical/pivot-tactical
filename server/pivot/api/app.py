@@ -44,15 +44,25 @@ def frontend_dist_dir() -> Path | None:
     return None
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, manager: SessionManager | None = None) -> FastAPI:
+    """Build the app. A shared ``manager`` may be supplied so the in-process GUI
+    and the background server operate on the same live state (spec §2.3)."""
     cfg = settings or default_settings
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        db = init_database(cfg)
+        import asyncio
+
+        if manager is not None:
+            app.state.db = manager.db
+            app.state.manager = manager
+        else:
+            db = init_database(cfg)
+            app.state.db = db
+            app.state.manager = SessionManager(db, cfg)
         app.state.settings = cfg
-        app.state.db = db
-        app.state.manager = SessionManager(db, cfg)
+        # Record the running loop so GUI-thread broadcasts marshal correctly.
+        app.state.manager.loop = asyncio.get_running_loop()
         app.state.audio_router = None  # set by the audio plane when available
         yield
 

@@ -20,6 +20,8 @@ import uvicorn
 
 from pivot.api.app import create_app
 from pivot.config import Settings
+from pivot.db.database import init_database
+from pivot.runtime.manager import SessionManager
 from pivot.version import version_info
 
 
@@ -58,13 +60,13 @@ def _settings_from_args(args: argparse.Namespace) -> Settings:
     return Settings(**overrides)
 
 
-def run_server(settings: Settings) -> None:
-    app = create_app(settings)
+def run_server(settings: Settings, manager: SessionManager | None = None) -> None:
+    app = create_app(settings, manager=manager)
     uvicorn.run(app, host=settings.host, port=settings.port, log_level="info")
 
 
-def run_server_thread(settings: Settings) -> threading.Thread:
-    app = create_app(settings)
+def run_server_thread(settings: Settings, manager: SessionManager | None = None) -> threading.Thread:
+    app = create_app(settings, manager=manager)
     config = uvicorn.Config(app, host=settings.host, port=settings.port, log_level="info")
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True, name="pivot-server")
@@ -81,8 +83,13 @@ def main(argv: list[str] | None = None) -> int:
     settings = _settings_from_args(args)
     print(f"PIVOT {version_info.version} — LAN address: http://{_lan_ip()}:{settings.port}")
 
+    # One shared SessionManager so the instructor GUI and the trainee server
+    # operate on the same live state (§2.3).
+    db = init_database(settings)
+    manager = SessionManager(db, settings)
+
     if args.headless:
-        run_server(settings)
+        run_server(settings, manager)
         return 0
 
     # Try to launch the GUI; fall back to headless if PySide6 is unavailable.
@@ -90,11 +97,11 @@ def main(argv: list[str] | None = None) -> int:
         from pivot.gui.app import run_gui
     except Exception as exc:  # ImportError or platform/display issue
         print(f"GUI unavailable ({exc}); running headless. Use --headless to silence.")
-        run_server(settings)
+        run_server(settings, manager)
         return 0
 
-    run_server_thread(settings)
-    return run_gui(settings)
+    run_server_thread(settings, manager)
+    return run_gui(settings, manager)
 
 
 if __name__ == "__main__":  # pragma: no cover
