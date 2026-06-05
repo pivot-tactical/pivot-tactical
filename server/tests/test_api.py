@@ -208,9 +208,9 @@ def test_websocket_plain_ptt_creates_event(client):
 
 _FAKE_RELEASES = [
     {"tag_name": "1.1.0", "name": "1.1.0", "prerelease": False, "assets": [
-        {"name": "RadioTrainer-v1.1.0-win64.zip", "browser_download_url": "http://x/w"}]},
+        {"name": "PIVOT-Tactical-v1.1.0-win64.zip", "browser_download_url": "http://x/w"}]},
     {"tag_name": "1.2.0-rc.1", "name": "rc", "prerelease": True, "assets": [
-        {"name": "RadioTrainer-v1.2.0-rc.1-win64.zip", "browser_download_url": "http://x/r"}]},
+        {"name": "PIVOT-Tactical-v1.2.0-rc.1-win64.zip", "browser_download_url": "http://x/r"}]},
     {"tag_name": "0.9.0", "name": "old", "prerelease": False, "assets": []},
 ]
 

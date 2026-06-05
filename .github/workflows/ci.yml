@@ -190,7 +190,7 @@ jobs:
           name: PIVOT v${{ env.PIVOT_VERSION }} (prerelease)
           prerelease: true
           target_commitish: ${{ github.event.pull_request.head.sha }}
-          files: dist-artifacts/RadioTrainer-*
+          files: dist-artifacts/PIVOT-Tactical-*
           fail_on_unmatched_files: true
 
       - name: Comment version ↔ commit on the PR

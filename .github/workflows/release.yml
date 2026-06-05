@@ -65,8 +65,8 @@ jobs:
         run: |
           $ver = "${{ github.ref_name }}"
           if ($ver -notmatch '^v\d') { $ver = "v0.0.0-dev" }
-          $archive = "RadioTrainer-$ver-win64.zip"
-          Compress-Archive -Path dist/RadioTrainer -DestinationPath $archive
+          $archive = "PIVOT-Tactical-$ver-win64.zip"
+          Compress-Archive -Path dist/PIVOT-Tactical -DestinationPath $archive
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
           "$hash  $archive" | Out-File "$archive.sha256" -Encoding ascii -NoNewline
           "ARTIFACT=$archive" | Out-File $env:GITHUB_ENV -Append -Encoding ascii
@@ -77,8 +77,8 @@ jobs:
         run: |
           ver="${{ github.ref_name }}"
           [[ "$ver" =~ ^v[0-9] ]] || ver="v0.0.0-dev"
-          archive="RadioTrainer-$ver-linux-x86_64.tar.gz"
-          tar -czf "$archive" -C dist RadioTrainer
+          archive="PIVOT-Tactical-$ver-linux-x86_64.tar.gz"
+          tar -czf "$archive" -C dist PIVOT-Tactical
           sha256sum "$archive" > "$archive.sha256"
           echo "ARTIFACT=$archive" >> "$GITHUB_ENV"
 
@@ -86,11 +86,11 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RadioTrainer-${{ matrix.artifact }}
+          name: PIVOT-Tactical-${{ matrix.artifact }}
           path: |
-            RadioTrainer-*.zip
-            RadioTrainer-*.tar.gz
-            RadioTrainer-*.sha256
+            PIVOT-Tactical-*.zip
+            PIVOT-Tactical-*.tar.gz
+            PIVOT-Tactical-*.sha256
           if-no-files-found: error
 
       # --- publish to the GitHub Release on a tag ---
@@ -99,8 +99,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            RadioTrainer-*.zip
-            RadioTrainer-*.tar.gz
-            RadioTrainer-*.sha256
+            PIVOT-Tactical-*.zip
+            PIVOT-Tactical-*.tar.gz
+            PIVOT-Tactical-*.sha256
           fail_on_unmatched_files: true
           generate_release_notes: true

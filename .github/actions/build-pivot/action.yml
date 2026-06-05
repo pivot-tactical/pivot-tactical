@@ -51,8 +51,8 @@ runs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        $archive = "RadioTrainer-v$env:PIVOT_VERSION-win64.zip"
-        Compress-Archive -Path dist/RadioTrainer -DestinationPath $archive
+        $archive = "PIVOT-Tactical-v$env:PIVOT_VERSION-win64.zip"
+        Compress-Archive -Path dist/PIVOT-Tactical -DestinationPath $archive
         $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
         "$hash  $archive" | Out-File "$archive.sha256" -Encoding ascii -NoNewline
 
@@ -60,8 +60,8 @@ runs:
       if: runner.os == 'Linux'
       shell: bash
       run: |
-        archive="RadioTrainer-v$PIVOT_VERSION-linux-x86_64.tar.gz"
-        tar -czf "$archive" -C dist RadioTrainer
+        archive="PIVOT-Tactical-v$PIVOT_VERSION-linux-x86_64.tar.gz"
+        tar -czf "$archive" -C dist PIVOT-Tactical
         sha256sum "$archive" > "$archive.sha256"
 
     - name: Upload build artifact
@@ -69,7 +69,7 @@ runs:
       with:
         name: prerelease-${{ inputs.artifact }}
         path: |
-          RadioTrainer-*.zip
-          RadioTrainer-*.tar.gz
-          RadioTrainer-*.sha256
+          PIVOT-Tactical-*.zip
+          PIVOT-Tactical-*.tar.gz
+          PIVOT-Tactical-*.sha256
         if-no-files-found: error

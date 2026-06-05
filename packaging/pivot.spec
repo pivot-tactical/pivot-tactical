@@ -1,7 +1,7 @@
 # PyInstaller spec for PIVOT (spec §9.1, §13.4).
 #
 # Cross-platform: the same spec builds the Windows (.exe) and Linux bundles; the
-# release workflow runs it on each OS and packages dist/RadioTrainer/ as a
+# release workflow runs it on each OS and packages dist/PIVOT-Tactical/ as a
 # win64 .zip or a linux-x86_64 .tar.gz.
 #
 # Built in --onedir mode so the one LGPL component, libsndfile (LGPL-2.1, via
@@ -14,7 +14,7 @@
 # the binary (§13.8).
 #
 #   Build:  pyinstaller packaging/pivot.spec
-#   Output: dist/RadioTrainer/RadioTrainer(.exe)
+#   Output: dist/PIVOT-Tactical/PIVOT-Tactical(.exe)
 
 import os
 from pathlib import Path
@@ -64,7 +64,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="RadioTrainer",
+    name="PIVOT-Tactical",
     console=True,  # headless server: log to the console; the UI is in the browser
     icon=None,
 )
@@ -72,5 +72,5 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    name="RadioTrainer",  # dist/RadioTrainer/ — onedir keeps libsndfile swappable (§13.4)
+    name="PIVOT-Tactical",  # dist/PIVOT-Tactical/ — onedir keeps libsndfile swappable (§13.4)
 )

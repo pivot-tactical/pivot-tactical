@@ -21,8 +21,8 @@ PIVOT is packaged with PyInstaller in `--onedir` mode so the native libraries
 remain separate, replaceable files:
 
 ```
-RadioTrainer/
-├─ RadioTrainer(.exe)
+PIVOT-Tactical/
+├─ PIVOT-Tactical(.exe)
 ├─ _internal/
 │  ├─ _soundfile_data/         # libsndfile shared library
 │  │   └─ libsndfile.{dll,so,dylib}
@@ -39,7 +39,7 @@ to a temporary directory at runtime, which still preserves replaceability.)
    against. Build instructions: <https://github.com/libsndfile/libsndfile>.
 2. Replace the shared library shipped under `_internal/_soundfile_data/` (or your
    platform's equivalent location) with your build, keeping the same filename.
-3. Launch `RadioTrainer`. `soundfile` loads libsndfile by name at import time, so
+3. Launch `PIVOT-Tactical`. `soundfile` loads libsndfile by name at import time, so
    a compatible replacement is picked up without rebuilding PIVOT.
 
 ## Rebuilding PIVOT from source instead
@@ -49,10 +49,10 @@ If you prefer to rebuild the whole application against your own libsndfile:
 ```bash
 pip install -r server/requirements.txt          # installs soundfile/libsndfile
 cd frontend && npm ci && npm run build && cd ..
-pyinstaller packaging/pivot.spec                 # produces dist/RadioTrainer/
+pyinstaller packaging/pivot.spec                 # produces dist/PIVOT-Tactical/
 ```
 
-The produced `dist/RadioTrainer/` tree has the same swappable layout shown above.
+The produced `dist/PIVOT-Tactical/` tree has the same swappable layout shown above.
 
 ## What you may NOT do
 

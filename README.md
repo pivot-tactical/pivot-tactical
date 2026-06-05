@@ -28,24 +28,24 @@ nothing for trainees to set up.
 
 ### Windows
 
-1. Download `RadioTrainer-vX.Y.Z-win64.zip` from the [Releases](../../releases) page.
-2. Unzip it anywhere (e.g. the desktop) and run **`RadioTrainer.exe`**.
+1. Download `PIVOT-Tactical-vX.Y.Z-win64.zip` from the [Releases](../../releases) page.
+2. Unzip it anywhere (e.g. the desktop) and run **`PIVOT-Tactical.exe`**.
 
 ### Linux (x86_64)
 
 Runs on common glibc-based distributions — Ubuntu 22.04+, Debian 12+, Fedora 36+,
 Linux Mint 21+, Pop!_OS and similar.
 
-1. Download `RadioTrainer-vX.Y.Z-linux-x86_64.tar.gz` from the [Releases](../../releases) page.
+1. Download `PIVOT-Tactical-vX.Y.Z-linux-x86_64.tar.gz` from the [Releases](../../releases) page.
 2. Extract and run it:
 
    ```bash
-   tar -xzf RadioTrainer-vX.Y.Z-linux-x86_64.tar.gz
-   ./RadioTrainer/RadioTrainer
+   tar -xzf PIVOT-Tactical-vX.Y.Z-linux-x86_64.tar.gz
+   ./PIVOT-Tactical/PIVOT-Tactical
    ```
 
    On a headless server (no desktop), start the server only with
-   `./RadioTrainer/RadioTrainer --headless`.
+   `./PIVOT-Tactical/PIVOT-Tactical --headless`.
 
 ### Then
 

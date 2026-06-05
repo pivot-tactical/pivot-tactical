@@ -65,23 +65,23 @@ def _release_data():
         "body": "notes",
         "assets": [
             {
-                "name": "RadioTrainer-v1.2.0-linux-x86_64.tar.gz",
+                "name": "PIVOT-Tactical-v1.2.0-linux-x86_64.tar.gz",
                 "browser_download_url": "http://x/linux",
             },
-            {"name": "RadioTrainer-v1.2.0-win64.zip", "browser_download_url": "http://x/win"},
+            {"name": "PIVOT-Tactical-v1.2.0-win64.zip", "browser_download_url": "http://x/win"},
         ],
     }
 
 
 def test_release_from_github_picks_win64_zip():
     r = Release.from_github(_release_data(), asset_pattern="win64")
-    assert r.asset_name == "RadioTrainer-v1.2.0-win64.zip"
+    assert r.asset_name == "PIVOT-Tactical-v1.2.0-win64.zip"
     assert r.asset_url == "http://x/win"
 
 
 def test_release_from_github_picks_linux_tarball():
     r = Release.from_github(_release_data(), asset_pattern="linux-x86_64")
-    assert r.asset_name == "RadioTrainer-v1.2.0-linux-x86_64.tar.gz"
+    assert r.asset_name == "PIVOT-Tactical-v1.2.0-linux-x86_64.tar.gz"
     assert r.asset_url == "http://x/linux"
 
 
@@ -113,7 +113,7 @@ def test_retained_versions_and_rollback(tmp_path):
     versions = tmp_path / "versions"
     install = tmp_path / "install"
     install.mkdir()
-    (install / "RadioTrainer.exe").write_text("v1")
+    (install / "PIVOT-Tactical.exe").write_text("v1")
 
     mgr = UpdateManager("1.0.0", versions_dir=versions, retained_count=3)
     assert mgr.can_rollback() is False
@@ -161,7 +161,7 @@ def test_pending_marker_roundtrip(tmp_path):
 
 
 def test_offline_import_verification(tmp_path):
-    pkg = tmp_path / "RadioTrainer-v1.1.0-win64.zip"
+    pkg = tmp_path / "PIVOT-Tactical-v1.1.0-win64.zip"
     pkg.write_bytes(b"PIVOT package bytes")
     import hashlib
 
