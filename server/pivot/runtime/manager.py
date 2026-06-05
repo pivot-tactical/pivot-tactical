@@ -484,16 +484,22 @@ class SessionManager:
             relative_audio_path,
             write_recording,
         )
+        from pivot.db.models import TranscriptionStatus
 
         conditions = self.band_profile.conditions_at(acc.frequency_hz)
         rel_path = relative_audio_path(self.current_session_id, acc.event_id)
         dur = 0
-        if clean is not None and clean.size:
+        has_audio = clean is not None and clean.size > 0
+        if has_audio:
             path = event_audio_path(
                 self.settings.recordings_dir, self.current_session_id, acc.event_id
             )
             write_recording(path, clean, RECORDING_SAMPLE_RATE)
             dur = duration_ms(clean, RECORDING_SAMPLE_RATE)
+
+        # No audio captured → terminal "Skipped" so the UI doesn't sit on
+        # "transcribing…"; otherwise Pending for the async worker.
+        status = TranscriptionStatus.PENDING if has_audio else TranscriptionStatus.SKIPPED
 
         with self.db.session() as s:
             row = repo.create_event(
@@ -510,12 +516,13 @@ class SessionManager:
                 duration_ms=dur,
                 audio_path=rel_path,
                 dsp_profile=conditions.to_dict(),
+                transcription_status=status,
             )
             result = row.to_dict()
 
         # Queue async transcription (never blocks live audio, §3.5.2). Only when
         # there is audio to transcribe.
-        if self.transcription_worker is not None and clean is not None and clean.size:
+        if self.transcription_worker is not None and has_audio:
             self.transcription_worker.enqueue(acc.event_id)
         return result
 

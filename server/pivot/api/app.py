@@ -96,6 +96,13 @@ def create_app(settings: Settings | None = None, manager: SessionManager | None 
         app.state.auth = AuthService(app.state.manager.db)
         app.state.auth.ensure_default()
 
+        # Reconcile any events stuck on "transcribing…" with no recording on
+        # disk (e.g. logged before audio capture) so they show a terminal state.
+        from pivot.db import repository as repo
+
+        with app.state.manager.db.session() as s:
+            repo.reconcile_orphan_transcriptions(s, cfg.recordings_dir)
+
         # Async transcription worker — only started if faster-whisper is present
         # (the live event log still works without it; transcripts stay pending).
         worker = _maybe_start_transcription(app.state.manager, cfg)

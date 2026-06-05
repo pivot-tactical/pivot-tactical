@@ -45,6 +45,15 @@ def test_plain_tx_to_listener_is_heard_and_recorded(manager):
     assert path.exists()
 
 
+def test_event_without_audio_is_skipped_not_pending(manager):
+    # No captured audio -> transcription is terminal (Skipped), not stuck Pending.
+    manager.start_session("EX")
+    manager.login("ALPHA", "t-1")
+    manager.ptt_start("t-1")
+    event = manager.ptt_end("t-1")  # no audio argument
+    assert event["transcription_status"] == "Skipped"
+
+
 def test_transmission_with_no_listeners_is_unheard(manager):
     manager.start_session("EX")
     manager.login("ALPHA", "t-1")

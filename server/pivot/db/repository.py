@@ -122,11 +122,13 @@ def create_event(
     audio_path: str,
     dsp_profile: dict,
     event_id: str | None = None,
+    transcription_status: TranscriptionStatus = TranscriptionStatus.PENDING,
 ) -> EventRow:
     """Insert a recorded transmission event (spec §3.5.3).
 
-    Transcription fields start ``Pending``; the async worker fills them in
-    (§3.5.2) without blocking live audio.
+    Transcription starts ``Pending`` when there is audio for the async worker to
+    process (§3.5.2); callers pass ``Skipped`` when no audio was captured so the
+    event does not sit on "transcribing…" forever.
     """
     row = EventRow(
         event_id=event_id or new_uuid(),
@@ -143,10 +145,30 @@ def create_event(
         dsp_profile_json=json.dumps(dsp_profile),
         transcription=None,
         transcription_confidence=None,
-        transcription_status=TranscriptionStatus.PENDING,
+        transcription_status=transcription_status,
     )
     session.add(row)
     return row
+
+
+def reconcile_orphan_transcriptions(session: Session, recordings_dir) -> int:
+    """Mark any ``Pending`` event whose recording is missing as ``Skipped``.
+
+    Cleans up events logged before audio capture existed (or any keying that
+    produced no file), so the UI shows a terminal state instead of "transcribing…".
+    Returns the number of rows changed.
+    """
+    from pathlib import Path
+
+    changed = 0
+    pending = session.scalars(
+        select(EventRow).where(EventRow.transcription_status == TranscriptionStatus.PENDING)
+    ).all()
+    for row in pending:
+        if not (Path(recordings_dir) / row.audio_path).exists():
+            row.transcription_status = TranscriptionStatus.SKIPPED
+            changed += 1
+    return changed
 
 
 def list_events(session: Session, session_id: str) -> list[EventRow]:

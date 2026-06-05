@@ -155,6 +155,30 @@ def test_instructor_radio_crud(database):
         assert repo.list_instructor_radios(s) == []
 
 
+def test_reconcile_orphan_transcriptions(database, settings):
+    with database.session() as s:
+        sess = repo.start_session(s, "S")
+        ev = repo.create_event(
+            s,
+            session_id=sess.id,
+            trainee_name="A",
+            frequency="14.250 MHz",
+            band_region="High HF",
+            tx_mode=RadioMode.PLAIN,
+            audibility=Audibility.HEARD,
+            sync_status=SyncStatus.COMPLETED,
+            timestamp_start="2026-06-05T12:00:00+00:00",
+            duration_ms=0,
+            audio_path="missing/none.wav",  # no file on disk -> Pending orphan
+            dsp_profile={},
+        )
+        eid = ev.event_id
+    with database.session() as s:
+        assert repo.reconcile_orphan_transcriptions(s, settings.recordings_dir) == 1
+    with database.session() as s:
+        assert repo.get_event(s, eid).transcription_status is TranscriptionStatus.SKIPPED
+
+
 def test_migration_boundary_check():
     assert crosses_migration_boundary(2, 1) is True
     assert crosses_migration_boundary(1, 1) is False
