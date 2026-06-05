@@ -81,8 +81,10 @@ jobs:
         # summary; the enforced denylist gate is the Python scan in the backend job.
         run: npx --yes license-checker --production --summary --excludePrivatePackages || true
 
-  # Detect whether a PR commit changed anything worth building (skip a 20-min
-  # native build for doc-only commits).
+  # A prerelease is built only when a commit actually changes the app or its
+  # build. This is an ALLOWLIST: it ignores test files, CI/workflows, agentic
+  # tool logs (.claude/**), docs, LICENSE/NOTICE — anything that doesn't change
+  # what gets shipped.
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -99,10 +101,14 @@ jobs:
           if [ -z "$base" ] || [ -z "$head" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          if git diff --name-only "$base" "$head" \
-               | grep -vqE '\.md$|^LICENSE$|^NOTICE$|^REBUILD-LGPL\.md$'; then
+          # Paths that affect the shipped application or how it is built.
+          # NB: server/pivot/** is app code; server/tests/** is intentionally
+          # excluded, as are .github/**, .claude/**, *.md, etc.
+          allow='^(server/pivot/|server/requirements\.txt$|server/pyproject\.toml$|frontend/src/|frontend/index\.html$|frontend/package(-lock)?\.json$|frontend/vite\.config\.ts$|frontend/tsconfig|packaging/)'
+          if git diff --name-only "$base" "$head" | grep -qE "$allow"; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
+            echo "code=false (no app/build files changed)" >&2
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
 
