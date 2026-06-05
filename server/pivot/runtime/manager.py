@@ -80,6 +80,9 @@ class SessionManager:
         self.terminals: dict[str, TerminalInfo] = {}
         self._active_tx: dict[str, _TxAccumulator] = {}
         self._subscribers: set[asyncio.Queue] = set()
+        # Optional async transcription worker (§3.5.2). Attached by the app when
+        # the transcription extra is available; events are queued on PTT release.
+        self.transcription_worker = None
 
     # -- pub/sub ----------------------------------------------------------- #
 
@@ -476,6 +479,11 @@ class SessionManager:
                 dsp_profile=conditions.to_dict(),
             )
             result = row.to_dict()
+
+        # Queue async transcription (never blocks live audio, §3.5.2). Only when
+        # there is audio to transcribe.
+        if self.transcription_worker is not None and clean is not None and clean.size:
+            self.transcription_worker.enqueue(acc.event_id)
         return result
 
     def _load_instructor_radios(self, s) -> None:

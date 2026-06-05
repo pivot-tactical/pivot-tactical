@@ -1,0 +1,246 @@
+"""Update policy + orchestration (spec §3.7).
+
+Pure functions cover the parts that must be exactly right and are easy to test:
+
+* :func:`order_releases` — semantic-version ordering of GitHub release tags
+  (§3.7.3).
+* :func:`filter_channel` — Stable-only vs Include-prereleases (§3.7.3, §3.7.8).
+* :func:`classify_release` — newer / current / older relative to the running
+  build (§3.7.4).
+* :func:`verify_sha256` — mandatory checksum verification before any swap
+  (§3.7.5, §8.4).
+
+:class:`UpdateManager` ties these together and owns the retained-versions store
+for instant rollback (§3.7.7). Network fetches and the Windows staged swap are
+isolated behind small methods so the policy above stays import-light and the
+training runtime never pulls in HTTP code.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import shutil
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+
+from pivot.version import SemVer
+
+
+class ReleaseStanding(str, Enum):
+    NEWER = "newer"
+    CURRENT = "current"
+    OLDER = "older"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class Release:
+    """A GitHub release, normalised from the REST API (§3.7.3)."""
+
+    tag: str
+    name: str = ""
+    published_at: str = ""
+    prerelease: bool = False
+    body: str = ""
+    asset_url: str = ""
+    asset_name: str = ""
+    sha256: str = ""
+
+    @property
+    def semver(self) -> SemVer | None:
+        return SemVer.try_parse(self.tag)
+
+    @classmethod
+    def from_github(cls, data: dict, asset_pattern: str = "win64") -> "Release":
+        """Build from a GitHub releases API element (§3.7.3)."""
+        asset_url = asset_name = ""
+        for asset in data.get("assets", []):
+            name = asset.get("name", "")
+            if asset_pattern in name and name.endswith(".zip"):
+                asset_url = asset.get("browser_download_url", "")
+                asset_name = name
+                break
+        return cls(
+            tag=data.get("tag_name", ""),
+            name=data.get("name", "") or data.get("tag_name", ""),
+            published_at=data.get("published_at", ""),
+            prerelease=bool(data.get("prerelease", False)),
+            body=data.get("body", "") or "",
+            asset_url=asset_url,
+            asset_name=asset_name,
+        )
+
+
+@dataclass
+class UpdatePlan:
+    """A resolved intent to move to ``target`` from ``current`` (§3.7.5)."""
+
+    target: Release
+    current_version: str
+    standing: ReleaseStanding
+    crosses_schema_boundary: bool = False
+    warnings: list[str] = field(default_factory=list)
+
+
+def order_releases(releases: list[Release]) -> list[Release]:
+    """Newest first by semantic version; unparseable tags sort last (§3.7.3)."""
+    def key(r: Release):
+        sv = r.semver
+        return (0, sv) if sv is not None else (1, SemVer(0, 0, 0))
+
+    parseable = [r for r in releases if r.semver is not None]
+    unparseable = [r for r in releases if r.semver is None]
+    parseable.sort(key=lambda r: r.semver, reverse=True)
+    return parseable + unparseable
+
+
+def filter_channel(releases: list[Release], include_prereleases: bool) -> list[Release]:
+    """Stable-only (default) drops prereleases; otherwise keep all (§3.7.8)."""
+    if include_prereleases:
+        return list(releases)
+    return [r for r in releases if not r.prerelease]
+
+
+def classify_release(release: Release, current: SemVer) -> ReleaseStanding:
+    """newer / current / older relative to the running build (§3.7.4)."""
+    sv = release.semver
+    if sv is None:
+        return ReleaseStanding.UNKNOWN
+    if sv > current:
+        return ReleaseStanding.NEWER
+    if sv < current:
+        return ReleaseStanding.OLDER
+    return ReleaseStanding.CURRENT
+
+
+def verify_sha256(path: Path, expected_hex: str) -> bool:
+    """Verify a downloaded package against its published SHA-256 (§3.7.5)."""
+    if not expected_hex:
+        return False
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest().lower() == expected_hex.strip().lower()
+
+
+def sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+class UpdateManager:
+    """Coordinates checks, retained versions and rollback (§3.7).
+
+    Pure-policy by default; ``releases_provider`` (a callable returning raw
+    GitHub JSON) is injected so the network layer is swappable and testable, and
+    so air-gapped builds can omit it entirely (offline import only).
+    """
+
+    def __init__(
+        self,
+        current_version: str,
+        versions_dir: Path,
+        retained_count: int = 3,
+        include_prereleases: bool = False,
+        releases_provider=None,
+    ) -> None:
+        self.current_version = current_version
+        self.versions_dir = Path(versions_dir)
+        self.retained_count = retained_count
+        self.include_prereleases = include_prereleases
+        self._releases_provider = releases_provider
+
+    # -- discovery --------------------------------------------------------- #
+
+    def list_releases(self, raw: list[dict] | None = None) -> list[Release]:
+        """Return channel-filtered, newest-first releases (§3.7.3)."""
+        data = raw if raw is not None else (self._releases_provider() if self._releases_provider else [])
+        releases = [Release.from_github(d) for d in data]
+        releases = filter_channel(releases, self.include_prereleases)
+        return order_releases(releases)
+
+    def available_updates(self, raw: list[dict] | None = None) -> list[Release]:
+        cur = SemVer.parse(self.current_version)
+        return [r for r in self.list_releases(raw) if classify_release(r, cur) is ReleaseStanding.NEWER]
+
+    def plan(self, target: Release, schema_versions: tuple[int, int] | None = None) -> UpdatePlan:
+        """Build an :class:`UpdatePlan`, warning on a schema-boundary downgrade."""
+        cur = SemVer.parse(self.current_version)
+        standing = classify_release(target, cur)
+        warnings: list[str] = []
+        crosses = False
+        if standing is ReleaseStanding.OLDER and schema_versions is not None:
+            from pivot.db.migrations import crosses_migration_boundary
+
+            crosses = crosses_migration_boundary(schema_versions[0], schema_versions[1])
+            if crosses:
+                warnings.append(
+                    "This downgrade crosses a database schema migration. A one-off "
+                    "data backup is recommended before proceeding (spec §3.7.9)."
+                )
+        return UpdatePlan(
+            target=target,
+            current_version=self.current_version,
+            standing=standing,
+            crosses_schema_boundary=crosses,
+            warnings=warnings,
+        )
+
+    # -- retained versions / rollback (§3.7.7) ----------------------------- #
+
+    def retained_versions(self) -> list[str]:
+        if not self.versions_dir.is_dir():
+            return []
+        tags = [p.name for p in self.versions_dir.iterdir() if p.is_dir()]
+        # Newest semver first; non-semver names sorted last.
+        tags.sort(key=lambda t: SemVer.try_parse(t) or SemVer(0, 0, 0), reverse=True)
+        return tags
+
+    def retain_current(self, install_dir: Path, tag: str) -> Path:
+        """Copy the current install into the retained store before a swap (§3.7.7)."""
+        self.versions_dir.mkdir(parents=True, exist_ok=True)
+        dest = self.versions_dir / tag
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(install_dir, dest)
+        self._prune_retained()
+        return dest
+
+    def _prune_retained(self) -> None:
+        tags = self.retained_versions()
+        for stale in tags[self.retained_count :]:
+            shutil.rmtree(self.versions_dir / stale, ignore_errors=True)
+
+    def can_rollback(self) -> bool:
+        return len(self.retained_versions()) > 0
+
+    def previous_version(self) -> str | None:
+        """The most recent retained version (the instant-rollback target)."""
+        retained = self.retained_versions()
+        return retained[0] if retained else None
+
+    # -- offline import (§3.7.6) ------------------------------------------- #
+
+    def verify_import_package(self, package: Path, expected_sha256: str) -> bool:
+        """Verify a manually-transferred package before applying it (§3.7.6)."""
+        return verify_sha256(package, expected_sha256)
+
+    # -- pending-update marker (§3.7.5) ------------------------------------ #
+
+    def write_pending_marker(self, marker_path: Path, target_tag: str, staging: Path) -> None:
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+        marker_path.write_text(json.dumps({"target": target_tag, "staging": str(staging)}))
+
+    def read_pending_marker(self, marker_path: Path) -> dict | None:
+        if not marker_path.exists():
+            return None
+        try:
+            return json.loads(marker_path.read_text())
+        except (ValueError, OSError):
+            return None
