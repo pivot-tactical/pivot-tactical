@@ -100,6 +100,36 @@ def test_instructor_login_and_authenticated_admin(raw_client):
     assert raw_client.get("/api/admin/terminals", headers=headers).status_code == 200
 
 
+def test_restart_unavailable_in_dev_run_mode(client):
+    # No server host wired app.state.request_restart (TestClient) -> 503.
+    r = client.post("/api/admin/restart", json={})
+    assert r.status_code == 503
+
+
+def test_restart_refused_during_session(client):
+    client.app.state.manager.start_session("EX")
+    r = client.post("/api/admin/restart", json={"force": False})
+    assert r.status_code == 409
+
+
+def test_restart_forced_during_session_when_wired(client):
+    called: list[bool] = []
+    client.app.state.request_restart = lambda: called.append(True)
+    client.app.state.manager.start_session("EX")
+    r = client.post("/api/admin/restart", json={"force": True})
+    assert r.status_code == 200
+    assert r.json()["restarting"] is True
+
+
+def test_restart_ok_when_wired(client):
+    client.app.state.request_restart = lambda: None
+    r = client.post("/api/admin/restart", json={})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["restarting"] is True
+    assert "mode" in body
+
+
 def test_change_password_and_relogin(raw_client):
     token = raw_client.post(
         "/api/login", json={"role": "instructor", "password": DEFAULT_INSTRUCTOR_PASSWORD}

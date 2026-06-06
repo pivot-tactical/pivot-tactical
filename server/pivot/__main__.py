@@ -55,6 +55,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # starting, swapping any staged update into place while the app is stopped.
     p.add_argument("--apply-staged", action="store_true",
                    help="apply a staged update and exit (used by the service)")
+    # Detached relaunch helper (packaged exe with no supervisor): wait for the
+    # given pid to exit, apply any staged update, then start the app again.
+    p.add_argument("--relaunch-after", type=int, default=None,
+                   help=argparse.SUPPRESS)
     p.add_argument("--version", action="store_true", help="print version and exit")
     return p.parse_args(argv)
 
@@ -88,7 +92,26 @@ def _settings_from_args(args: argparse.Namespace) -> Settings:
 
 def run_server(settings: Settings, manager: SessionManager) -> None:
     app = create_app(settings, manager=manager)
-    uvicorn.run(app, host=settings.host, port=settings.port, log_level="info")
+    config = uvicorn.Config(app, host=settings.host, port=settings.port, log_level="info")
+    server = uvicorn.Server(config)
+
+    # Let the browser restart endpoint stop us gracefully. We record the intent
+    # so that, once uvicorn has shut down cleanly, we relaunch (or let the
+    # supervisor do it) — applying any staged update on the way back up (§3.7.5).
+    def request_restart() -> None:
+        app.state.restart_requested = True
+        server.should_exit = True
+
+    app.state.request_restart = request_restart
+    app.state.restart_requested = False
+
+    server.run()
+
+    if getattr(app.state, "restart_requested", False):
+        from pivot.runtime.lifecycle import perform_relaunch
+
+        print("Restart requested — bringing PIVOT back up…")
+        perform_relaunch()
 
 
 def _install_dir() -> Path:
@@ -112,6 +135,24 @@ def _apply_staged(settings: Settings) -> int:
     return 0
 
 
+def _relaunch_after(pid: int, settings: Settings) -> int:
+    """Wait for ``pid`` to exit, apply any staged update, then start the app.
+
+    The detached helper a browser-initiated restart spawns on platforms without
+    a supervisor (the packaged Windows exe). Running the swap only after the old
+    process is gone lets the install files be replaced safely (§3.7.5).
+    """
+    import subprocess
+
+    from pivot.runtime.lifecycle import wait_for_exit
+
+    wait_for_exit(pid)
+    _apply_staged(settings)
+    # Start the freshly-applied app again (default args: tray on Windows).
+    subprocess.Popen([sys.executable], close_fds=True)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.version:
@@ -121,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
     settings = _settings_from_args(args)
     if args.apply_staged:
         return _apply_staged(settings)
+    if args.relaunch_after is not None:
+        return _relaunch_after(args.relaunch_after, settings)
     db = init_database(settings)
     manager = SessionManager(db, settings)
 

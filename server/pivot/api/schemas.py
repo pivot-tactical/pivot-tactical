@@ -74,6 +74,16 @@ class ApplyUpdateRequest(BaseModel):
     asset_name: str
 
 
+class RestartRequest(BaseModel):
+    """Instructor-initiated server restart (§3.7.5).
+
+    ``force`` overrides the guard that refuses to restart while a training
+    session is live (so a staged update is not applied out from under trainees).
+    """
+
+    force: bool = False
+
+
 class ScenarioRequest(BaseModel):
     """Instructor scenario controls (§3.1.5). All fields optional; set what you
     want to change in one call."""

@@ -180,6 +180,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ tag, asset_url: assetUrl, sha256_url: sha256Url, asset_name: assetName }),
     }),
+  // Restart the server (applies a staged update on the way back up). `force`
+  // overrides the guard that refuses to restart while a session is live.
+  restartServer: (force = false) =>
+    jsonFetch<{ restarting: boolean; mode: string; staged: string | null }>(
+      "/api/admin/restart",
+      { method: "POST", body: JSON.stringify({ force }) }
+    ),
 
   // --- instructor: AAR / history ---
   sessions: () => jsonFetch<SessionSummary[]>("/api/sessions"),

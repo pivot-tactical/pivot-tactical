@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, getToken } from "../api";
 import type { UpdateStatus } from "../api";
 import { AudioIO, playClick, playSyncTone } from "../audio";
+import { ConnectionBanner } from "../components/ConnectionBanner";
+import type { ConnState } from "../components/ConnectionBanner";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
 import type { EventRow, RadioState, Terminal, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
@@ -25,11 +27,33 @@ export function InstructorConsole({
   const [events, setEvents] = useState<EventRow[]>([]);
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionName, setSessionName] = useState("");
+  const [conn, setConn] = useState<ConnState>("online");
+  const restartingRef = useRef(false);
+  const restartPollRef = useRef<number | undefined>(undefined);
   const socketRef = useRef<PivotSocket | null>(null);
   const audio = useRef(new AudioIO());
 
+  // Poll the server until it answers again, then reload to pick up the (possibly
+  // updated) frontend and a clean session. Started once the socket has dropped.
+  function startRestartPoll() {
+    if (restartPollRef.current !== undefined) return;
+    restartPollRef.current = window.setInterval(() => {
+      api.status()
+        .then(() => {
+          window.clearInterval(restartPollRef.current);
+          window.location.reload();
+        })
+        .catch(() => {});
+    }, 1500);
+  }
+
   useEffect(() => {
     const sock = new PivotSocket({ token: getToken() || "" });
+    sock.on("open", () => setConn("online"));
+    sock.on("close", () => {
+      if (restartingRef.current) { setConn("restarting"); startRestartPoll(); }
+      else setConn("offline");
+    });
     sock.on("instructor_radios", (p) => setRadios(p));
     sock.on("terminal_update", (p) => setTerminals((p.terminals || []).filter((t: Terminal) => !t.is_instructor)));
     sock.on("event_logged", (ev) => setEvents((prev) => [ev, ...prev].slice(0, 200)));
@@ -57,8 +81,17 @@ export function InstructorConsole({
     return () => {
       sock.disconnect();
       io.close();
+      window.clearInterval(restartPollRef.current);
     };
   }, []);
+
+  // Settings → Restart server flips us into the reconnecting state; the socket
+  // close handler then starts polling for the server to come back.
+  function enterRestarting() {
+    restartingRef.current = true;
+    setConn("restarting");
+    startRestartPoll();
+  }
 
   async function toggleSession() {
     if (sessionActive) {
@@ -72,6 +105,7 @@ export function InstructorConsole({
 
   return (
     <div className="console">
+      <ConnectionBanner state={conn} />
       <header className="console__bar">
         <div className="console__brand mono">PIVOT · INSTRUCTOR</div>
         <div className="console__session">
@@ -103,7 +137,7 @@ export function InstructorConsole({
         {tab === "log" && <LiveLogTab events={events} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
         {tab === "scenario" && <ScenarioTab />}
-        {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} socket={socketRef.current} />}
+        {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} socket={socketRef.current} onRestart={enterRestarting} sessionActive={sessionActive} />}
       </main>
     </div>
   );
@@ -328,8 +362,9 @@ function ScenarioTab() {
   );
 }
 
-function SettingsTab({ mustChangePassword, onTimezone, socket }: {
+function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessionActive }: {
   mustChangePassword: boolean; onTimezone: (tz: string) => void; socket: PivotSocket | null;
+  onRestart: () => void; sessionActive: boolean;
 }) {
   const [cfg, setCfg] = useState<Record<string, any>>({});
   const [saved, setSaved] = useState(false);
@@ -340,6 +375,23 @@ function SettingsTab({ mustChangePassword, onTimezone, socket }: {
   const [applying, setApplying] = useState<string | null>(null);
   const [staged, setStaged] = useState<string | null>(null);
   const [applyErr, setApplyErr] = useState<string | null>(null);
+  const [restartErr, setRestartErr] = useState<string | null>(null);
+
+  async function restart(force: boolean) {
+    setRestartErr(null);
+    try {
+      await api.restartServer(force);
+      onRestart();
+    } catch (e: any) {
+      const msg = String(e?.message ?? "");
+      // 409 = a session is running; offer to force.
+      if (msg.startsWith("409")) {
+        setRestartErr("A session is running. Use “Restart anyway” to apply now and disconnect trainees.");
+      } else {
+        setRestartErr(msg || "Restart failed.");
+      }
+    }
+  }
 
   function absorb(result: UpdateStatus) {
     setUpd(result);
@@ -544,6 +596,34 @@ function SettingsTab({ mustChangePassword, onTimezone, socket }: {
           </div>
         ))}
         {applyErr && <p className="login__hint mt">{applyErr}</p>}
+
+        {/* Restart from the browser: applies a staged update on the way back up,
+            and is useful on its own. WinSparkle drives its own restart, so the
+            button is hidden in that mode. */}
+        {upd?.updater !== "winsparkle" && (() => {
+          const hasStaged = !!(staged || upd?.auto_staged);
+          return (
+            <div className="row gap mt" style={{ alignItems: "center" }}>
+              <button
+                className={`btn ${hasStaged ? "btn--primary" : ""}`}
+                onClick={() => restart(false)}
+              >
+                {hasStaged ? "Restart now to apply" : "Restart server"}
+              </button>
+              {restartErr && (
+                <button className="btn btn--danger" onClick={() => restart(true)}>
+                  Restart anyway
+                </button>
+              )}
+            </div>
+          );
+        })()}
+        {restartErr && <p className="login__hint mt">{restartErr}</p>}
+        {sessionActive && !restartErr && (
+          <p className="muted mt" style={{ fontSize: "0.85em" }}>
+            A session is running — restarting will disconnect trainees, so it’s guarded.
+          </p>
+        )}
 
         {/* One concise mechanism note (not repeated above). */}
         <p className="muted mt" style={{ fontSize: "0.85em" }}>

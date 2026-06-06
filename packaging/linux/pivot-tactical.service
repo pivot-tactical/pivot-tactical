@@ -21,7 +21,10 @@ Environment=PIVOT_VERSIONS_DIR=/var/lib/pivot-tactical/versions
 # self-update needs no root.
 ExecStartPre=/opt/pivot-tactical/PIVOT-Tactical --apply-staged
 ExecStart=/opt/pivot-tactical/PIVOT-Tactical --no-tray
-Restart=on-failure
+# Always relaunch on exit (except an explicit `systemctl stop`), so a
+# browser-initiated restart comes straight back — and ExecStartPre applies any
+# staged update on the way up. `systemctl stop` still stops cleanly.
+Restart=always
 RestartSec=2
 # Modest hardening for a LAN service.
 NoNewPrivileges=true

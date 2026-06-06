@@ -19,6 +19,7 @@ from pivot.api.schemas import (
     ModeRequest,
     PasswordChangeRequest,
     RadioResponse,
+    RestartRequest,
     ScenarioRequest,
     SessionResponse,
     StartSessionRequest,
@@ -513,6 +514,56 @@ def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) ->
         "staging": str(staging_dir),
         "restart_required": True,
     }
+
+
+@router.post("/admin/restart", dependencies=[Depends(require_instructor)])
+def admin_restart(
+    request: Request,
+    req: RestartRequest | None = None,
+    manager=Depends(get_manager),
+) -> dict:
+    """Restart the server from the browser (spec §3.7.5).
+
+    Mainly used to apply a staged update without reaching the server console:
+    the process stops gracefully and is brought back by its supervisor (systemd)
+    or a detached relauncher (packaged exe), which applies any staged update on
+    the way back up. Refused while a session is live unless ``force`` is set, so
+    trainees are never cut off mid-exercise by accident.
+    """
+    import threading
+    import time as _time
+
+    from pivot.runtime.lifecycle import restart_mode
+
+    req = req or RestartRequest()
+    if manager.session_active and not req.force:
+        raise HTTPException(
+            status_code=409,
+            detail="A training session is running. End it first, or force the restart.",
+        )
+
+    request_restart = getattr(request.app.state, "request_restart", None)
+    mode = restart_mode()
+    if request_restart is None:
+        # No server host wired this up (e.g. dev via TestClient): nothing to do.
+        raise HTTPException(
+            status_code=503,
+            detail="Restart is not available in this run mode.",
+        )
+
+    # Stop just after the response is flushed so the browser gets the ack and can
+    # switch to its reconnecting state before the socket drops.
+    def _go() -> None:
+        _time.sleep(0.4)
+        request_restart()
+
+    threading.Thread(target=_go, name="restart", daemon=True).start()
+
+    from pivot.updates.manager import UpdateManager
+    from pivot.version import version_info
+
+    staged = UpdateManager(version_info.version, manager.settings.versions_dir).staged_tag()
+    return {"restarting": True, "mode": mode, "staged": staged}
 
 
 # --- public status --------------------------------------------------------- #
