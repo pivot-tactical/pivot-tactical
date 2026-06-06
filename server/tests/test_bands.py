@@ -153,16 +153,16 @@ def test_bandpass_narrows_at_low_hf():
     assert low.bandpass_high_hz < vhf.bandpass_high_hz
 
 
-def test_snap_frequency_to_25khz_raster():
+def test_snap_frequency_to_12_5khz_raster():
     from pivot.core.bands import CHANNEL_STEP_HZ, snap_frequency
 
-    assert CHANNEL_STEP_HZ == 25_000
+    assert CHANNEL_STEP_HZ == 12_500
     assert snap_frequency(145_500_000) == 145_500_000  # already on grid
-    assert snap_frequency(145_513_000) == 145_525_000  # snaps up to nearest
-    assert snap_frequency(145_511_000) == 145_500_000  # snaps down to nearest
+    assert snap_frequency(145_510_000) == 145_512_500  # snaps up to nearest
+    assert snap_frequency(145_505_000) == 145_500_000  # snaps down to nearest
     # Any input lands on a valid channel within half a step, and clamps to range.
     for f in (7_106_000, 30_010_000, 243_333_000):
         snapped = snap_frequency(f)
-        assert snapped % 25_000 == 0
-        assert abs(snapped - f) <= 12_500
+        assert snapped % 12_500 == 0
+        assert abs(snapped - f) <= 6_250
     assert snap_frequency(100) == MIN_FREQ_HZ

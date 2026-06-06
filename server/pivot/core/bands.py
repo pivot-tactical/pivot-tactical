@@ -103,7 +103,13 @@ def format_frequency(freq_hz: float) -> str:
             "" if "." in f"{freq_hz / 1e9:.4f}" else ""
         )
     if freq_hz >= 1e6:
-        return f"{freq_hz / 1e6:.3f} MHz"
+        # 4 dp represents 12.5 kHz channels exactly (e.g. "145.5125"); trim one
+        # trailing zero so the common round/25 kHz channels keep the familiar
+        # 3 dp form ("14.250 MHz") operators expect.
+        s = f"{freq_hz / 1e6:.4f}"
+        if s.endswith("0"):
+            s = s[:-1]
+        return f"{s} MHz"
     if freq_hz >= 1e3:
         return f"{freq_hz / 1e3:.3f} kHz"
     return f"{freq_hz:.0f} Hz"
@@ -114,9 +120,9 @@ def clamp_frequency(freq_hz: float) -> float:
     return max(MIN_FREQ_HZ, min(MAX_FREQ_HZ, freq_hz))
 
 
-# 25 kHz channel raster: radios tune only to multiples of this, snapping the
+# 12.5 kHz channel raster: radios tune only to multiples of this, snapping the
 # nearest valid channel when an off-grid frequency is entered.
-CHANNEL_STEP_HZ: float = 25_000.0
+CHANNEL_STEP_HZ: float = 12_500.0
 
 
 def snap_frequency(freq_hz: float, step_hz: float = CHANNEL_STEP_HZ) -> float:

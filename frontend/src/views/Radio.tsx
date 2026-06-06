@@ -9,7 +9,7 @@ import { PivotSocket } from "../ws";
 // PTT control with the IDLE → CRYPTO SYNC → SECURE TX / TX state machine, and a
 // corner seven-segment clock.
 
-const STEP_HZ = 25_000; // tuning step / channel raster (25 kHz)
+const STEP_HZ = 12_500; // tuning step / channel raster (12.5 kHz)
 
 function snapToStep(hz: number): number {
   return Math.round(hz / STEP_HZ) * STEP_HZ;

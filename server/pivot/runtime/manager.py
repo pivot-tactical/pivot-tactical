@@ -231,7 +231,7 @@ class SessionManager:
     # -- tuning & mode ----------------------------------------------------- #
 
     def tune(self, radio_id: str, frequency: str | float) -> dict:
-        # Snap to the nearest valid 25 kHz channel — the server is authoritative,
+        # Snap to the nearest valid 12.5 kHz channel — the server is authoritative,
         # so off-grid frequencies (typed or from any client) are corrected.
         freq_hz = snap_frequency(parse_frequency(frequency))
         radio = self.registry.tune(radio_id, freq_hz)

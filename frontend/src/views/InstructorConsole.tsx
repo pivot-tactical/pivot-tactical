@@ -110,7 +110,7 @@ export function InstructorConsole({
 
 // --------------------------------------------------------------------------- //
 
-const STEP_HZ = 25_000; // tuning step / channel raster (25 kHz)
+const STEP_HZ = 12_500; // tuning step / channel raster (12.5 kHz)
 const fmtMHz = (hz: number) => (hz / 1e6).toFixed(4);
 function snapToStep(hz: number): number {
   return Math.round(hz / STEP_HZ) * STEP_HZ;
