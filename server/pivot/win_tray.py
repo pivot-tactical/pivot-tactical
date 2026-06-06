@@ -3,8 +3,9 @@
 PIVOT has no desktop GUI — the instructor and trainees use a browser over the
 LAN. On Windows we still don't want a console window cluttering the taskbar, so
 the packaged app hides its console and drops a **notification-area (tray) icon**
-instead. The tray menu lets the operator open the UI, copy the LAN address, show
-the log window, or quit.
+instead. Left-click opens the UI in a browser; double-click surfaces the console
+so the log can be read; right-click opens a menu to open the UI, copy the LAN
+address, show/hide the log window, or quit.
 
 This is implemented with pure ``ctypes`` against the Win32 API — no third-party
 dependency, so it adds nothing to the licence surface. It is Windows-only and
@@ -37,7 +38,13 @@ WM_COMMAND = 0x0111
 WM_APP = 0x8000
 WM_TRAYICON = WM_APP + 1
 WM_LBUTTONUP = 0x0202
+WM_LBUTTONDBLCLK = 0x0203
 WM_RBUTTONUP = 0x0205
+
+# Window-class style: deliver double-click messages to the tray callback. Without
+# CS_DBLCLKS Windows only ever sends single-click ups, so a double-click on the
+# icon would never reach _on_message as WM_LBUTTONDBLCLK.
+CS_DBLCLKS = 0x0008
 
 NIM_ADD = 0x0000
 NIM_DELETE = 0x0002
@@ -146,9 +153,12 @@ class TrayApp:
 
     def _on_message(self, hwnd, msg, wparam, lparam):
         if msg == WM_TRAYICON:
-            if lparam in (WM_LBUTTONUP,):
+            if lparam == WM_LBUTTONDBLCLK:
+                # Double-click: surface the console so the log can be read.
+                self._set_console(True)
+            elif lparam == WM_LBUTTONUP:
                 webbrowser.open(self.url)
-            elif lparam in (WM_RBUTTONUP,):
+            elif lparam == WM_RBUTTONUP:
                 self._show_menu()
             return 0
         if msg == WM_COMMAND:
@@ -158,8 +168,7 @@ class TrayApp:
             elif cmd == ID_COPY:
                 _copy_to_clipboard(self.url)
             elif cmd == ID_LOG:
-                self._console_visible = not self._console_visible
-                _show_console(self._console_visible)
+                self._set_console(not self._console_visible)
             elif cmd == ID_QUIT:
                 self._quit()
             return 0
@@ -167,6 +176,11 @@ class TrayApp:
             user32.PostQuitMessage(0)
             return 0
         return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
+
+    def _set_console(self, visible: bool) -> None:
+        """Show or hide the log console window and remember the state."""
+        self._console_visible = visible
+        _show_console(visible)
 
     def _show_menu(self) -> None:
         menu = user32.CreatePopupMenu()
@@ -199,6 +213,7 @@ class TrayApp:
     def _create_window(self) -> None:
         hinst = kernel32.GetModuleHandleW(None)
         wc = _WNDCLASS()
+        wc.style = CS_DBLCLKS  # so the tray icon reports double-clicks
         wc.lpfnWndProc = self._wndproc
         wc.hInstance = hinst
         wc.lpszClassName = "PIVOTTrayWindow"
