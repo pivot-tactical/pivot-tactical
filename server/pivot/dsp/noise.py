@@ -85,3 +85,29 @@ def add_noise_for_snr(
         return voice
     noise_rms_target = sig_rms / (10.0 ** (snr_db / 20.0))
     return (voice + noise * noise_rms_target).astype(np.float32)
+
+
+# Open-squelch idle "hash": the ambient receiver noise floor heard on a tuned
+# channel between transmissions. Its loudness tracks the band — a noisy low-HF
+# or jammed net hisses hard, clean UHF barely whispers — so an operator can tell
+# a live channel from a dead one by ear (§3.2.2). These are RMS amplitudes; the
+# idle floor fades linearly (in SNR) between them.
+IDLE_NOISE_RMS_NOISY = 0.22   # loudest hiss, at/below the low-HF SNR floor
+IDLE_NOISE_RMS_CLEAN = 0.035  # faint hiss on a clean UHF channel
+_IDLE_SNR_FLOOR_DB = 6.0
+_IDLE_SNR_CEIL_DB = 32.0
+
+
+def idle_noise_amplitude(snr_db: float, jammed: bool = False) -> float:
+    """Target RMS for the idle noise floor at a band's ``snr_db`` (§4.1.1).
+
+    Louder on noisy (low-SNR) bands, quieter on clean ones; jamming pins it to
+    the loud end so a jammed net is unmistakably a wall of noise.
+    """
+    span = _IDLE_SNR_CEIL_DB - _IDLE_SNR_FLOOR_DB
+    t = (snr_db - _IDLE_SNR_FLOOR_DB) / span
+    t = min(1.0, max(0.0, t))
+    level = IDLE_NOISE_RMS_NOISY + (IDLE_NOISE_RMS_CLEAN - IDLE_NOISE_RMS_NOISY) * t
+    if jammed:
+        level = max(level, IDLE_NOISE_RMS_NOISY)
+    return level

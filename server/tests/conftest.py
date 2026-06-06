@@ -10,7 +10,10 @@ from pivot.db.database import Database
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(data_dir=tmp_path / "data")
+    # Ambient noise off by default in tests: the broadcaster would otherwise
+    # interleave binary noise frames with the JSON the WebSocket tests read. The
+    # idle-noise policy itself is covered directly in test_idle_noise.py.
+    return Settings(data_dir=tmp_path / "data", ambient_noise=False)
 
 
 @pytest.fixture

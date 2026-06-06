@@ -56,6 +56,10 @@ class Settings(BaseSettings):
 
     sample_rate: int = RECORDING_SAMPLE_RATE
 
+    # Continuous ambient band noise ("hash") on tuned channels (§3.2.2). On by
+    # default for realism; set PIVOT_AMBIENT_NOISE=0 for a silent-when-idle net.
+    ambient_noise: bool = True
+
     # Where retained versions for rollback are stored — alongside the install,
     # NOT inside the data dir (§3.7.7). Resolved relative to the app folder.
     versions_dir: Path = Field(default=Path("versions"))

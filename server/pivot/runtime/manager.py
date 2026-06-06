@@ -345,6 +345,68 @@ class SessionManager:
                     except Exception:  # a slow/closed sink must not break routing
                         pass
 
+    def render_idle_noise_tick(self, frame_samples: int, primed: set[str]) -> None:
+        """Emit one ambient noise-floor frame to every idle listener (§3.2.2).
+
+        Driven ~50×/s by the noise broadcaster on the event loop (open squelch).
+        One frame is generated per active net and sent *identically* to all its
+        idle listeners, so everyone on a frequency hears the same floor and the
+        instructor's recording carries the matching conditions. Nets with a
+        station on-air are skipped — those listeners get the live transmission
+        render (which already carries the band noise) via ``route_tx_frame``.
+
+        ``primed`` is owned by the broadcaster: the first time a radio is seen
+        idle it gets a couple of extra frames to build a small jitter cushion,
+        so the player worklet never underruns into silence between frames.
+        """
+        if not self._audio_sinks:
+            return
+        # Group idle, sink-bound radios by net; keep a representative frequency.
+        groups: dict[int, list[str]] = {}
+        freq_of: dict[int, float] = {}
+        for rid in list(self._audio_sinks.keys()):
+            radio = self.registry.get(rid)
+            if radio is None or radio.transmitting:
+                primed.discard(rid)  # not an idle listener right now
+                continue
+            key = self.registry.net_key(radio.frequency_hz)
+            groups.setdefault(key, []).append(rid)
+            freq_of[key] = radio.frequency_hz
+
+        # At most one idle frame per distinct sink per tick: an instructor binds
+        # several radios to one queue, and N frames/tick would overflow it.
+        sent_sinks: set[int] = set()
+        for key, listeners in groups.items():
+            freq = freq_of[key]
+            if self.registry.active_transmitters_on_net(freq):
+                for rid in listeners:
+                    primed.discard(rid)
+                continue
+            conditions = self.band_profile.conditions_at(freq)
+            data: bytes | None = None  # generated lazily, shared across the net
+            for rid in listeners:
+                sink = self._audio_sinks.get(rid)
+                if sink is None or id(sink) in sent_sinks:
+                    continue
+                if data is None:
+                    data = float32_to_pcm16(self.engine.render_idle_noise(frame_samples, conditions))
+                if rid not in primed:
+                    for _ in range(2):  # prime a ~2-frame cushion on first sight
+                        self._emit_to_sink(
+                            sink,
+                            float32_to_pcm16(self.engine.render_idle_noise(frame_samples, conditions)),
+                        )
+                    primed.add(rid)
+                self._emit_to_sink(sink, data)
+                sent_sinks.add(id(sink))
+
+    @staticmethod
+    def _emit_to_sink(sink, data: bytes) -> None:
+        try:
+            sink(data)
+        except Exception:  # a slow/closed sink must never break the loop
+            pass
+
     def ptt_end(self, radio_id: str, audio: np.ndarray | None = None) -> dict | None:
         """Key up (§3.2.3). Finalise recording + event with audibility."""
         return self._finish_tx(radio_id, SyncStatus.COMPLETED, audio)

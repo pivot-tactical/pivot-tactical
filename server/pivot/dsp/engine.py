@@ -17,7 +17,7 @@ from pivot.core.crypto import Reception
 from pivot.dsp.fading import apply_fading
 from pivot.dsp.filters import bandpass, normalise_rms, soft_clip
 from pivot.dsp.hash_gen import encrypted_hash
-from pivot.dsp.noise import add_noise_for_snr, band_noise, qrm_tones
+from pivot.dsp.noise import add_noise_for_snr, band_noise, idle_noise_amplitude, qrm_tones
 from pivot.dsp.tone import ptt_click, squelch_tail
 
 
@@ -55,6 +55,28 @@ class DspEngine:
             noise = normalise_rms(noise + 0.6 * qrm_tones(x.size, sr, rng))
         out = add_noise_for_snr(x, noise, conditions.snr_db)
         return out
+
+    def render_idle_noise(self, n_samples, conditions, rng=None):
+        """The continuous ambient noise floor of an idle (un-keyed) channel.
+
+        This is the open-squelch "hash" a listener hears between transmissions.
+        It reuses the band's frequency-shaped noise + HF QRM (the same colour as
+        the in-transmission chain) but with no voice carrier, scaled by an
+        SNR-derived level so noisy/jammed bands hiss louder than clean ones. It
+        is generated server-side per frequency, so every listener on a net hears
+        the identical floor and the recordings carry the matching conditions.
+        """
+        rng = self._rng(rng)
+        if n_samples <= 0:
+            return np.zeros(0, dtype=np.float32)
+        sr = self.sample_rate
+        noise = band_noise(n_samples, sr, conditions.pink_weight, rng)
+        if conditions.qrm:
+            noise = normalise_rms(noise + 0.6 * qrm_tones(n_samples, sr, rng))
+        # Sit the hiss in the voice passband so it matches where speech lands.
+        noise = bandpass(noise, conditions.bandpass_low_hz, conditions.bandpass_high_hz, sr)
+        level = idle_noise_amplitude(conditions.snr_db, conditions.jammed)
+        return soft_clip((normalise_rms(noise) * level).astype(np.float32))
 
     # -- individual renders ------------------------------------------------ #
 

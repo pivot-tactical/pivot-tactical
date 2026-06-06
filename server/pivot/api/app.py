@@ -146,6 +146,18 @@ def create_app(settings: Settings | None = None, manager: SessionManager | None 
         # auto-update (§3.7). Broadcasts status changes to the instructor UI.
         update_service = _start_update_service(app.state.manager, cfg)
         app.state.update_service = update_service
+
+        # Continuous ambient band noise ("hash") on tuned channels (§3.2.2):
+        # a real-time task streams the per-frequency noise floor to idle
+        # listeners so an open channel hisses until someone keys up. Optional
+        # (PIVOT_AMBIENT_NOISE=0 for a silent-when-idle net).
+        noise = None
+        if getattr(cfg, "ambient_noise", True):
+            from pivot.audio.noise_stream import NoiseBroadcaster
+
+            noise = NoiseBroadcaster(app.state.manager)
+            noise.start()
+        app.state.noise_broadcaster = noise
         try:
             yield
         finally:
@@ -153,6 +165,8 @@ def create_app(settings: Settings | None = None, manager: SessionManager | None 
                 worker.stop()
             if update_service is not None:
                 update_service.stop()
+            if noise is not None:
+                await noise.stop()
 
     app = FastAPI(
         title="PIVOT — Procedural Interactive Voice Operations Trainer",
