@@ -40,7 +40,9 @@ jobs:
           # Base deps are all permissive/testable; native extras (aiortc,
           # faster-whisper) are intentionally NOT installed here.
           pip install -e ./server
-          pip install pytest pytest-asyncio httpx ruff
+          # cryptography is a build/release-only dep (Ed25519 appcast signing in
+          # packaging/sign_appcast.py); its tests run here, so install it too.
+          pip install pytest pytest-asyncio httpx ruff cryptography
 
       # Licence gate runs FIRST so a compliance problem fails fast, before we
       # spend time linting and testing (spec §13.7).
