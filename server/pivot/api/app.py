@@ -47,6 +47,40 @@ def _maybe_start_transcription(manager: SessionManager, cfg: Settings):
     return worker
 
 
+def _start_update_service(manager: SessionManager, cfg: Settings):
+    """Create, wire and start the background update service (§3.7).
+
+    Reads config live each cycle, gates auto-update on session state, and pushes
+    status changes to the instructor console over the live feed.
+    """
+    from pivot.db.config_store import ConfigStore
+    from pivot.updates import github, winsparkle
+    from pivot.updates.service import UpdateService
+    from pivot.version import version_info
+
+    def config_provider() -> dict:
+        with manager.db.session() as s:
+            return ConfigStore(s).all()
+
+    # Late-bind the fetch through the module so test monkeypatches and any
+    # future hot-swap of the network layer are honoured at call time.
+    def fetch_releases(repo: str, token: str | None = None) -> list[dict]:
+        return github.fetch_releases(repo, token)
+
+    service = UpdateService(
+        version=version_info.version,
+        versions_dir=cfg.versions_dir,
+        config_provider=config_provider,
+        session_active=lambda: manager.session_active,
+        releases_provider=fetch_releases,
+        updater_kind=lambda: "winsparkle" if winsparkle.available() else "staged",
+        on_change=lambda snap: manager.broadcast("update_status", snap),
+    )
+    manager.update_service = service
+    service.start()
+    return service
+
+
 def frontend_dist_dir() -> Path | None:
     """Locate the built frontend (``vite build`` output), if present.
 
@@ -107,11 +141,18 @@ def create_app(settings: Settings | None = None, manager: SessionManager | None 
         # (the live event log still works without it; transcripts stay pending).
         worker = _maybe_start_transcription(app.state.manager, cfg)
         app.state.transcription_worker = worker
+
+        # Background update service: always-on async checks + session-gated
+        # auto-update (§3.7). Broadcasts status changes to the instructor UI.
+        update_service = _start_update_service(app.state.manager, cfg)
+        app.state.update_service = update_service
         try:
             yield
         finally:
             if worker is not None:
                 worker.stop()
+            if update_service is not None:
+                update_service.stop()
 
     app = FastAPI(
         title="PIVOT — Procedural Interactive Voice Operations Trainer",

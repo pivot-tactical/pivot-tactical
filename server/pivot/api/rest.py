@@ -333,11 +333,51 @@ def admin_change_password(req: PasswordChangeRequest, auth=Depends(get_auth)) ->
 
 @router.get("/admin/updates/check", dependencies=[Depends(require_instructor)])
 def admin_check_updates(manager=Depends(get_manager)) -> dict:
-    """Check GitHub for releases on the configured channel (§3.7.3).
+    """Return the latest known update status (§3.7).
 
-    Out-of-band and internet-touching; degrades gracefully (``reachable: false``)
-    so air-gapped sites can ignore it and use offline import instead (§3.7.1).
+    The background update service polls GitHub out-of-band on an interval and
+    caches the result, so this endpoint just returns that cache — the instructor
+    UI never blocks on the network. Use ``POST /admin/updates/refresh`` to force
+    an immediate re-check. Falls back to a one-shot live check when no service is
+    running (e.g. unit tests or a pure-backend dev process).
     """
+    service = getattr(manager, "update_service", None)
+    if service is not None:
+        return _shape_update_status(service.snapshot())
+    return _live_update_check(manager)
+
+
+@router.post("/admin/updates/refresh", dependencies=[Depends(require_instructor)])
+def admin_refresh_updates(manager=Depends(get_manager)) -> dict:
+    """Force an immediate, synchronous re-check (the "Check now" button, §3.7.3).
+
+    Touches the internet and degrades gracefully (``reachable: false``) so
+    air-gapped sites can ignore it and use offline import instead (§3.7.1).
+    """
+    service = getattr(manager, "update_service", None)
+    if service is not None:
+        return _shape_update_status(service.refresh())
+    return _live_update_check(manager)
+
+
+def _shape_update_status(snap: dict) -> dict:
+    """Add backward-compatible derived fields the UI reads (auto_staged/error).
+
+    The service snapshot models auto-update outcome as ``auto_state`` /
+    ``auto_message``; the existing console also understands ``auto_staged`` and
+    ``auto_update_error``, so surface both for a clean transition.
+    """
+    out = dict(snap)
+    if snap.get("auto_state") == "applied":
+        avail = snap.get("available") or []
+        out["auto_staged"] = avail[0]["tag"] if avail else snap.get("auto_message", "")
+    elif snap.get("auto_state") == "error":
+        out["auto_update_error"] = snap.get("auto_message", "Auto-update failed.")
+    return out
+
+
+def _live_update_check(manager) -> dict:
+    """One-shot live check used when the background service isn't running."""
     from pivot.updates import github, winsparkle
     from pivot.updates.manager import UpdateManager, classify_release
     from pivot.version import SemVer, version_info

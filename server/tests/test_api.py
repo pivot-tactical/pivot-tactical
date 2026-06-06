@@ -220,15 +220,19 @@ def test_update_check_respects_channel(client, monkeypatch):
     with client.app.state.manager.db.session() as s:
         ConfigStore(s).set("github_repo", "pivot-tactical/pivot-tactical")
 
+    # /refresh forces a synchronous re-check; the background service caches it so
+    # the (non-blocking) /check then returns the same result.
     # Stable channel: prerelease excluded, only 1.1.0 is an available update.
-    r = client.get("/api/admin/updates/check").json()
+    r = client.post("/api/admin/updates/refresh").json()
     assert r["reachable"] is True and r["current_version"] == "1.0.0"
     assert [a["tag"] for a in r["available"]] == ["1.1.0"]
+    cached = client.get("/api/admin/updates/check").json()
+    assert [a["tag"] for a in cached["available"]] == ["1.1.0"]
 
     # Include prereleases: the rc shows up too (newest first).
     with client.app.state.manager.db.session() as s:
         ConfigStore(s).set("update_channel", "include_prereleases")
-    r = client.get("/api/admin/updates/check").json()
+    r = client.post("/api/admin/updates/refresh").json()
     assert [a["tag"] for a in r["available"]] == ["1.2.0-rc.1", "1.1.0"]
 
 
@@ -237,7 +241,7 @@ def test_update_check_graceful_when_unreachable(client, monkeypatch):
         raise OSError("no network")
 
     monkeypatch.setattr("pivot.updates.github.fetch_releases", boom)
-    r = client.get("/api/admin/updates/check").json()
+    r = client.post("/api/admin/updates/refresh").json()
     assert r["reachable"] is False and r["available"] == []
 
 

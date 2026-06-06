@@ -60,12 +60,51 @@ A `workflow_dispatch` run builds and uploads artifacts without publishing, so yo
 can validate the installer without cutting a release. Without the secret, the
 installer is still built; only the signature/appcast are skipped.
 
+## Security: where the keys live (and what is *never* committed)
+
+There are **two independent signatures**, and **no private key is ever stored in
+the repository**. Private keys live only in GitHub Actions **encrypted secrets**
+(injected as env vars at build time, masked in logs); only public material ships
+in the app or the repo.
+
+| Material | Purpose | Stored as | In the repo? |
+| --- | --- | --- | --- |
+| **Ed25519 private key** | Signs the appcast/installer the in-app updater trusts | Secret `PIVOT_EDDSA_PRIVATE_KEY` | **Never** |
+| **Ed25519 public key** | Verifies that signature inside the running app | `server/pivot/updates/signing.py` (`_EMBEDDED_PUBLIC_KEY`) | Yes — public by design |
+| **Authenticode cert (.pfx)** | OS-trust so SmartScreen/UAC don't warn | Secret `WINDOWS_CERTIFICATE` (base64) + `WINDOWS_CERTIFICATE_PASSWORD` | **Never** |
+
+This is the standard model for CI signing: the secret store is the vault, the
+build reads it at run time, and the repo only ever carries the *public* half. If
+either secret is absent the workflow still succeeds — it just skips that
+signature (the Ed25519 step is skipped; the installer is left unsigned). So the
+project builds and runs for contributors without access to the keys, and only an
+official release run (with the secrets configured) produces fully-signed assets.
+
+To rotate a key: mint a new one, update the GitHub secret, and (for Ed25519)
+update `_EMBEDDED_PUBLIC_KEY` and ship an app build carrying the new public key
+before retiring the old key.
+
+## One-off: configure Authenticode (optional, recommended for public distribution)
+
+For internal/LAN use this is optional. To enable it, take your code-signing
+`.pfx` and add two repository secrets:
+
+```bash
+# base64-encode the certificate for safe storage as a secret
+base64 -w0 your-cert.pfx        # -> paste as WINDOWS_CERTIFICATE
+```
+
+- `WINDOWS_CERTIFICATE` — base64 of the `.pfx`
+- `WINDOWS_CERTIFICATE_PASSWORD` — its export password
+
+The release workflow then signs `PIVOT-Tactical-Setup-vX.Y.Z.exe` with
+`signtool` (SHA-256 + RFC-3161 timestamp) **before** computing the Ed25519
+appcast signature, so both signatures are valid on the published file.
+
 ## Notes
 
-- **Code signing (Authenticode):** signing the installer with an OS-trusted
-  certificate (so SmartScreen/UAC don't warn) is independent of the Ed25519
-  update signature and can be added to the Inno step later. For internal/LAN use
-  it is optional.
+- **Signing order matters:** Authenticode runs first (it rewrites the `.exe`),
+  then the Ed25519 appcast signature is computed over the signed bytes.
 - **AppId:** the GUID in `packaging/pivot.iss` is the upgrade identity — keep it
   constant forever so installers upgrade in place.
 - **WinSparkle version** is pinned in `release.yml`; bump it there to update.

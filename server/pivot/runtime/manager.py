@@ -103,6 +103,9 @@ class SessionManager:
         # Optional async transcription worker (§3.5.2). Attached by the app when
         # the transcription extra is available; events are queued on PTT release.
         self.transcription_worker = None
+        # Background update service (§3.7). Attached by the app on startup; the
+        # session lifecycle nudges it so deferred auto-updates apply out-of-band.
+        self.update_service = None
 
     # -- pub/sub ----------------------------------------------------------- #
 
@@ -160,6 +163,9 @@ class SessionManager:
         self._active_tx.clear()
         if result:
             self.broadcast("session_ended", result)
+        # A deferred auto-update may now apply out-of-band (§3.7.1).
+        if self.update_service is not None:
+            self.update_service.trigger()
         return result
 
     # -- trainee terminals ------------------------------------------------- #

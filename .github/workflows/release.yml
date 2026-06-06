@@ -109,6 +109,36 @@ jobs:
           Copy-Item $setup.FullName .
           "SETUP=$($setup.Name)" | Out-File $env:GITHUB_ENV -Append -Encoding ascii
 
+      # Authenticode-sign the installer so Windows SmartScreen/UAC trust it. This
+      # is independent of the Ed25519 update signature and must run BEFORE the
+      # appcast step, because signing changes the .exe bytes the appcast signs.
+      # Gated on the certificate secret: without it the installer is simply
+      # unsigned (fine for internal/LAN use), not a build failure.
+      - name: Code-sign installer (Authenticode)
+        if: runner.os == 'Windows' && env.WINDOWS_CERTIFICATE != ''
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          # Materialise the PFX from the base64 secret to a temp file, then wipe.
+          $pfx = Join-Path $env:RUNNER_TEMP "pivot-codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe not found in the Windows SDK" }
+          try {
+            & $signtool.FullName sign `
+              /f $pfx /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+              "$env:SETUP"
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed ($LASTEXITCODE)" }
+            & $signtool.FullName verify /pa "$env:SETUP"
+          }
+          finally {
+            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Sign installer + generate appcast (Windows)
         if: runner.os == 'Windows' && env.PIVOT_EDDSA_PRIVATE_KEY != ''
         shell: pwsh
