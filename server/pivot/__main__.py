@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import socket
 import sys
+from pathlib import Path
 
 import uvicorn
 
@@ -90,10 +91,8 @@ def run_server(settings: Settings, manager: SessionManager) -> None:
     uvicorn.run(app, host=settings.host, port=settings.port, log_level="info")
 
 
-def _install_dir() -> "object":
+def _install_dir() -> Path:
     """The directory the app is installed in (the frozen exe's folder)."""
-    from pathlib import Path
-
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     # Source checkout: the repo root is a sensible stand-in for dev testing.
