@@ -348,9 +348,19 @@ function SettingsTab({ mustChangePassword, onTimezone, socket }: {
   }
 
   // The background service checks out-of-band; show its cached status on mount
-  // and update live as it broadcasts (no network wait, always current).
+  // and update live as it broadcasts (no network wait, always current). If the
+  // service has never checked (fresh boot), kick one refresh so the card is
+  // populated without the instructor having to press anything.
   useEffect(() => {
-    api.checkUpdates().then(absorb).catch(() => {});
+    api.checkUpdates()
+      .then((snap) => {
+        absorb(snap);
+        if (!snap.last_checked && !snap.checking) {
+          setChecking(true);
+          api.refreshUpdates().then(absorb).catch(() => {}).finally(() => setChecking(false));
+        }
+      })
+      .catch(() => {});
     if (!socket) return;
     const off = socket.on("update_status", (snap: UpdateStatus) => absorb(snap));
     return () => { off(); };
@@ -462,68 +472,84 @@ function SettingsTab({ mustChangePassword, onTimezone, socket }: {
       </section>
 
       <section className="card pad">
-        <h3>Updates</h3>
-        <button className="btn" onClick={checkUpdates}
-          disabled={checking || upd?.checking || applying !== null}>
-          {checking || upd?.checking ? "Checking…" : "Check now"}
-        </button>
-        {upd && (
-          <div className="mt">
-            <div className="muted mono">
-              Current {upd.current_version} · channel {upd.channel}
-              {upd.auto_update ? " · auto-update on" : ""}
-              {upd.updater === "winsparkle" ? " · WinSparkle" : ""}
-              {upd.last_checked ? ` · last checked ${new Date(upd.last_checked).toLocaleTimeString()}` : " · never checked"}
-            </div>
-            {/* Background service activity — visible even without manual interaction */}
-            {upd.auto_state === "downloading" && (
-              <p className="muted mt">⟳ {upd.auto_message || "Downloading update…"}</p>
+        <div className="row between" style={{ alignItems: "center" }}>
+          <h3 style={{ margin: 0 }}>Updates</h3>
+          <button className="btn" onClick={checkUpdates}
+            disabled={checking || upd?.checking || applying !== null}>
+            {checking || upd?.checking ? "Checking…" : "Check now"}
+          </button>
+        </div>
+
+        {/* Always-visible facts: what's running, on which channel, last check. */}
+        <div className="muted mono mt">
+          {upd ? `v${upd.current_version}` : "—"}
+          {" · "}{upd?.channel === "include_prereleases" ? "prereleases" : "stable channel"}
+          {" · auto-update "}{upd?.auto_update ? "on" : "off"}
+        </div>
+        <div className="muted mt" style={{ fontSize: "0.85em" }}>
+          {checking || upd?.checking
+            ? "Checking GitHub…"
+            : upd?.last_checked
+              ? `Last checked ${relTime(upd.last_checked)}`
+              : "Not checked yet"}
+        </div>
+
+        {/* One primary status line — single source of truth for the headline. */}
+        {upd && (() => {
+          const stagedTag = staged || (upd.auto_staged ?? null);
+          const stagedViaWS = staged?.endsWith(":winsparkle");
+          if (stagedTag) {
+            const tag = stagedTag.replace(":winsparkle", "");
+            return (
+              <p className="mt" style={{ fontWeight: 600 }}>
+                {stagedViaWS
+                  ? `Installing ${tag} — the server will restart ✓`
+                  : `${tag} ready — restart PIVOT to apply ✓`}
+              </p>
+            );
+          }
+          if (upd.auto_state === "downloading")
+            return <p className="muted mt">⟳ {upd.auto_message || "Downloading update…"}</p>;
+          if (upd.auto_state === "deferred_session_active")
+            return <p className="mt" style={{ fontWeight: 600 }}>{upd.auto_message || "Update deferred until the session ends."}</p>;
+          if (upd.auto_state === "error")
+            return <p className="login__hint mt">Auto-update failed: {upd.auto_message}</p>;
+          if (!upd.reachable && !upd.checking)
+            return <p className="login__hint mt">GitHub unreachable — connect to the internet, or use offline import.</p>;
+          if (upd.reachable && upd.available.length === 0)
+            return <p className="mt" style={{ fontWeight: 600 }}>You’re up to date.</p>;
+          if (upd.reachable && upd.available.length > 0)
+            return <p className="mt" style={{ fontWeight: 600 }}>
+              {upd.available.length} newer release{upd.available.length > 1 ? "s" : ""} available
+              {upd.auto_update ? " — will install automatically when no session is running." : ":"}
+            </p>;
+          return null;
+        })()}
+
+        {/* Per-release rows: only shown when there is something to install and
+            nothing is already staged (the staged headline covers that case). */}
+        {upd && !staged && !upd.auto_staged && upd.reachable && upd.available.map((a) => (
+          <div className="row between mt" key={a.tag}>
+            <span className="mono">{a.tag}{a.prerelease ? " · prerelease" : ""}</span>
+            {applying === a.tag ? (
+              <span className="muted">{upd.updater === "winsparkle" ? "Starting installer…" : "Downloading…"}</span>
+            ) : a.has_asset ? (
+              <button className="btn btn--primary" onClick={() => applyUpdate(a)}
+                disabled={applying !== null}>
+                {upd.updater === "winsparkle" ? "Install & restart" : "Download & install"}
+              </button>
+            ) : (
+              <span className="muted">No build for this platform</span>
             )}
-            {upd.auto_state === "deferred_session_active" && (
-              <p className="muted mt">{upd.auto_message || "Auto-update deferred — a session is running. It applies once the session ends."}</p>
-            )}
-            {upd.auto_state === "applied" && upd.auto_message && (
-              <p className="muted mt">✓ {upd.auto_message}</p>
-            )}
-            {upd.auto_state === "error" && upd.auto_message && (
-              <p className="login__hint mt">Auto-update: {upd.auto_message}</p>
-            )}
-            {!upd.reachable && !upd.checking && <p className="login__hint">Offline — GitHub unreachable. Use offline import.</p>}
-            {upd.reachable && upd.available.length === 0 && !staged && <p className="muted mt">Up to date.</p>}
-            {upd.reachable && upd.available.length > 0 && (
-              <p className="muted mt">{upd.available.length} release{upd.available.length > 1 ? "s" : ""} available — choose one to install:</p>
-            )}
-            {upd.available.map((a) => {
-              const tagStaged = staged === a.tag || staged === `${a.tag}:winsparkle`;
-              return (
-                <div className="row between mt" key={a.tag}>
-                  <span className="mono">{a.tag}{a.prerelease ? " · prerelease" : ""}</span>
-                  {tagStaged ? (
-                    <span className="muted">
-                      {staged?.endsWith(":winsparkle")
-                        ? "Installing on the server — it will restart ✓"
-                        : "Staged — restart to apply ✓"}
-                    </span>
-                  ) : applying === a.tag ? (
-                    <span className="muted">{upd.updater === "winsparkle" ? "Starting installer…" : "Downloading…"}</span>
-                  ) : a.has_asset ? (
-                    <button className="btn btn--primary" onClick={() => applyUpdate(a)}
-                      disabled={applying !== null}>
-                      {upd.updater === "winsparkle" ? "Install & restart" : "Download & Install"}
-                    </button>
-                  ) : (
-                    <span className="muted">No asset for this platform</span>
-                  )}
-                </div>
-              );
-            })}
-            {applyErr && <p className="login__hint mt">{applyErr}</p>}
           </div>
-        )}
-        <p className="muted mt">
+        ))}
+        {applyErr && <p className="login__hint mt">{applyErr}</p>}
+
+        {/* One concise mechanism note (not repeated above). */}
+        <p className="muted mt" style={{ fontSize: "0.85em" }}>
           {upd?.updater === "winsparkle"
-            ? "Installs are handled by WinSparkle on the server machine — it verifies the signed installer, applies it, and restarts PIVOT. Out-of-band, never during a session."
-            : "Updates are applied out-of-band, never during a session. Air-gapped sites use offline import."}
+            ? "WinSparkle verifies the signed installer, applies it and restarts PIVOT — out-of-band, never mid-session."
+            : "Updates are downloaded and staged, then applied on the next restart — out-of-band, never mid-session. Air-gapped sites can use offline import."}
         </p>
       </section>
     </div>
@@ -532,6 +558,20 @@ function SettingsTab({ mustChangePassword, onTimezone, socket }: {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="field"><span>{label}</span>{children}</label>;
+}
+
+// Compact "x ago" for the last-checked timestamp; falls back to a local date.
+function relTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "just now";
+  const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (secs < 45) return "just now";
+  if (secs < 90) return "a minute ago";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs > 1 ? "s" : ""} ago`;
+  return new Date(iso).toLocaleString();
 }
 
 function updateRadio(radios: RadioState[], r: RadioState): RadioState[] {
