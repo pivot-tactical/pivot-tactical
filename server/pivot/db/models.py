@@ -154,7 +154,7 @@ class EventRow(Base):
 
     trainee_name: Mapped[str] = mapped_column(String(96))  # or "INSTRUCTOR (Radio N)"
     frequency: Mapped[str] = mapped_column(String(32))      # frequency transmitted on
-    band_region: Mapped[str] = mapped_column(String(16))    # Low HF / High HF / VHF / UHF
+    band_region: Mapped[str] = mapped_column(String(16))    # HF / VHF / UHF (ITU)
     tx_mode: Mapped[RadioMode] = mapped_column(_str_enum(RadioMode))
     audibility: Mapped[Audibility] = mapped_column(_str_enum(Audibility))
     sync_status: Mapped[SyncStatus] = mapped_column(_str_enum(SyncStatus), default=SyncStatus.COMPLETED)

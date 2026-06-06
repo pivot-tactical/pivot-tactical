@@ -16,11 +16,17 @@ function snapToStep(hz: number): number {
 }
 
 function regionFor(hz: number): { label: string; signal: number } {
-  // Client-side approximation of the band profile for the signal bar (§3.2.2).
-  if (hz < 10e6) return { label: "Low HF", signal: 0.2 };
-  if (hz < 30e6) return { label: "High HF", signal: 0.45 };
-  if (hz < 300e6) return { label: "VHF", signal: 0.8 };
-  return { label: "UHF", signal: 0.95 };
+  // Standard ITU bands (ITU-R V.431): HF ≤30 MHz, VHF ≤300 MHz, UHF above —
+  // the upper edge of each band belongs to the lower band, so 30 MHz is HF.
+  const label = hz <= 30e6 ? "HF" : hz <= 300e6 ? "VHF" : "UHF";
+  // The signal bar is a continuous client-side approximation of the band
+  // profile (§3.2.2): propagation improves smoothly with frequency, so it is
+  // log-interpolated across the tunable range rather than bucketed per band.
+  const clamped = Math.max(1.6e6, Math.min(3e9, hz));
+  const t =
+    (Math.log10(clamped) - Math.log10(1.6e6)) /
+    (Math.log10(3e9) - Math.log10(1.6e6));
+  return { label, signal: 0.15 + 0.82 * t };
 }
 
 function formatMHz(hz: number): string {

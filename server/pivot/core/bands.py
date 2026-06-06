@@ -29,12 +29,14 @@ MAX_FREQ_HZ: float = 3_000_000_000.0      # 3 GHz
 
 
 class BandRegion(str, Enum):
-    """Coarse region label, used for display and the ``band_region`` event
-    field (spec §3.5.3). The audio itself follows the continuous curve, not
-    these buckets."""
+    """Standard ITU band label, used for display and the ``band_region`` event
+    field (spec §3.5.3). Only the three internationally defined bands that the
+    tunable range spans are used — HF, VHF and UHF (ITU-R V.431). There is no
+    "Low/High" sub-band: propagation is a continuous slope across each band, so
+    the audio follows the continuous noise-vs-frequency curve, not these buckets.
+    The label is just the family an operator would name when reporting."""
 
-    LOW_HF = "Low HF"
-    HIGH_HF = "High HF"
+    HF = "HF"
     VHF = "VHF"
     UHF = "UHF"
 
@@ -44,16 +46,17 @@ class BandRegion(str, Enum):
 
 
 def region_for(freq_hz: float) -> BandRegion:
-    """Classify a frequency into its display region (spec §3.1.2 boundaries).
+    """Classify a frequency into its ITU band (ITU-R V.431 boundaries).
 
-    Boundaries: <10 MHz Low HF, 10–30 MHz High HF, 30–300 MHz VHF, >=300 MHz
-    UHF. Frequencies below/above the tunable range clamp to the nearest region.
+    HF 3–30 MHz, VHF 30–300 MHz, UHF 300–3000 MHz. Each band's upper edge is
+    inclusive and belongs to the lower band, per the ITU convention — so
+    30 MHz is HF (not VHF) and 300 MHz is VHF (not UHF). Frequencies below the
+    tunable range's HF floor (the 1.6–3 MHz sliver is technically MF) are
+    reported as HF, the nearest spanned band.
     """
-    if freq_hz < 10_000_000.0:
-        return BandRegion.LOW_HF
-    if freq_hz < 30_000_000.0:
-        return BandRegion.HIGH_HF
-    if freq_hz < 300_000_000.0:
+    if freq_hz <= 30_000_000.0:
+        return BandRegion.HF
+    if freq_hz <= 300_000_000.0:
         return BandRegion.VHF
     return BandRegion.UHF
 
@@ -283,7 +286,11 @@ class BandProfile:
         snr = base.snr_db - (mult - 1.0) * 8.0
         fading_depth = base.fading_depth_db * mult
 
-        is_hf = region in (BandRegion.LOW_HF, BandRegion.HIGH_HF)
+        is_hf = region is BandRegion.HF
+        # The narrower, muddier voice bandpass at the very low end is keyed on
+        # the actual frequency, not the band label — propagation is a smooth
+        # slope, so it fades in below ~10 MHz rather than snapping at a bucket.
+        low_hf = freq_hz < 10_000_000.0
         pink_weight = _pink_weight_for(freq_hz)
 
         jammed = any(j.covers(freq_hz) for j in self.jamming)
@@ -301,9 +308,9 @@ class BandProfile:
             fading_rate_hz=base.fading_rate_hz,
             selective_fading=is_hf,
             qrm=is_hf,
-            bandpass_low_hz=300.0 + (60.0 if region is BandRegion.LOW_HF else 0.0),
-            bandpass_high_hz=3000.0 - (300.0 if region is BandRegion.LOW_HF else 0.0),
-            squelch_tail_ms=_squelch_tail_for(region),
+            bandpass_low_hz=300.0 + (60.0 if low_hf else 0.0),
+            bandpass_high_hz=3000.0 - (300.0 if low_hf else 0.0),
+            squelch_tail_ms=_squelch_tail_for(freq_hz),
             jammed=jammed,
         )
 
@@ -344,10 +351,14 @@ def _pink_weight_for(freq_hz: float) -> float:
     return max(0.0, min(1.0, 1.0 - t))
 
 
-def _squelch_tail_for(region: BandRegion) -> float:
-    return {
-        BandRegion.LOW_HF: 220.0,
-        BandRegion.HIGH_HF: 160.0,
-        BandRegion.VHF: 90.0,
-        BandRegion.UHF: 60.0,
-    }[region]
+def _squelch_tail_for(freq_hz: float) -> float:
+    """Squelch tail length: longest on the noisy low-HF end, shortest on clean
+    UHF. Keyed on frequency so it follows propagation as a smooth slope rather
+    than snapping at the band labels."""
+    if freq_hz < 10_000_000.0:
+        return 220.0
+    if freq_hz <= 30_000_000.0:
+        return 160.0
+    if freq_hz <= 300_000_000.0:
+        return 90.0
+    return 60.0

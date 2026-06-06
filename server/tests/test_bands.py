@@ -21,16 +21,18 @@ from pivot.core.bands import (
 @pytest.mark.parametrize(
     "freq_hz,expected",
     [
-        (1_600_000, BandRegion.LOW_HF),
-        (7_100_000, BandRegion.LOW_HF),
-        (9_999_999, BandRegion.LOW_HF),
-        (10_000_000, BandRegion.HIGH_HF),
-        (14_250_000, BandRegion.HIGH_HF),
-        (29_999_999, BandRegion.HIGH_HF),
-        (30_000_000, BandRegion.VHF),
+        (1_600_000, BandRegion.HF),       # 1.6–3 MHz is technically MF, reported as HF
+        (7_100_000, BandRegion.HF),
+        (9_999_999, BandRegion.HF),
+        (10_000_000, BandRegion.HF),
+        (14_250_000, BandRegion.HF),
+        (29_999_999, BandRegion.HF),
+        (30_000_000, BandRegion.HF),      # ITU: 30 MHz upper edge belongs to HF
+        (30_000_001, BandRegion.VHF),
         (145_500_000, BandRegion.VHF),
         (299_999_999, BandRegion.VHF),
-        (300_000_000, BandRegion.UHF),
+        (300_000_000, BandRegion.VHF),    # ITU: 300 MHz upper edge belongs to VHF
+        (300_000_001, BandRegion.UHF),
         (2_400_000_000, BandRegion.UHF),
     ],
 )

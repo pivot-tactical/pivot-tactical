@@ -43,7 +43,7 @@ def test_login_and_tune_and_mode(client):
 
     r = client.post("/api/radio/tune", json={"radio_id": rid, "frequency": "14.250 MHz"})
     assert r.status_code == 200
-    assert r.json()["band_region"] == "High HF"
+    assert r.json()["band_region"] == "HF"
 
     r = client.post("/api/radio/mode", json={"radio_id": rid, "mode": "Cypher"})
     assert r.status_code == 200

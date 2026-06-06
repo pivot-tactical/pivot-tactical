@@ -38,7 +38,7 @@ def test_plain_tx_to_listener_is_heard_and_recorded(manager):
 
     assert event["audibility"] == Audibility.HEARD.value
     assert event["sync_status"] == SyncStatus.COMPLETED.value
-    assert event["band_region"] == "High HF"
+    assert event["band_region"] == "HF"
     assert event["duration_ms"] > 0
     # Recording exists on disk.
     path = manager.settings.recordings_dir / event["audio_path"]
