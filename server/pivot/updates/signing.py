@@ -19,7 +19,7 @@ import os
 
 # Base64 of the raw 32-byte Ed25519 public key. Empty until the project key is
 # minted; CI/release docs cover the one-off keygen step (REBUILD/RELEASING).
-_EMBEDDED_PUBLIC_KEY = ""
+_EMBEDDED_PUBLIC_KEY = "i6e2oZpNHyoI5v7mAUA36tYBku354FlLjXZt5Hbyvoc="
 
 
 def public_key() -> str:
