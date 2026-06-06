@@ -10,6 +10,7 @@ pydantic>=2.6             # MIT
 pydantic-settings>=2.1    # MIT
 websockets>=12.0          # BSD-3-Clause
 python-multipart>=0.0.9   # Apache-2.0 (form/file uploads: offline update import)
+cryptography>=42.0        # Apache-2.0 / BSD-3-Clause (Ed25519 update verification)
 
 # --- DSP (permissive, BSD) ---
 numpy>=1.26               # BSD-3-Clause

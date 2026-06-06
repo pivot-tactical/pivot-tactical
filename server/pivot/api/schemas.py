@@ -71,6 +71,7 @@ class ApplyUpdateRequest(BaseModel):
     tag: str
     asset_url: str
     sha256_url: str = ""
+    sig_url: str = ""
     asset_name: str
 
 

@@ -51,6 +51,7 @@ export interface ReleaseInfo {
   has_asset: boolean;
   asset_url: string;
   sha256_url: string;
+  sig_url: string;
   asset_name: string;
 }
 
@@ -61,7 +62,7 @@ export interface UpdateStatus {
   current_version: string;
   channel: string;
   auto_update: boolean;
-  updater: "winsparkle" | "staged";
+  updater: "staged";
   reachable: boolean;
   error: string | null;
   last_checked?: string | null;
@@ -169,16 +170,17 @@ export const api = {
   // background service caches the result so subsequent checkUpdates() are cheap.
   refreshUpdates: () =>
     jsonFetch<UpdateStatus>("/api/admin/updates/refresh", { method: "POST" }),
-  applyUpdate: (tag: string, assetUrl: string, sha256Url: string, assetName: string) =>
+  applyUpdate: (tag: string, assetUrl: string, sha256Url: string, sigUrl: string, assetName: string) =>
     jsonFetch<{
       staged?: boolean;
       already_staged?: boolean;
-      handed_to?: "winsparkle";
       tag: string;
       restart_required: boolean;
     }>("/api/admin/updates/apply", {
       method: "POST",
-      body: JSON.stringify({ tag, asset_url: assetUrl, sha256_url: sha256Url, asset_name: assetName }),
+      body: JSON.stringify({
+        tag, asset_url: assetUrl, sha256_url: sha256Url, sig_url: sigUrl, asset_name: assetName,
+      }),
     }),
   // Restart the server (applies a staged update on the way back up). `force`
   // overrides the guard that refuses to restart while a session is live.

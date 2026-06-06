@@ -31,172 +31,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # --- frontend (embedded into the bundle and served at the LAN address) ---
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Build frontend
-        working-directory: frontend
-        run: |
-          npm ci
-          npm run build
-
-      # --- python runtime + native media deps + PyInstaller ---
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
+      # Identical build to the prereleases: same shared action, so a stable
+      # release and a dev prerelease are byte-for-byte the same in form and
+      # update through the same verified, channel-aware staged path.
       - name: Version from tag
         shell: bash
         run: |
           ver="${{ github.ref_name }}"
           if [[ "$ver" =~ ^v[0-9] ]]; then ver="${ver#v}"; else ver="0.0.0-dev"; fi
-          echo "PIVOT_BUILD_VERSION=$ver" >> "$GITHUB_ENV"
+          echo "REL_VERSION=$ver" >> "$GITHUB_ENV"
 
-      # Generate _buildinfo BEFORE installing, so the tag version is baked into
-      # the installed/bundled package (not the base __version__).
-      - name: Embed build info (version, git SHA, date)
-        run: python packaging/gen_buildinfo.py
-
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r server/requirements.txt
-          pip install pyinstaller
-          pip install ./server --no-deps
-
-      - name: Build with PyInstaller
-        run: pyinstaller --noconfirm packaging/pivot.spec
-
-      # --- package + checksum (one archive per platform) ---
-      # Version-agnostic asset names: a stable download URL across releases
-      # (releases/latest/download/PIVOT-Tactical-win64.zip). The version lives in
-      # the tag, the release notes and the embedded build-info.
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $archive = "PIVOT-Tactical-win64.zip"
-          Compress-Archive -Path dist/PIVOT-Tactical -DestinationPath $archive
-          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
-          "$hash  $archive" | Out-File "$archive.sha256" -Encoding ascii -NoNewline
-          "ARTIFACT=$archive" | Out-File $env:GITHUB_ENV -Append -Encoding ascii
-
-      # --- Windows: professional installer (Inno Setup) + WinSparkle + signed appcast ---
-      - name: Add WinSparkle.dll to the bundle (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # Pin a WinSparkle release; ship the x64 DLL beside the binary so the
-          # in-app updater (pivot.updates.winsparkle) can load it (§3.7.5).
-          $wsVer = "0.8.1"
-          $url = "https://github.com/vslavik/winsparkle/releases/download/v$wsVer/WinSparkle-$wsVer.zip"
-          Invoke-WebRequest -Uri $url -OutFile winsparkle.zip
-          Expand-Archive winsparkle.zip -DestinationPath winsparkle
-          $dll = Get-ChildItem -Recurse winsparkle -Filter WinSparkle.dll |
-            Where-Object { $_.FullName -match '(?i)x64' } | Select-Object -First 1
-          if (-not $dll) { throw "WinSparkle.dll (x64) not found in the release zip" }
-          Copy-Item $dll.FullName dist/PIVOT-Tactical/WinSparkle.dll
-          Copy-Item winsparkle/*/COPYING* dist/PIVOT-Tactical/ -ErrorAction SilentlyContinue
-
-      - name: Build installer (Inno Setup)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install innosetup --no-progress -y
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc "/DMyAppVersion=$env:PIVOT_BUILD_VERSION" packaging\pivot.iss
-          $setup = Get-ChildItem dist\installer -Filter *.exe | Select-Object -First 1
-          Copy-Item $setup.FullName .
-          "SETUP=$($setup.Name)" | Out-File $env:GITHUB_ENV -Append -Encoding ascii
-
-      # Authenticode-sign the installer so Windows SmartScreen/UAC trust it. This
-      # is independent of the Ed25519 update signature and must run BEFORE the
-      # appcast step, because signing changes the .exe bytes the appcast signs.
-      # Gated on the certificate secret: without it the installer is simply
-      # unsigned (fine for internal/LAN use), not a build failure.
-      - name: Code-sign installer (Authenticode)
-        if: runner.os == 'Windows' && env.WINDOWS_CERTIFICATE != ''
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          # Materialise the PFX from the base64 secret to a temp file, then wipe.
-          $pfx = Join-Path $env:RUNNER_TEMP "pivot-codesign.pfx"
-          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
-          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
-            Sort-Object FullName -Descending | Select-Object -First 1
-          if (-not $signtool) { throw "signtool.exe not found in the Windows SDK" }
-          try {
-            & $signtool.FullName sign `
-              /f $pfx /p $env:WINDOWS_CERTIFICATE_PASSWORD `
-              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-              "$env:SETUP"
-            if ($LASTEXITCODE -ne 0) { throw "signtool failed ($LASTEXITCODE)" }
-            & $signtool.FullName verify /pa "$env:SETUP"
-          }
-          finally {
-            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
-          }
-
-      - name: Sign installer + generate appcast (Windows)
-        if: runner.os == 'Windows' && env.PIVOT_EDDSA_PRIVATE_KEY != ''
-        shell: pwsh
-        env:
-          PIVOT_EDDSA_PRIVATE_KEY: ${{ secrets.PIVOT_EDDSA_PRIVATE_KEY }}
-        run: |
-          pip install cryptography
-          $tag = "${{ github.ref_name }}"
-          $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$env:SETUP"
-          python packaging/sign_appcast.py appcast `
-            --installer "$env:SETUP" `
-            --version "$env:PIVOT_BUILD_VERSION" `
-            --url "$url" `
-            --out appcast.xml
-          "HAS_APPCAST=1" | Out-File $env:GITHUB_ENV -Append -Encoding ascii
-
-      - name: Package (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          # Ship the systemd unit + install/uninstall scripts inside the bundle so
-          # `tar xzf … && sudo ./PIVOT-Tactical/install.sh` sets up the headless
-          # background service (the Linux counterpart to the Windows installer).
-          cp packaging/linux/pivot-tactical.service dist/PIVOT-Tactical/
-          cp packaging/linux/install.sh packaging/linux/uninstall.sh dist/PIVOT-Tactical/
-          chmod +x dist/PIVOT-Tactical/install.sh dist/PIVOT-Tactical/uninstall.sh
-          # Version-agnostic name -> stable releases/latest/download URL.
-          archive="PIVOT-Tactical-linux-x86_64.tar.gz"
-          tar -czf "$archive" -C dist PIVOT-Tactical
-          sha256sum "$archive" > "$archive.sha256"
-          echo "ARTIFACT=$archive" >> "$GITHUB_ENV"
-
-      # --- always keep the build as a workflow artifact (for dispatch runs) ---
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+      - uses: ./.github/actions/build-pivot
         with:
-          name: PIVOT-Tactical-${{ matrix.artifact }}
-          path: |
-            PIVOT-Tactical-*.zip
-            PIVOT-Tactical-*.tar.gz
-            PIVOT-Tactical-*.sha256
-            PIVOT-Tactical-Setup.exe
-            appcast.xml
-          if-no-files-found: error
+          artifact: ${{ matrix.artifact }}
+          version: ${{ env.REL_VERSION }}
+          eddsa_private_key: ${{ secrets.PIVOT_EDDSA_PRIVATE_KEY }}
+          windows_certificate: ${{ secrets.WINDOWS_CERTIFICATE }}
+          windows_certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
       # --- publish to the GitHub Release on a tag ---
-      # appcast.xml is the stable feed WinSparkle polls at
-      # releases/latest/download/appcast.xml; the Setup.exe is its enclosure.
+      # The shared action leaves the assets in the workspace. Version-agnostic
+      # names give a stable releases/latest/download URL; each archive ships its
+      # .sha256 (integrity) and .sig (Ed25519 authenticity) which the in-app
+      # updater verifies before staging.
       - name: Publish to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            PIVOT-Tactical-*.zip
-            PIVOT-Tactical-*.tar.gz
+            PIVOT-Tactical-win64.zip
+            PIVOT-Tactical-linux-x86_64.tar.gz
             PIVOT-Tactical-*.sha256
+            PIVOT-Tactical-*.sig
             PIVOT-Tactical-Setup.exe
-            appcast.xml
           fail_on_unmatched_files: false
           generate_release_notes: true

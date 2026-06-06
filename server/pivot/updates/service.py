@@ -39,6 +39,7 @@ def _release_to_dict(r: Release, current: SemVer) -> dict:
         "asset_name": r.asset_name,
         "asset_url": r.asset_url,
         "sha256_url": r.sha256_url,
+        "sig_url": r.sig_url,
         "has_asset": bool(r.asset_url),
         "standing": classify_release(r, current).value,
     }
@@ -190,18 +191,9 @@ class UpdateService:
     # -- default apply (real updater) ------------------------------------- #
 
     def _default_apply(self, release: Release, cfg: dict) -> dict:
-        from pivot.config import default_appcast_url
-        from pivot.updates import winsparkle
-
-        if winsparkle.available():
-            url = str(cfg.get("appcast_url") or "").strip() or default_appcast_url(
-                str(cfg.get("github_repo") or "")
-            )
-            if winsparkle.init(url) and winsparkle.check_and_install():
-                return {"applied": True, "via": "winsparkle",
-                        "message": f"Installing {release.tag} — the server will restart."}
-            return {"applied": False, "message": "WinSparkle unavailable."}
-
+        # Single channel-aware path: verified download (SHA-256 + Ed25519) + a
+        # staged swap applied on the next restart (§3.7.5). Identical on every
+        # platform and channel, so on-the-fly channel switching is honoured.
         mgr = UpdateManager(self._version, self._versions_dir)
         # Already staged — don't re-download/re-extract on the next poll tick.
         if mgr.staged_tag() == release.tag:

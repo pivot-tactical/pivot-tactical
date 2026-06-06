@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, getToken } from "../api";
-import type { UpdateStatus } from "../api";
+import type { ReleaseInfo, UpdateStatus } from "../api";
 import { AudioIO, playClick, playSyncTone } from "../audio";
 import { ConnectionBanner } from "../components/ConnectionBanner";
 import type { ConnState } from "../components/ConnectionBanner";
@@ -429,14 +429,13 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
     }
   }
 
-  async function applyUpdate(a: { tag: string; asset_url: string; sha256_url: string; asset_name: string }) {
+  async function applyUpdate(a: ReleaseInfo) {
     setApplying(a.tag);
     setApplyErr(null);
     try {
-      const res = await api.applyUpdate(a.tag, a.asset_url, a.sha256_url, a.asset_name);
-      // WinSparkle takes over on the server machine (its own dialog + restart);
-      // the staged path needs a manual restart to finish.
-      setStaged(res.handed_to === "winsparkle" ? `${a.tag}:winsparkle` : a.tag);
+      await api.applyUpdate(a.tag, a.asset_url, a.sha256_url, a.sig_url, a.asset_name);
+      // Verified + staged; the swap finishes on the next restart.
+      setStaged(a.tag);
     } catch (e: any) {
       setApplyErr(e?.message ?? "Download failed");
     } finally {
@@ -549,17 +548,8 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
         {/* One primary status line — single source of truth for the headline. */}
         {upd && (() => {
           const stagedTag = staged || (upd.auto_staged ?? null);
-          const stagedViaWS = staged?.endsWith(":winsparkle");
-          if (stagedTag) {
-            const tag = stagedTag.replace(":winsparkle", "");
-            return (
-              <p className="mt" style={{ fontWeight: 600 }}>
-                {stagedViaWS
-                  ? `Installing ${tag} — the server will restart ✓`
-                  : `${tag} ready — restart PIVOT to apply ✓`}
-              </p>
-            );
-          }
+          if (stagedTag)
+            return <p className="mt" style={{ fontWeight: 600 }}>{stagedTag} ready — restart PIVOT to apply ✓</p>;
           if (upd.auto_state === "downloading")
             return <p className="muted mt">⟳ {upd.auto_message || "Downloading update…"}</p>;
           if (upd.auto_state === "deferred_session_active")
@@ -584,11 +574,11 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
           <div className="row between mt" key={a.tag}>
             <span className="mono">{a.tag}{a.prerelease ? " · prerelease" : ""}</span>
             {applying === a.tag ? (
-              <span className="muted">{upd.updater === "winsparkle" ? "Starting installer…" : "Downloading…"}</span>
+              <span className="muted">Downloading…</span>
             ) : a.has_asset ? (
               <button className="btn btn--primary" onClick={() => applyUpdate(a)}
                 disabled={applying !== null}>
-                {upd.updater === "winsparkle" ? "Install & restart" : "Download & install"}
+                Download &amp; install
               </button>
             ) : (
               <span className="muted">No build for this platform</span>
@@ -598,9 +588,8 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
         {applyErr && <p className="login__hint mt">{applyErr}</p>}
 
         {/* Restart from the browser: applies a staged update on the way back up,
-            and is useful on its own. WinSparkle drives its own restart, so the
-            button is hidden in that mode. */}
-        {upd?.updater !== "winsparkle" && (() => {
+            and is useful on its own. */}
+        {(() => {
           const hasStaged = !!(staged || upd?.auto_staged);
           return (
             <div className="row gap mt" style={{ alignItems: "center" }}>
@@ -627,9 +616,9 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
 
         {/* One concise mechanism note (not repeated above). */}
         <p className="muted mt" style={{ fontSize: "0.85em" }}>
-          {upd?.updater === "winsparkle"
-            ? "WinSparkle verifies the signed installer, applies it and restarts PIVOT — out-of-band, never mid-session."
-            : "Updates are downloaded and staged, then applied on the next restart — out-of-band, never mid-session. Air-gapped sites can use offline import."}
+          Updates are verified (checksum + signature), staged, and applied on the
+          next restart — out-of-band, never mid-session. Air-gapped sites can use
+          offline import.
         </p>
       </section>
     </div>

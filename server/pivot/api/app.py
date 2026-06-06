@@ -54,7 +54,7 @@ def _start_update_service(manager: SessionManager, cfg: Settings):
     status changes to the instructor console over the live feed.
     """
     from pivot.db.config_store import ConfigStore
-    from pivot.updates import github, winsparkle
+    from pivot.updates import github
     from pivot.updates.service import UpdateService
     from pivot.version import version_info
 
@@ -73,7 +73,7 @@ def _start_update_service(manager: SessionManager, cfg: Settings):
         config_provider=config_provider,
         session_active=lambda: manager.session_active,
         releases_provider=fetch_releases,
-        updater_kind=lambda: "winsparkle" if winsparkle.available() else "staged",
+        updater_kind=lambda: "staged",
         on_change=lambda snap: manager.broadcast("update_status", snap),
     )
     manager.update_service = service

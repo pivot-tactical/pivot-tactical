@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from pivot.updates.manager import (
     Release,
     ReleaseStanding,
@@ -193,6 +195,85 @@ def test_apply_pending_swaps_install_and_retains_old(tmp_path):
 def test_apply_pending_noop_without_marker(tmp_path):
     mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "v")
     assert mgr.apply_pending(tmp_path / "app") is None
+
+
+def _make_signed(data: bytes):
+    """Return (public_b64, signature_b64) for ``data`` from a fresh Ed25519 key."""
+    import base64
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    priv = Ed25519PrivateKey.generate()
+    pub_b64 = base64.b64encode(
+        priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    ).decode()
+    return pub_b64, base64.b64encode(priv.sign(data)).decode()
+
+
+def _patch_download(monkeypatch, archive: bytes, sig_b64: str):
+    import hashlib
+
+    from pivot.updates import manager as mgrmod
+
+    sha = hashlib.sha256(archive).hexdigest()
+
+    def fake_download(url, dest, token=None, timeout=600.0):
+        dest.write_bytes(archive)
+
+    def fake_get(url, token=None):
+        if url.endswith(".sha256"):
+            return f"{sha}  asset".encode()
+        if url.endswith(".sig"):
+            return sig_b64.encode()
+        raise AssertionError(url)
+
+    monkeypatch.setattr(mgrmod, "_http_download", fake_download)
+    monkeypatch.setattr(mgrmod, "_http_get", fake_get)
+
+
+def test_download_accepts_valid_signature(tmp_path, monkeypatch):
+    archive = b"PIVOT bundle bytes"
+    pub_b64, sig_b64 = _make_signed(archive)
+    monkeypatch.setenv("PIVOT_EDDSA_PUBLIC_KEY", pub_b64)
+    _patch_download(monkeypatch, archive, sig_b64)
+
+    mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
+    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
+                  sha256_url="http://x/a.zip.sha256", sig_url="http://x/a.zip.sig")
+    dest = mgr.download(rel)
+    assert dest.read_bytes() == archive
+
+
+def test_download_rejects_bad_signature(tmp_path, monkeypatch):
+    archive = b"PIVOT bundle bytes"
+    pub_b64, _ = _make_signed(archive)
+    _, wrong_sig = _make_signed(b"some other payload")  # signature won't match
+    monkeypatch.setenv("PIVOT_EDDSA_PUBLIC_KEY", pub_b64)
+    _patch_download(monkeypatch, archive, wrong_sig)
+
+    mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
+    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
+                  sha256_url="http://x/a.zip.sha256", sig_url="http://x/a.zip.sig")
+    with pytest.raises(ValueError, match="not trusted"):
+        mgr.download(rel)
+    # The rejected download must not be left on disk to be staged.
+    assert not (mgr.versions_dir / "_staging" / "1.1.0" / "a.zip").exists()
+
+
+def test_download_allows_unsigned_release_when_no_sig_published(tmp_path, monkeypatch):
+    # A release without a .sig sidecar (e.g. pre-rollout) still installs on the
+    # SHA-256 check alone, so enabling signing doesn't brick older releases.
+    archive = b"PIVOT bundle bytes"
+    pub_b64, _ = _make_signed(archive)
+    monkeypatch.setenv("PIVOT_EDDSA_PUBLIC_KEY", pub_b64)
+    _patch_download(monkeypatch, archive, "unused")
+
+    mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
+    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
+                  sha256_url="http://x/a.zip.sha256", sig_url="")  # no signature
+    dest = mgr.download(rel)
+    assert dest.read_bytes() == archive
 
 
 def test_stage_is_idempotent_on_restage(tmp_path):

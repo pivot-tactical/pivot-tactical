@@ -1,44 +1,43 @@
 # Releasing PIVOT & the auto-update chain
 
-PIVOT updates itself on Windows through a **signed Inno Setup installer**
-delivered by **WinSparkle** (the auto-update engine). This document covers the
-one-off key setup and the per-release flow. Everything is permissively licensed
-(WinSparkle and the installer tooling are MIT / BSD-class — see
-`THIRD-PARTY-LICENSES.md`).
+PIVOT updates itself through **one** mechanism on every platform and channel: the
+app asks GitHub for releases, picks the newest one **on the selected channel that
+is newer than what's running**, downloads its archive, **verifies it (SHA-256 +
+Ed25519 signature)**, stages it, and applies the swap on the next restart. Stable
+builds and dev prereleases are produced by the same workflow and update exactly
+the same way — so you can switch channels on the fly (only ever *upgrading*).
+Everything is permissively licensed (BSD/MIT-class — see `THIRD-PARTY-LICENSES.md`).
 
 ## How the update chain works
 
-1. The release workflow builds the app (PyInstaller `--onedir`), drops
-   `WinSparkle.dll` beside the binary, and wraps it in an Inno Setup installer
-   (`PIVOT-Tactical-Setup.exe`). Asset names are version-agnostic so the
-   `releases/latest/download/` URL is stable; the version lives in the tag, the
-   release notes and the embedded build-info.
-2. The installer is **signed** with the project's Ed25519 private key, and an
-   `appcast.xml` feed is generated carrying that signature
-   (`packaging/sign_appcast.py`).
-3. Both are published to the GitHub Release. WinSparkle polls the stable URL
-   `https://github.com/<owner>/<repo>/releases/latest/download/appcast.xml`.
-4. In the running app, the instructor's **Settings → Updates** panel asks the
-   server to check; on Windows it hands off to WinSparkle, which downloads the
-   installer, **verifies the Ed25519 signature** against the public key embedded
-   in the app, runs it (closing PIVOT, swapping the install on disk), and
-   relaunches PIVOT. This is why a directly-run `.exe` could never self-update —
-   the swap must happen while the app is stopped.
+1. The release workflow builds the app (PyInstaller `--onedir`), packages a
+   portable archive (`PIVOT-Tactical-win64.zip` / `…-linux-x86_64.tar.gz`), and
+   on Windows also wraps it in an Inno Setup installer (`PIVOT-Tactical-Setup.exe`)
+   for a Start-menu/uninstaller first-install. Asset names are **version-agnostic**
+   so `releases/latest/download/<name>` is a stable URL; the version lives in the
+   tag, the release notes and the embedded build-info.
+2. Every published asset gets a **`.sha256`** (integrity) and a **`.sig`**
+   (base64 Ed25519 signature) sidecar, signed with the project's private key
+   (`packaging/sign_appcast.py sign`).
+3. In the running app, **Settings → Updates** shows the channel-filtered list.
+   Choosing **Download & install** (or auto-update) downloads the archive,
+   verifies its SHA-256 **and** its Ed25519 signature against the public key
+   embedded in the app, extracts it to the versions store, and writes a pending
+   marker.
+4. The staged build is swapped into place on the next **restart** — which the
+   instructor can trigger from the browser (**Restart server / Restart now to
+   apply**). The swap happens while the app is stopped, so a running executable
+   replaces itself cleanly:
+   - **Linux:** the systemd unit's `ExecStartPre=… --apply-staged` applies it and
+     `Restart=always` brings the service back.
+   - **Windows:** a detached relauncher (`--relaunch-after <pid>`) waits for the
+     old process to exit, applies the swap, and starts the app again.
+   The previous version is retained for rollback (§3.7.7).
 
-On Linux there is no WinSparkle; the equivalent chain is a **systemd service** +
-a **SHA-256-verified download → staged swap on restart**:
-
-1. The release tarball ships `install.sh`, `uninstall.sh` and
-   `pivot-tactical.service` inside the bundle. `sudo ./install.sh` installs to
-   `/opt/pivot-tactical`, runs it headless as the `pivot` user, and stores data
-   under `/var/lib/pivot-tactical`.
-2. In-app "Install" downloads the new tarball, verifies its SHA-256, extracts it
-   to the versions store and writes a pending-update marker.
-3. The service's `ExecStartPre=… --apply-staged` swaps the staged build into
-   `/opt/pivot-tactical` **before** the new binary starts (a running executable's
-   file can be replaced safely on Linux), retaining the old version for rollback.
-   This mirrors WinSparkle's close → swap → relaunch on Windows. The swap applies
-   on the next `systemctl restart pivot-tactical`.
+This single path is why channel switching works: the choice of release is made
+from the live GitHub list against the running version, so a dev tester on
+`1.1.0-dev.5` only moves to stable once a stable ≥ `1.1.0` ships (a lower stable
+is never offered — updates only go *up*).
 
 ## Headless presentation (tray / service)
 
@@ -50,8 +49,7 @@ way:
   tray menu offers Open PIVOT / Copy LAN address / Show log / Quit. Force the
   console with `--no-tray`; force the tray with `--tray`.
 - **Linux:** it runs as a background **systemd service** (logs to the journal:
-  `journalctl -u pivot-tactical -f`) — the idiomatic "tucked away headless"
-  equivalent.
+  `journalctl -u pivot-tactical -f`).
 
 ## One-off: mint the signing key
 
@@ -66,8 +64,8 @@ This prints two base64 strings:
 - **Public key** → paste into `server/pivot/updates/signing.py` as
   `_EMBEDDED_PUBLIC_KEY` (or set `PIVOT_EDDSA_PUBLIC_KEY` at runtime for staging).
 
-Until the public key is set, the Windows in-app updater reports itself as
-unavailable and the app simply offers no auto-update (no breakage).
+Until a public key is set the app falls back to SHA-256 integrity only; once
+assets carry `.sig` sidecars the signature check is enforced.
 
 ## Cutting a release
 
@@ -76,16 +74,18 @@ git tag v1.2.0
 git push origin v1.2.0
 ```
 
-The `Release` workflow then, per platform:
+The `Release` workflow and the per-PR prerelease build both use the **same**
+shared action (`.github/actions/build-pivot`), so they produce identical assets:
 
-- builds the bundle and the `.zip` / `.tar.gz` + `.sha256` (unchanged);
-- **(Windows)** adds `WinSparkle.dll`, builds the Inno Setup installer, and — if
-  `PIVOT_EDDSA_PRIVATE_KEY` is configured — signs it and emits `appcast.xml`;
-- publishes all assets to the GitHub Release.
+- the portable archive + `.sha256`;
+- **(Windows)** the Inno Setup installer, Authenticode-signed if the cert secret
+  is present;
+- a `.sig` Ed25519 signature for every asset, if `PIVOT_EDDSA_PRIVATE_KEY` is set;
+- published to the GitHub Release (tag) or as a `-dev.N` prerelease (PR).
 
-A `workflow_dispatch` run builds and uploads artifacts without publishing, so you
-can validate the installer without cutting a release. Without the secret, the
-installer is still built; only the signature/appcast are skipped.
+A `workflow_dispatch` run builds and uploads artifacts without publishing. Without
+the secrets the build still succeeds — the installer is left unsigned and the
+`.sig` sidecars are skipped (the app then trusts SHA-256 alone).
 
 ## Security: where the keys live (and what is *never* committed)
 
@@ -96,20 +96,20 @@ in the app or the repo.
 
 | Material | Purpose | Stored as | In the repo? |
 | --- | --- | --- | --- |
-| **Ed25519 private key** | Signs the appcast/installer the in-app updater trusts | Secret `PIVOT_EDDSA_PRIVATE_KEY` | **Never** |
+| **Ed25519 private key** | Signs every release asset the in-app updater trusts | Secret `PIVOT_EDDSA_PRIVATE_KEY` | **Never** |
 | **Ed25519 public key** | Verifies that signature inside the running app | `server/pivot/updates/signing.py` (`_EMBEDDED_PUBLIC_KEY`) | Yes — public by design |
-| **Authenticode cert (.pfx)** | OS-trust so SmartScreen/UAC don't warn | Secret `WINDOWS_CERTIFICATE` (base64) + `WINDOWS_CERTIFICATE_PASSWORD` | **Never** |
+| **Authenticode cert (.pfx)** | OS-trust so SmartScreen/UAC don't warn on the installer | Secret `WINDOWS_CERTIFICATE` (base64) + `WINDOWS_CERTIFICATE_PASSWORD` | **Never** |
 
 This is the standard model for CI signing: the secret store is the vault, the
 build reads it at run time, and the repo only ever carries the *public* half. If
 either secret is absent the workflow still succeeds — it just skips that
-signature (the Ed25519 step is skipped; the installer is left unsigned). So the
-project builds and runs for contributors without access to the keys, and only an
-official release run (with the secrets configured) produces fully-signed assets.
+signature. So the project builds and runs for contributors without access to the
+keys, and only an official run (with the secrets configured) produces fully-signed
+assets.
 
-To rotate a key: mint a new one, update the GitHub secret, and (for Ed25519)
-update `_EMBEDDED_PUBLIC_KEY` and ship an app build carrying the new public key
-before retiring the old key.
+To rotate the Ed25519 key: mint a new one, update the GitHub secret, update
+`_EMBEDDED_PUBLIC_KEY`, and ship an app build carrying the new public key
+*before* retiring the old key.
 
 ## One-off: configure Authenticode (optional, recommended for public distribution)
 
@@ -124,14 +124,13 @@ base64 -w0 your-cert.pfx        # -> paste as WINDOWS_CERTIFICATE
 - `WINDOWS_CERTIFICATE` — base64 of the `.pfx`
 - `WINDOWS_CERTIFICATE_PASSWORD` — its export password
 
-The release workflow then signs `PIVOT-Tactical-Setup.exe` with
-`signtool` (SHA-256 + RFC-3161 timestamp) **before** computing the Ed25519
-appcast signature, so both signatures are valid on the published file.
+The build then signs `PIVOT-Tactical-Setup.exe` with `signtool` (SHA-256 +
+RFC-3161 timestamp) **before** the Ed25519 `.sig` is computed, so the `.sig`
+covers the Authenticode-signed bytes.
 
 ## Notes
 
 - **Signing order matters:** Authenticode runs first (it rewrites the `.exe`),
-  then the Ed25519 appcast signature is computed over the signed bytes.
+  then the Ed25519 `.sig` is computed over the signed bytes.
 - **AppId:** the GUID in `packaging/pivot.iss` is the upgrade identity — keep it
   constant forever so installers upgrade in place.
-- **WinSparkle version** is pinned in `release.yml`; bump it there to update.

@@ -193,6 +193,11 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("keygen", help="mint a new Ed25519 key pair")
 
+    sg = sub.add_parser("sign", help="write a base64 Ed25519 .sig sidecar for a file")
+    sg.add_argument("--file", required=True, type=Path, help="asset to sign")
+    sg.add_argument("--out", type=Path, default=None,
+                    help="signature path (default: <file>.sig)")
+
     ac = sub.add_parser("appcast", help="sign an installer and render the appcast")
     ac.add_argument("--installer", required=True, type=Path)
     ac.add_argument("--version", required=True)
@@ -210,6 +215,16 @@ def main(argv: list[str] | None = None) -> int:
         print(priv)
         print("\nPublic key (embed in the app — pivot.updates.signing.PUBLIC_KEY):")
         print(pub)
+        return 0
+
+    if args.cmd == "sign":
+        private = _read_private_from_env()
+        target: Path = args.file
+        if not target.is_file():
+            sys.exit(f"file not found: {target}")
+        out = args.out or target.with_name(target.name + ".sig")
+        out.write_text(sign_file(target, private))
+        print(f"wrote {out} (signature of {target.name})")
         return 0
 
     # appcast

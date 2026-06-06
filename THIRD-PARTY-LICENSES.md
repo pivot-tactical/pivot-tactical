@@ -38,14 +38,14 @@ generated section by hand.
 | libsndfile (native, via soundfile) | 1.2.x | LGPL-2.1 | Weak copyleft | Dynamic link — replaceable |
 | SQLAlchemy | 2.x | MIT | Permissive | Attribution |
 | pydantic / pydantic-settings | 2.x | MIT | Permissive | Attribution |
-| WinSparkle (Windows in-app updater, `WinSparkle.dll`) | 0.8.x | MIT | Permissive | Attribution |
-| Expat (bundled inside WinSparkle.dll) | 2.x | MIT | Permissive | Attribution |
+| cryptography (Ed25519 update verification) | 42.x | Apache-2.0 / BSD-3-Clause | Permissive | Attribution |
 | React | 18.x | MIT | Permissive | Attribution |
 | Vite | 5.x | MIT | Permissive | Attribution |
 
-> **WinSparkle** ships only in the Windows bundle (it is the auto-update engine,
-> §3.7.5). It is MIT — non-copyleft — so it carries an attribution obligation
-> only, no relink burden. It is not present in the Linux build.
+> **Updates are self-contained:** the in-app updater downloads a release archive,
+> verifies its SHA-256 and its Ed25519 signature (via `cryptography`) against the
+> public key embedded in the app, and stages it for the next restart — the same
+> on Windows and Linux. No third-party update engine is bundled.
 
 ## Build-tooling inventory (not linked into the distributed binary)
 
@@ -53,7 +53,7 @@ generated section by hand.
 |-----------|---------|------|
 | PyInstaller | GPL-2.0-WITH-exception | Linking exception permits distributing the produced executable under the project's own terms. PyInstaller itself is not redistributed inside the binary. |
 | Inno Setup (`iscc`) | Permissive (jrsoftware, BSD-like) | Builds the Windows installer. Build tool only — never linked into or shipped inside the binary. |
-| cryptography (Ed25519 signing) | Apache-2.0 / BSD-3-Clause | Signs release installers + appcast in CI. Build/sign tool only — not a runtime dependency. |
+| cryptography (Ed25519 signing) | Apache-2.0 / BSD-3-Clause | CI also uses it to *sign* the release assets. (It is a runtime dependency too — the app uses it to *verify* signatures; listed above.) |
 | pytest | MIT | Test only |
 | ruff | MIT | Lint only |
 

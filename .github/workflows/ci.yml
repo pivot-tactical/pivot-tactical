@@ -142,6 +142,9 @@ jobs:
       - uses: ./.github/actions/build-pivot
         with:
           artifact: win64
+          eddsa_private_key: ${{ secrets.PIVOT_EDDSA_PRIVATE_KEY }}
+          windows_certificate: ${{ secrets.WINDOWS_CERTIFICATE }}
+          windows_certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
   prerelease-build-linux:
     name: Prerelease build (Linux)
@@ -156,6 +159,7 @@ jobs:
       - uses: ./.github/actions/build-pivot
         with:
           artifact: linux-x86_64
+          eddsa_private_key: ${{ secrets.PIVOT_EDDSA_PRIVATE_KEY }}
 
   prerelease-publish:
     name: Prerelease publish

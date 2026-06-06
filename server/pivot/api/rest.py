@@ -52,7 +52,6 @@ _SETTABLE_KEYS = {
     "auto_update",
     "github_repo",
     "github_token",
-    "appcast_url",
     "log_level",
 }
 
@@ -379,7 +378,7 @@ def _shape_update_status(snap: dict) -> dict:
 
 def _live_update_check(manager) -> dict:
     """One-shot live check used when the background service isn't running."""
-    from pivot.updates import github, winsparkle
+    from pivot.updates import github
     from pivot.updates.manager import UpdateManager, classify_release
     from pivot.version import SemVer, version_info
 
@@ -390,9 +389,8 @@ def _live_update_check(manager) -> dict:
     channel = str(cfg.get("update_channel", "stable"))
     include_pre = channel == "include_prereleases"
 
-    # On Windows the in-app updater is WinSparkle (signed installer); elsewhere
-    # the apply path is a verified download + staged swap.
-    updater = "winsparkle" if winsparkle.available() else "staged"
+    # One verified download + staged swap on every platform and channel.
+    updater = "staged"
 
     mgr = UpdateManager(
         version_info.version, manager.settings.versions_dir, include_prereleases=include_pre
@@ -425,6 +423,7 @@ def _live_update_check(manager) -> dict:
             "asset_name": r.asset_name,
             "asset_url": r.asset_url,
             "sha256_url": r.sha256_url,
+            "sig_url": r.sig_url,
             "has_asset": bool(r.asset_url),
             "standing": classify_release(r, cur).value,
         }
@@ -433,16 +432,10 @@ def _live_update_check(manager) -> dict:
     result["releases"] = [to_dict(r) for r in mgr.list_releases(raw)]
     result["available"] = [to_dict(r) for r in available]
 
-    # Auto-update. On Windows, let WinSparkle fetch + verify + install the signed
-    # build; elsewhere download and stage the newest available release.
+    # Auto-update: download + stage the newest available release on the channel.
     if bool(cfg.get("auto_update", False)) and available:
         newest = available[0]
-        if updater == "winsparkle":
-            if winsparkle.init(_resolve_appcast_url(cfg)) and winsparkle.check_and_install():
-                result["auto_staged"] = newest.tag
-            else:
-                result["auto_update_error"] = "WinSparkle auto-update unavailable"
-        elif newest.asset_url:
+        if newest.asset_url:
             try:
                 asset_path = mgr.download(newest, token)
                 mgr.stage(asset_path, newest)
@@ -453,37 +446,23 @@ def _live_update_check(manager) -> dict:
     return result
 
 
-def _resolve_appcast_url(cfg: dict) -> str:
-    from pivot.config import default_appcast_url
-
-    return str(cfg.get("appcast_url") or "").strip() or default_appcast_url(
-        str(cfg.get("github_repo") or "")
-    )
-
-
 @router.post("/admin/updates/apply", dependencies=[Depends(require_instructor)])
 def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) -> dict:
     """Apply an update (spec §3.7.5).
 
-    On Windows the professional path is WinSparkle: it fetches the signed Inno
-    Setup installer named in our appcast, verifies its Ed25519 signature against
-    the embedded public key, runs it (which closes PIVOT, swaps the install and
-    relaunches), so the running binary replaces itself safely. Elsewhere (Linux
-    tarball / source) we fall back to a verified download + staged swap.
+    One path on every platform and channel: download the chosen release's
+    archive, verify it (SHA-256 integrity + Ed25519 authenticity against the
+    embedded public key), and stage it. The swap is applied on the next restart
+    — use ``/admin/restart`` to do that from the browser. This uniformity is what
+    lets stable and prerelease behave identically and channel switches take
+    effect on the fly.
     """
-    from pivot.updates import winsparkle
     from pivot.updates.manager import Release, UpdateManager
     from pivot.version import version_info
 
     with manager.db.session() as s:
         cfg = ConfigStore(s).all()
     token = str(cfg.get("github_token") or "") or None
-
-    # Windows + WinSparkle available: hand off to the audited updater.
-    if winsparkle.available():
-        if winsparkle.init(_resolve_appcast_url(cfg)) and winsparkle.check_with_ui():
-            return {"handed_to": "winsparkle", "tag": req.tag, "restart_required": True}
-        raise HTTPException(status_code=500, detail="WinSparkle init/check failed")
 
     mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
     # Already staged this exact release — skip the redundant download + extract
@@ -501,6 +480,7 @@ def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) ->
         asset_url=req.asset_url,
         asset_name=req.asset_name,
         sha256_url=req.sha256_url,
+        sig_url=req.sig_url,
     )
     try:
         asset_path = mgr.download(release, token)

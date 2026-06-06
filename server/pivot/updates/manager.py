@@ -92,6 +92,7 @@ class Release:
     asset_url: str = ""
     asset_name: str = ""
     sha256_url: str = ""   # URL of the .sha256 sidecar published alongside the asset
+    sig_url: str = ""      # URL of the .sig Ed25519 signature sidecar (authenticity)
 
     @property
     def semver(self) -> SemVer | None:
@@ -113,12 +114,13 @@ class Release:
                 asset_url = asset.get("browser_download_url", "")
                 asset_name = name
                 break
+        sig_url = ""
         if asset_name:
-            sidecar = asset_name + ".sha256"
-            for asset in assets:
-                if asset.get("name") == sidecar:
-                    sha256_url = asset.get("browser_download_url", "")
-                    break
+            by_name = {a.get("name"): a.get("browser_download_url", "") for a in assets}
+            sha256_url = by_name.get(asset_name + ".sha256", "")
+            # Ed25519 signature of the archive (authenticity), verified against
+            # the embedded public key before any staged swap.
+            sig_url = by_name.get(asset_name + ".sig", "")
         return cls(
             tag=data.get("tag_name", ""),
             name=data.get("name", "") or data.get("tag_name", ""),
@@ -128,6 +130,7 @@ class Release:
             asset_url=asset_url,
             asset_name=asset_name,
             sha256_url=sha256_url,
+            sig_url=sig_url,
         )
 
 
@@ -190,6 +193,35 @@ def sha256_of(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _verify_signature(dest: Path, release: Release, token: str | None) -> None:
+    """Verify the archive's Ed25519 signature against the embedded public key.
+
+    Authenticity (not just the SHA-256 integrity check): the release workflow
+    signs every asset with the project's private key, and the running app trusts
+    only that key. A published signature that fails verification is fatal —
+    the download is deleted and an error raised. A *missing* signature is
+    tolerated only while no key is configured (or the release predates signing),
+    so the rollout never bricks the updater; once assets are signed the check is
+    enforced for everyone.
+    """
+    from pivot.updates import signing
+
+    if not signing.is_configured():
+        return  # no trust anchor -> integrity-only (SHA-256) as before
+    if not release.sig_url:
+        return  # unsigned release (e.g. pre-rollout) -> accept on SHA-256 alone
+    try:
+        sig_b64 = _http_get(release.sig_url, token).decode().strip()
+    except Exception as exc:  # signature published but unreachable -> refuse
+        dest.unlink(missing_ok=True)
+        raise ValueError(f"Could not fetch update signature ({release.asset_name})") from exc
+    if not signing.verify_file(dest, sig_b64, signing.public_key()):
+        dest.unlink(missing_ok=True)
+        raise ValueError(
+            f"Signature verification failed — update is not trusted ({release.asset_name})"
+        )
 
 
 def _swap_dir_contents(install_dir: Path, new_root: Path) -> None:
@@ -331,6 +363,7 @@ class UpdateManager:
                 raise ValueError(
                     f"SHA-256 mismatch — download may be corrupt ({release.asset_name})"
                 )
+        _verify_signature(dest, release, token)
         return dest
 
     def stage(self, asset_path: Path, release: Release) -> Path:
