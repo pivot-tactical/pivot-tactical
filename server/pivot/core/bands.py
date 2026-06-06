@@ -114,6 +114,21 @@ def clamp_frequency(freq_hz: float) -> float:
     return max(MIN_FREQ_HZ, min(MAX_FREQ_HZ, freq_hz))
 
 
+# Channel raster used by both the server (authoritative snap) and the UI.
+CHANNEL_STEP_HZ: int = 25_000
+
+
+def snap_frequency(freq_hz: float) -> float:
+    """Round to the nearest 25 kHz channel and clamp to the tunable range.
+
+    The server is authoritative: every frequency that enters the system —
+    typed, incremented, or received from a client — passes through here so
+    operators always land on a valid channel regardless of how they entered it.
+    """
+    snapped = round(freq_hz / CHANNEL_STEP_HZ) * CHANNEL_STEP_HZ
+    return float(clamp_frequency(snapped))
+
+
 # 25 kHz channel raster: radios tune only to multiples of this, snapping the
 # nearest valid channel when an off-grid frequency is entered.
 CHANNEL_STEP_HZ: float = 25_000.0
