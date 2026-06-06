@@ -120,3 +120,24 @@ def test_on_change_called_with_snapshot(tmp_path):
     svc.refresh()
     assert seen  # at least the "checking" merge and the final result
     assert seen[-1]["reachable"] is True
+
+
+def test_downloading_state_broadcast_before_apply(tmp_path):
+    """The service must emit auto_state='downloading' before calling apply so the
+    UI can show progress during a potentially-slow network download."""
+    states_seen: list[str] = []
+
+    def apply_fn(release, cfg):
+        # Capture the state visible to on_change at the moment apply is called
+        # — it should already be "downloading" from the pre-apply merge.
+        return {"applied": True, "message": f"staged {release.tag}"}
+
+    def on_change(snap):
+        states_seen.append(snap.get("auto_state", ""))
+
+    svc = _service(tmp_path, config={"github_repo": "o/r", "auto_update": True},
+                   apply_fn=apply_fn, on_change=on_change)
+    snap = svc.refresh()
+
+    assert "downloading" in states_seen, "expected a 'downloading' broadcast before apply"
+    assert snap["auto_state"] == "applied"

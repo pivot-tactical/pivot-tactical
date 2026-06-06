@@ -463,8 +463,9 @@ function SettingsTab({ mustChangePassword, onTimezone, socket }: {
 
       <section className="card pad">
         <h3>Updates</h3>
-        <button className="btn" onClick={checkUpdates} disabled={checking || applying !== null}>
-          {checking ? "Checking…" : "Check now"}
+        <button className="btn" onClick={checkUpdates}
+          disabled={checking || upd?.checking || applying !== null}>
+          {checking || upd?.checking ? "Checking…" : "Check now"}
         </button>
         {upd && (
           <div className="mt">
@@ -472,12 +473,22 @@ function SettingsTab({ mustChangePassword, onTimezone, socket }: {
               Current {upd.current_version} · channel {upd.channel}
               {upd.auto_update ? " · auto-update on" : ""}
               {upd.updater === "winsparkle" ? " · WinSparkle" : ""}
-              {upd.last_checked ? ` · checked ${new Date(upd.last_checked).toLocaleTimeString()}` : ""}
+              {upd.last_checked ? ` · last checked ${new Date(upd.last_checked).toLocaleTimeString()}` : " · never checked"}
             </div>
+            {/* Background service activity — visible even without manual interaction */}
+            {upd.auto_state === "downloading" && (
+              <p className="muted mt">⟳ {upd.auto_message || "Downloading update…"}</p>
+            )}
             {upd.auto_state === "deferred_session_active" && (
               <p className="muted mt">{upd.auto_message || "Auto-update deferred — a session is running. It applies once the session ends."}</p>
             )}
-            {!upd.reachable && <p className="login__hint">Offline — GitHub unreachable. Use offline import.</p>}
+            {upd.auto_state === "applied" && upd.auto_message && (
+              <p className="muted mt">✓ {upd.auto_message}</p>
+            )}
+            {upd.auto_state === "error" && upd.auto_message && (
+              <p className="login__hint mt">Auto-update: {upd.auto_message}</p>
+            )}
+            {!upd.reachable && !upd.checking && <p className="login__hint">Offline — GitHub unreachable. Use offline import.</p>}
             {upd.reachable && upd.available.length === 0 && !staged && <p className="muted mt">Up to date.</p>}
             {upd.reachable && upd.available.length > 0 && (
               <p className="muted mt">{upd.available.length} release{upd.available.length > 1 ? "s" : ""} available — choose one to install:</p>

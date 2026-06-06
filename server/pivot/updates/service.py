@@ -165,11 +165,16 @@ class UpdateService:
                 update["auto_state"] = "deferred_session_active"
                 update["auto_message"] = "Update deferred — a session is running."
             else:
+                target = available[0]
+                # Broadcast a downloading state so the UI shows progress before
+                # the potentially-slow download completes.
+                self._merge({**update, "auto_state": "downloading",
+                             "auto_message": f"Downloading {target.tag}…"})
                 try:
-                    result = self._apply(available[0], cfg)
+                    result = self._apply(target, cfg)
                     update["auto_state"] = "applied" if result.get("applied") else "error"
                     update["auto_message"] = result.get("message", "") or (
-                        f"Updating to {available[0].tag}." if result.get("applied")
+                        f"Updating to {target.tag}." if result.get("applied")
                         else "Auto-update failed."
                     )
                 except Exception as exc:

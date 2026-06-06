@@ -66,7 +66,7 @@ export interface UpdateStatus {
   error: string | null;
   last_checked?: string | null;
   checking?: boolean;
-  auto_state?: "idle" | "deferred_session_active" | "applied" | "error";
+  auto_state?: "idle" | "deferred_session_active" | "downloading" | "applied" | "error";
   auto_message?: string;
   auto_staged?: string;
   auto_update_error?: string;
