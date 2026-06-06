@@ -42,6 +42,38 @@ export interface ServerStatus {
   display_timezone: string;
 }
 
+export interface ReleaseInfo {
+  tag: string;
+  name?: string;
+  prerelease: boolean;
+  standing: string;
+  published_at: string;
+  has_asset: boolean;
+  asset_url: string;
+  sha256_url: string;
+  asset_name: string;
+}
+
+// Shape of the background update service's cached status (and the live
+// `update_status` broadcast). `available` is the subset that is newer than the
+// running build; `releases` is the full channel-filtered list.
+export interface UpdateStatus {
+  current_version: string;
+  channel: string;
+  auto_update: boolean;
+  updater: "winsparkle" | "staged";
+  reachable: boolean;
+  error: string | null;
+  last_checked?: string | null;
+  checking?: boolean;
+  auto_state?: "idle" | "deferred_session_active" | "applied" | "error";
+  auto_message?: string;
+  auto_staged?: string;
+  auto_update_error?: string;
+  releases?: ReleaseInfo[];
+  available: ReleaseInfo[];
+}
+
 function tokenQuery(extra = ""): string {
   const t = instructorToken ? `token=${encodeURIComponent(instructorToken)}` : "";
   return [extra, t].filter(Boolean).join("&");
@@ -132,27 +164,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(updates),
     }),
-  checkUpdates: () =>
-    jsonFetch<{
-      current_version: string;
-      channel: string;
-      auto_update: boolean;
-      updater: "winsparkle" | "staged";
-      reachable: boolean;
-      error: string | null;
-      auto_staged?: string;
-      auto_update_error?: string;
-      available: {
-        tag: string;
-        prerelease: boolean;
-        standing: string;
-        published_at: string;
-        has_asset: boolean;
-        asset_url: string;
-        sha256_url: string;
-        asset_name: string;
-      }[];
-    }>("/api/admin/updates/check"),
+  checkUpdates: () => jsonFetch<UpdateStatus>("/api/admin/updates/check"),
+  // Force an immediate, synchronous re-check (the "Check now" button). The
+  // background service caches the result so subsequent checkUpdates() are cheap.
+  refreshUpdates: () =>
+    jsonFetch<UpdateStatus>("/api/admin/updates/refresh", { method: "POST" }),
   applyUpdate: (tag: string, assetUrl: string, sha256Url: string, assetName: string) =>
     jsonFetch<{
       staged?: boolean;

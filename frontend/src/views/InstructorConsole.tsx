@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, getToken } from "../api";
+import type { UpdateStatus } from "../api";
 import { AudioIO, playClick, playSyncTone } from "../audio";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
 import type { EventRow, RadioState, Terminal, TxPhase } from "../types";
@@ -102,7 +103,7 @@ export function InstructorConsole({
         {tab === "log" && <LiveLogTab events={events} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
         {tab === "scenario" && <ScenarioTab />}
-        {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} />}
+        {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} socket={socketRef.current} />}
       </main>
     </div>
   );
@@ -327,25 +328,40 @@ function ScenarioTab() {
   );
 }
 
-function SettingsTab({ mustChangePassword, onTimezone }: { mustChangePassword: boolean; onTimezone: (tz: string) => void }) {
+function SettingsTab({ mustChangePassword, onTimezone, socket }: {
+  mustChangePassword: boolean; onTimezone: (tz: string) => void; socket: PivotSocket | null;
+}) {
   const [cfg, setCfg] = useState<Record<string, any>>({});
   const [saved, setSaved] = useState(false);
   const [pw, setPw] = useState({ current: "", next: "" });
   const [pwMsg, setPwMsg] = useState("");
-  const [upd, setUpd] = useState<Awaited<ReturnType<typeof api.checkUpdates>> | null>(null);
+  const [upd, setUpd] = useState<UpdateStatus | null>(null);
   const [checking, setChecking] = useState(false);
   const [applying, setApplying] = useState<string | null>(null);
   const [staged, setStaged] = useState<string | null>(null);
   const [applyErr, setApplyErr] = useState<string | null>(null);
 
+  function absorb(result: UpdateStatus) {
+    setUpd(result);
+    if (result.auto_staged) setStaged(result.auto_staged);
+    if (result.auto_update_error) setApplyErr(result.auto_update_error);
+  }
+
+  // The background service checks out-of-band; show its cached status on mount
+  // and update live as it broadcasts (no network wait, always current).
+  useEffect(() => {
+    api.checkUpdates().then(absorb).catch(() => {});
+    if (!socket) return;
+    const off = socket.on("update_status", (snap: UpdateStatus) => absorb(snap));
+    return () => { off(); };
+  }, [socket]);
+
+  // "Check now" forces a synchronous re-check rather than reading the cache.
   async function checkUpdates() {
     setChecking(true);
     setApplyErr(null);
     try {
-      const result = await api.checkUpdates();
-      setUpd(result);
-      if (result.auto_staged) setStaged(result.auto_staged);
-      if (result.auto_update_error) setApplyErr(result.auto_update_error);
+      absorb(await api.refreshUpdates());
     } finally {
       setChecking(false);
     }
@@ -448,7 +464,7 @@ function SettingsTab({ mustChangePassword, onTimezone }: { mustChangePassword: b
       <section className="card pad">
         <h3>Updates</h3>
         <button className="btn" onClick={checkUpdates} disabled={checking || applying !== null}>
-          {checking ? "Checking…" : "Check for updates"}
+          {checking ? "Checking…" : "Check now"}
         </button>
         {upd && (
           <div className="mt">
@@ -456,9 +472,16 @@ function SettingsTab({ mustChangePassword, onTimezone }: { mustChangePassword: b
               Current {upd.current_version} · channel {upd.channel}
               {upd.auto_update ? " · auto-update on" : ""}
               {upd.updater === "winsparkle" ? " · WinSparkle" : ""}
+              {upd.last_checked ? ` · checked ${new Date(upd.last_checked).toLocaleTimeString()}` : ""}
             </div>
+            {upd.auto_state === "deferred_session_active" && (
+              <p className="muted mt">{upd.auto_message || "Auto-update deferred — a session is running. It applies once the session ends."}</p>
+            )}
             {!upd.reachable && <p className="login__hint">Offline — GitHub unreachable. Use offline import.</p>}
             {upd.reachable && upd.available.length === 0 && !staged && <p className="muted mt">Up to date.</p>}
+            {upd.reachable && upd.available.length > 0 && (
+              <p className="muted mt">{upd.available.length} release{upd.available.length > 1 ? "s" : ""} available — choose one to install:</p>
+            )}
             {upd.available.map((a) => {
               const tagStaged = staged === a.tag || staged === `${a.tag}:winsparkle`;
               return (
