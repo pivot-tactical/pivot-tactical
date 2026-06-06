@@ -343,8 +343,14 @@ class UpdateManager:
         import tarfile
         import zipfile
 
+        # Start from a clean extraction dir: a re-stage (e.g. the user applies an
+        # already-staged release again) must not collide with leftovers from the
+        # previous attempt. On Windows, extracting over an existing tree fails
+        # with WinError 183 ("file already exists"), so wipe first.
         staging_dir = asset_path.parent / "extracted"
-        staging_dir.mkdir(exist_ok=True)
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        staging_dir.mkdir(parents=True, exist_ok=True)
         if asset_path.name.endswith(".tar.gz"):
             with tarfile.open(asset_path) as tf:
                 tf.extractall(staging_dir)

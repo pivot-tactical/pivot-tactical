@@ -195,6 +195,29 @@ def test_apply_pending_noop_without_marker(tmp_path):
     assert mgr.apply_pending(tmp_path / "app") is None
 
 
+def test_stage_is_idempotent_on_restage(tmp_path):
+    """Applying an already-staged release again must not collide with the
+    previous extraction (Windows WinError 183). Re-staging starts clean."""
+    import zipfile
+
+    versions = tmp_path / "versions"
+    staging = versions / "_staging" / "1.1.0"
+    staging.mkdir(parents=True)
+    asset = staging / "PIVOT-Tactical-v1.1.0-win64.zip"
+    with zipfile.ZipFile(asset, "w") as zf:
+        zf.writestr("PIVOT-Tactical/_internal/watchfiles/x.txt", "data")
+        zf.writestr("PIVOT-Tactical/PIVOT-Tactical.exe", "binary")
+
+    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    release = Release(tag="1.1.0", asset_name=asset.name)
+
+    first = mgr.stage(asset, release)
+    assert (first / "PIVOT-Tactical" / "_internal" / "watchfiles" / "x.txt").exists()
+    # Second stage over the populated `extracted/` must succeed, not raise.
+    second = mgr.stage(asset, release)
+    assert (second / "PIVOT-Tactical" / "PIVOT-Tactical.exe").exists()
+
+
 def test_offline_import_verification(tmp_path):
     pkg = tmp_path / "PIVOT-Tactical-v1.1.0-win64.zip"
     pkg.write_bytes(b"PIVOT package bytes")
