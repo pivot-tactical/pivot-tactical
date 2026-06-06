@@ -32,6 +32,62 @@ user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 shell32 = ctypes.windll.shell32
 
+# LRESULT / handles are pointer-sized (64-bit on a 64-bit Python). ctypes
+# defaults every function's restype/argtypes to C ``int`` (32-bit), which on x64
+# truncates handles and corrupts pointer arguments — a HMENU passed to
+# AppendMenuW then arrives with garbage high bits, so the menu shows up empty (a
+# blank white rectangle). Declaring prototypes makes ctypes pass/return the full
+# 64-bit values. We only need this for calls that take or return handles.
+LRESULT = ctypes.c_ssize_t
+HMENU = wintypes.HMENU
+HWND = wintypes.HWND
+
+
+def _configure_win32_prototypes() -> None:
+    user32.DefWindowProcW.restype = LRESULT
+    user32.DefWindowProcW.argtypes = [HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user32.CreateWindowExW.restype = HWND
+    user32.CreateWindowExW.argtypes = [
+        wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
+        ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+        HWND, HMENU, wintypes.HINSTANCE, wintypes.LPVOID,
+    ]
+    user32.DestroyWindow.argtypes = [HWND]
+    user32.ShowWindow.argtypes = [HWND, ctypes.c_int]
+    user32.SetForegroundWindow.restype = wintypes.BOOL
+    user32.SetForegroundWindow.argtypes = [HWND]
+    user32.LoadIconW.restype = wintypes.HICON
+    user32.LoadIconW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR]
+    # Menu calls — the heart of the empty-menu bug: handles must be 64-bit.
+    user32.CreatePopupMenu.restype = HMENU
+    user32.CreatePopupMenu.argtypes = []
+    user32.AppendMenuW.restype = wintypes.BOOL
+    user32.AppendMenuW.argtypes = [HMENU, wintypes.UINT, ctypes.c_size_t, wintypes.LPCWSTR]
+    user32.TrackPopupMenu.restype = wintypes.BOOL
+    user32.TrackPopupMenu.argtypes = [
+        HMENU, wintypes.UINT, ctypes.c_int, ctypes.c_int, ctypes.c_int, HWND, ctypes.c_void_p,
+    ]
+    user32.DestroyMenu.argtypes = [HMENU]
+    # Clipboard: GlobalAlloc/GlobalLock/SetClipboardData return pointers/handles
+    # that would be truncated (and then dereferenced) without these.
+    user32.OpenClipboard.restype = wintypes.BOOL
+    user32.OpenClipboard.argtypes = [HWND]
+    user32.SetClipboardData.restype = wintypes.HANDLE
+    user32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
+    kernel32.GlobalAlloc.restype = ctypes.c_void_p
+    kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+    kernel32.GlobalLock.restype = ctypes.c_void_p
+    kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+    kernel32.GetModuleHandleW.restype = wintypes.HMODULE
+    kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+    kernel32.GetConsoleWindow.restype = HWND
+    shell32.Shell_NotifyIconW.restype = wintypes.BOOL
+    shell32.Shell_NotifyIconW.argtypes = [wintypes.DWORD, ctypes.c_void_p]
+
+
+_configure_win32_prototypes()
+
 # --- Win32 constants -------------------------------------------------------- #
 WM_DESTROY = 0x0002
 WM_COMMAND = 0x0111
@@ -104,7 +160,7 @@ def _copy_to_clipboard(text: str) -> None:
 
 
 WNDPROC = ctypes.WINFUNCTYPE(
-    ctypes.c_long, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM
+    LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM
 )
 
 
