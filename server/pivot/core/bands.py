@@ -114,6 +114,16 @@ def clamp_frequency(freq_hz: float) -> float:
     return max(MIN_FREQ_HZ, min(MAX_FREQ_HZ, freq_hz))
 
 
+# 25 kHz channel raster: radios tune only to multiples of this, snapping the
+# nearest valid channel when an off-grid frequency is entered.
+CHANNEL_STEP_HZ: float = 25_000.0
+
+
+def snap_frequency(freq_hz: float, step_hz: float = CHANNEL_STEP_HZ) -> float:
+    """Snap a frequency to the nearest valid channel on the raster, then clamp."""
+    return clamp_frequency(round(freq_hz / step_hz) * step_hz)
+
+
 # --------------------------------------------------------------------------- #
 # Conditions curve
 # --------------------------------------------------------------------------- #

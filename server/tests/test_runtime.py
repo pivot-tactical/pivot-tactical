@@ -45,6 +45,13 @@ def test_plain_tx_to_listener_is_heard_and_recorded(manager):
     assert path.exists()
 
 
+def test_tune_snaps_to_25khz_channel(manager):
+    manager.login("ALPHA", "t-1")
+    r = manager.tune("t-1", "145.513 MHz")  # off-grid -> nearest 25 kHz channel
+    assert r["frequency_hz"] % 25_000 == 0
+    assert r["frequency"] == "145.525 MHz"
+
+
 def test_event_without_audio_is_skipped_not_pending(manager):
     # No captured audio -> transcription is terminal (Skipped), not stuck Pending.
     manager.start_session("EX")
@@ -130,12 +137,12 @@ def test_mode_persists_across_reconnect(manager):
     manager.start_session("EX")
     manager.login("ALPHA", "t-1")
     manager.set_mode("t-1", RadioMode.CYPHER)
-    manager.tune("t-1", "7.055 MHz")
+    manager.tune("t-1", "7.050 MHz")  # on the 25 kHz raster
     manager.disconnect("t-1")
     # Reconnect: same trainee_id, mode + frequency restored (§3.4.4, §8.3).
     info = manager.login("ALPHA", "t-1")
     assert info["mode"] == RadioMode.CYPHER.value
-    assert "7.055" in info["frequency"]
+    assert "7.050" in info["frequency"]
 
 
 def test_route_tx_frame_records_and_renders_to_listeners(manager):

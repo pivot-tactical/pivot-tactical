@@ -26,6 +26,7 @@ from pivot.core.bands import (
     format_frequency,
     parse_frequency,
     region_for,
+    snap_frequency,
 )
 from pivot.core.crypto import (
     Audibility,
@@ -230,7 +231,9 @@ class SessionManager:
     # -- tuning & mode ----------------------------------------------------- #
 
     def tune(self, radio_id: str, frequency: str | float) -> dict:
-        freq_hz = parse_frequency(frequency)
+        # Snap to the nearest valid 25 kHz channel — the server is authoritative,
+        # so off-grid frequencies (typed or from any client) are corrected.
+        freq_hz = snap_frequency(parse_frequency(frequency))
         radio = self.registry.tune(radio_id, freq_hz)
         self._persist_radio_state(radio_id)
         self._touch_monitor()
@@ -253,7 +256,7 @@ class SessionManager:
         # Honour the frequency/mode reported at key-down (the client is the truth
         # for the instant of keying), else use the radio's current state.
         if frequency is not None:
-            radio.frequency_hz = parse_frequency(frequency)
+            radio.frequency_hz = snap_frequency(parse_frequency(frequency))
         if tx_mode is not None:
             radio.mode = tx_mode
 
@@ -349,7 +352,7 @@ class SessionManager:
 
     def add_instructor_radio(self, label: str | None = None,
                              frequency: str | float = DEFAULT_FREQUENCY_HZ) -> dict:
-        freq_hz = parse_frequency(frequency)
+        freq_hz = snap_frequency(parse_frequency(frequency))
         with self.db.session() as s:
             existing = repo.list_instructor_radios(s)
             label = label or f"Radio {len(existing) + 1}"
