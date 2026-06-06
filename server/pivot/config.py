@@ -25,6 +25,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Canonical repository used as the default update source (spec §3.7.2).
 DEFAULT_GITHUB_REPO = "pivot-tactical/pivot-tactical"
 
+
+def default_appcast_url(github_repo: str) -> str:
+    """The WinSparkle appcast URL derived from a ``owner/repo`` slug.
+
+    Points at the ``appcast.xml`` published on the *latest* GitHub release — a
+    stable URL GitHub redirects to whichever release is newest, so WinSparkle
+    always polls one address regardless of version (§3.7.5).
+    """
+    repo = (github_repo or DEFAULT_GITHUB_REPO).strip().strip("/")
+    return f"https://github.com/{repo}/releases/latest/download/appcast.xml"
+
 # Recordings are 16-bit mono WAV at 16 kHz, captured pre-DSP (spec §3.5.1).
 RECORDING_SAMPLE_RATE = 16_000
 
@@ -100,6 +111,9 @@ DEFAULT_CONFIG: dict[str, object] = {
     "auto_update": False,                # apply updates automatically on check
     "retained_versions": 3,
     "verify_checksums": True,
+    # WinSparkle appcast feed (Windows in-app updater). Empty -> derived from
+    # github_repo as the latest release's published appcast.xml (§3.7.5).
+    "appcast_url": "",
     # --- audio / logging (§7.1, §8.6) ---
     "audio_input_device": "",
     "log_level": "INFO",

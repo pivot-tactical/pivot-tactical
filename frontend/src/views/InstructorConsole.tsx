@@ -355,8 +355,10 @@ function SettingsTab({ mustChangePassword, onTimezone }: { mustChangePassword: b
     setApplying(a.tag);
     setApplyErr(null);
     try {
-      await api.applyUpdate(a.tag, a.asset_url, a.sha256_url, a.asset_name);
-      setStaged(a.tag);
+      const res = await api.applyUpdate(a.tag, a.asset_url, a.sha256_url, a.asset_name);
+      // WinSparkle takes over on the server machine (its own dialog + restart);
+      // the staged path needs a manual restart to finish.
+      setStaged(res.handed_to === "winsparkle" ? `${a.tag}:winsparkle` : a.tag);
     } catch (e: any) {
       setApplyErr(e?.message ?? "Download failed");
     } finally {
@@ -453,34 +455,41 @@ function SettingsTab({ mustChangePassword, onTimezone }: { mustChangePassword: b
             <div className="muted mono">
               Current {upd.current_version} · channel {upd.channel}
               {upd.auto_update ? " · auto-update on" : ""}
+              {upd.updater === "winsparkle" ? " · WinSparkle" : ""}
             </div>
             {!upd.reachable && <p className="login__hint">Offline — GitHub unreachable. Use offline import.</p>}
             {upd.reachable && upd.available.length === 0 && !staged && <p className="muted mt">Up to date.</p>}
-            {upd.available.map((a) => (
-              <div className="row between mt" key={a.tag}>
-                <span className="mono">{a.tag}{a.prerelease ? " · prerelease" : ""}</span>
-                {staged === a.tag ? (
-                  <span className="muted">Staged — restart to apply ✓</span>
-                ) : applying === a.tag ? (
-                  <span className="muted">Downloading…</span>
-                ) : a.has_asset ? (
-                  <button className="btn btn--primary" onClick={() => applyUpdate(a)}
-                    disabled={applying !== null}>
-                    Download &amp; Install
-                  </button>
-                ) : (
-                  <span className="muted">No asset for this platform</span>
-                )}
-              </div>
-            ))}
-            {staged && !upd.available.find((a) => a.tag === staged) && (
-              <p className="muted mt">Update {staged} staged — restart to apply ✓</p>
-            )}
+            {upd.available.map((a) => {
+              const tagStaged = staged === a.tag || staged === `${a.tag}:winsparkle`;
+              return (
+                <div className="row between mt" key={a.tag}>
+                  <span className="mono">{a.tag}{a.prerelease ? " · prerelease" : ""}</span>
+                  {tagStaged ? (
+                    <span className="muted">
+                      {staged?.endsWith(":winsparkle")
+                        ? "Installing on the server — it will restart ✓"
+                        : "Staged — restart to apply ✓"}
+                    </span>
+                  ) : applying === a.tag ? (
+                    <span className="muted">{upd.updater === "winsparkle" ? "Starting installer…" : "Downloading…"}</span>
+                  ) : a.has_asset ? (
+                    <button className="btn btn--primary" onClick={() => applyUpdate(a)}
+                      disabled={applying !== null}>
+                      {upd.updater === "winsparkle" ? "Install & restart" : "Download & Install"}
+                    </button>
+                  ) : (
+                    <span className="muted">No asset for this platform</span>
+                  )}
+                </div>
+              );
+            })}
             {applyErr && <p className="login__hint mt">{applyErr}</p>}
           </div>
         )}
         <p className="muted mt">
-          Updates are applied out-of-band, never during a session. Air-gapped sites use offline import.
+          {upd?.updater === "winsparkle"
+            ? "Installs are handled by WinSparkle on the server machine — it verifies the signed installer, applies it, and restarts PIVOT. Out-of-band, never during a session."
+            : "Updates are applied out-of-band, never during a session. Air-gapped sites use offline import."}
         </p>
       </section>
     </div>

@@ -38,14 +38,22 @@ generated section by hand.
 | libsndfile (native, via soundfile) | 1.2.x | LGPL-2.1 | Weak copyleft | Dynamic link — replaceable |
 | SQLAlchemy | 2.x | MIT | Permissive | Attribution |
 | pydantic / pydantic-settings | 2.x | MIT | Permissive | Attribution |
+| WinSparkle (Windows in-app updater, `WinSparkle.dll`) | 0.8.x | MIT | Permissive | Attribution |
+| Expat (bundled inside WinSparkle.dll) | 2.x | MIT | Permissive | Attribution |
 | React | 18.x | MIT | Permissive | Attribution |
 | Vite | 5.x | MIT | Permissive | Attribution |
+
+> **WinSparkle** ships only in the Windows bundle (it is the auto-update engine,
+> §3.7.5). It is MIT — non-copyleft — so it carries an attribution obligation
+> only, no relink burden. It is not present in the Linux build.
 
 ## Build-tooling inventory (not linked into the distributed binary)
 
 | Component | Licence | Note |
 |-----------|---------|------|
 | PyInstaller | GPL-2.0-WITH-exception | Linking exception permits distributing the produced executable under the project's own terms. PyInstaller itself is not redistributed inside the binary. |
+| Inno Setup (`iscc`) | Permissive (jrsoftware, BSD-like) | Builds the Windows installer. Build tool only — never linked into or shipped inside the binary. |
+| cryptography (Ed25519 signing) | Apache-2.0 / BSD-3-Clause | Signs release installers + appcast in CI. Build/sign tool only — not a runtime dependency. |
 | pytest | MIT | Test only |
 | ruff | MIT | Lint only |
 

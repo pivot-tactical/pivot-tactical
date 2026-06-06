@@ -137,6 +137,7 @@ export const api = {
       current_version: string;
       channel: string;
       auto_update: boolean;
+      updater: "winsparkle" | "staged";
       reachable: boolean;
       error: string | null;
       auto_staged?: string;
@@ -153,13 +154,15 @@ export const api = {
       }[];
     }>("/api/admin/updates/check"),
   applyUpdate: (tag: string, assetUrl: string, sha256Url: string, assetName: string) =>
-    jsonFetch<{ staged: boolean; tag: string; restart_required: boolean }>(
-      "/api/admin/updates/apply",
-      {
-        method: "POST",
-        body: JSON.stringify({ tag, asset_url: assetUrl, sha256_url: sha256Url, asset_name: assetName }),
-      }
-    ),
+    jsonFetch<{
+      staged?: boolean;
+      handed_to?: "winsparkle";
+      tag: string;
+      restart_required: boolean;
+    }>("/api/admin/updates/apply", {
+      method: "POST",
+      body: JSON.stringify({ tag, asset_url: assetUrl, sha256_url: sha256Url, asset_name: assetName }),
+    }),
 
   // --- instructor: AAR / history ---
   sessions: () => jsonFetch<SessionSummary[]>("/api/sessions"),
