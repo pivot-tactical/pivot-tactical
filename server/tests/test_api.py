@@ -130,6 +130,31 @@ def test_restart_ok_when_wired(client):
     assert "mode" in body
 
 
+def test_rollback_without_retained_version_is_409(client):
+    r = client.post("/api/admin/updates/rollback", json={})
+    assert r.status_code == 409
+
+
+def test_rollback_stages_retained_version(client, settings, monkeypatch):
+    # Seed a retained version in the versions dir, then roll back to it.
+    from pivot.runtime import lifecycle
+
+    install = settings.data_dir.parent / "PIVOT-Tactical"
+    (install / "_internal").mkdir(parents=True)
+    (install / "PIVOT-Tactical").write_text("running")
+    good = settings.versions_dir / "1.1.0"
+    (good / "_internal").mkdir(parents=True)
+    (good / "PIVOT-Tactical").write_text("retained 1.1.0")
+    monkeypatch.setattr(lifecycle, "install_dir", lambda: install)
+
+    r = client.post("/api/admin/updates/rollback", json={})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["rollback"] is True
+    assert body["tag"] == "1.1.0"
+    assert body["restart_required"] is True
+
+
 def test_change_password_and_relogin(raw_client):
     token = raw_client.post(
         "/api/login", json={"role": "instructor", "password": DEFAULT_INSTRUCTOR_PASSWORD}

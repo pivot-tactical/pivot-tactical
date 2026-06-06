@@ -75,6 +75,16 @@ class ApplyUpdateRequest(BaseModel):
     asset_name: str
 
 
+class RollbackRequest(BaseModel):
+    """Instructor-initiated rollback to a retained version (§3.7.7).
+
+    ``tag`` selects which retained version; omitted rolls back to the most
+    recent one.
+    """
+
+    tag: str | None = None
+
+
 class RestartRequest(BaseModel):
     """Instructor-initiated server restart (§3.7.5).
 

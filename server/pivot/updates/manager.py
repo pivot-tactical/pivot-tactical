@@ -335,6 +335,29 @@ class UpdateManager:
         retained = self.retained_versions()
         return retained[0] if retained else None
 
+    def stage_rollback(self, tag: str, install_dir: Path) -> Path:
+        """Stage a retained version for the next restart to apply (§3.7.7).
+
+        A downgrade with no download: the retained copy in ``versions/<tag>`` is
+        placed into a fresh staging dir (nested under the install name so the
+        normal :meth:`apply_pending` swap finds it), and a pending marker is
+        written. The retained copy is left intact until the swap consumes the
+        staging copy, so a failed rollback never destroys the fallback. Raises
+        if ``tag`` is not a retained version.
+        """
+        retained = self.versions_dir / tag
+        if tag not in self.retained_versions() or not retained.is_dir():
+            raise ValueError(f"No retained version to roll back to: {tag}")
+        staging = self.versions_dir / "_staging" / f"rollback-{tag}"
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        # Nest under the install dir's name so _staged_install_root picks the
+        # bundle root unambiguously (avoids the lone-subdir heuristic).
+        bundle = staging / Path(install_dir).name
+        shutil.copytree(retained, bundle)
+        self.write_pending_marker(self.pending_marker_path, tag, staging)
+        return staging
+
     # -- download + stage (§3.7.5) ------------------------------------------ #
 
     @property

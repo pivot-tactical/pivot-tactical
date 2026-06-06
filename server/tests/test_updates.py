@@ -197,6 +197,43 @@ def test_apply_pending_noop_without_marker(tmp_path):
     assert mgr.apply_pending(tmp_path / "app") is None
 
 
+def test_stage_rollback_then_apply_restores_retained_version(tmp_path):
+    """A retained version can be staged and applied without any download — the
+    install-in-place downgrade for a bad update (§3.7.7)."""
+    install = tmp_path / "PIVOT-Tactical"
+    install.mkdir()
+    (install / "PIVOT-Tactical").write_text("new (broken) binary v1.2.0")
+    (install / "_internal").mkdir()
+    (install / "_internal" / "lib.txt").write_text("new lib")
+
+    versions = tmp_path / "versions"
+    # A retained good version 1.1.0 (mirrors install-dir *contents*).
+    good = versions / "1.1.0"
+    (good / "_internal").mkdir(parents=True)
+    (good / "PIVOT-Tactical").write_text("good binary v1.1.0")
+    (good / "_internal" / "lib.txt").write_text("good lib")
+
+    mgr = UpdateManager("1.2.0", versions_dir=versions)
+    assert mgr.previous_version() == "1.1.0"
+
+    mgr.stage_rollback("1.1.0", install)
+    assert mgr.staged_tag() == "1.1.0"
+    # The retained copy is preserved until the swap consumes the staging copy.
+    assert (good / "PIVOT-Tactical").exists()
+
+    applied = mgr.apply_pending(install)
+    assert applied == "1.1.0"
+    assert (install / "PIVOT-Tactical").read_text() == "good binary v1.1.0"
+    # The broken 1.2.0 is retained so you can still roll forward.
+    assert "1.2.0" in mgr.retained_versions()
+
+
+def test_stage_rollback_rejects_unknown_tag(tmp_path):
+    mgr = UpdateManager("1.2.0", versions_dir=tmp_path / "versions")
+    with pytest.raises(ValueError, match="No retained version"):
+        mgr.stage_rollback("9.9.9", tmp_path / "PIVOT-Tactical")
+
+
 def _make_signed(data: bytes):
     """Return (public_b64, signature_b64) for ``data`` from a fresh Ed25519 key."""
     import base64

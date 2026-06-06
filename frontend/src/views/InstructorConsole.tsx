@@ -376,6 +376,7 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
   const [staged, setStaged] = useState<string | null>(null);
   const [applyErr, setApplyErr] = useState<string | null>(null);
   const [restartErr, setRestartErr] = useState<string | null>(null);
+  const [showDowngrade, setShowDowngrade] = useState(false);
 
   async function restart(force: boolean) {
     setRestartErr(null);
@@ -430,6 +431,12 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
   }
 
   async function applyUpdate(a: ReleaseInfo) {
+    // Downgrades can cross a DB schema migration — confirm first.
+    if (a.standing === "older" &&
+        !window.confirm(`Install ${a.tag}? This is a DOWNGRADE from the running version. ` +
+          `If it crosses a database change, back up your data first. It applies on restart.`)) {
+      return;
+    }
     setApplying(a.tag);
     setApplyErr(null);
     try {
@@ -438,6 +445,24 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
       setStaged(a.tag);
     } catch (e: any) {
       setApplyErr(e?.message ?? "Download failed");
+    } finally {
+      setApplying(null);
+    }
+  }
+
+  // Instant offline rollback to a retained version (no re-download).
+  async function rollback(tag: string) {
+    if (!window.confirm(`Roll back to ${tag}? It applies on the next restart. ` +
+        `If the downgrade crosses a database change, back up your data first.`)) {
+      return;
+    }
+    setApplying(`rollback:${tag}`);
+    setApplyErr(null);
+    try {
+      const res = await api.rollbackUpdate(tag);
+      setStaged(res.tag);
+    } catch (e: any) {
+      setApplyErr(e?.message ?? "Rollback failed");
     } finally {
       setApplying(null);
     }
@@ -586,6 +611,62 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
           </div>
         ))}
         {applyErr && <p className="login__hint mt">{applyErr}</p>}
+
+        {/* Downgrade / recovery: instant rollback to the retained previous build
+            (no re-download), plus the full version list so a bad update never
+            blocks training. */}
+        {upd && !staged && !upd.auto_staged && (
+          <div className="mt">
+            <button className="btn btn--ghost" onClick={() => setShowDowngrade((s) => !s)}>
+              {showDowngrade ? "Hide downgrade options" : "Downgrade / recovery…"}
+            </button>
+            {showDowngrade && (
+              <div className="mt">
+                {upd.previous && (
+                  <div className="row between mt">
+                    <span className="mono">Roll back to {upd.previous} (kept on disk)</span>
+                    {applying === `rollback:${upd.previous}` ? (
+                      <span className="muted">Staging…</span>
+                    ) : (
+                      <button className="btn btn--danger" onClick={() => rollback(upd.previous!)}
+                        disabled={applying !== null}>
+                        Roll back
+                      </button>
+                    )}
+                  </div>
+                )}
+                <p className="muted mt" style={{ fontSize: "0.85em" }}>
+                  Or install any earlier version (re-downloads &amp; verifies it):
+                </p>
+                {(upd.releases || []).filter((r) => r.standing === "older").map((a) => (
+                  <div className="row between mt" key={a.tag}>
+                    <span className="mono">{a.tag}{a.prerelease ? " · prerelease" : ""}</span>
+                    {applying === a.tag ? (
+                      <span className="muted">Downloading…</span>
+                    ) : a.has_asset ? (
+                      <button className="btn" onClick={() => applyUpdate(a)} disabled={applying !== null}>
+                        Install this version
+                      </button>
+                    ) : (
+                      <span className="muted">No build for this platform</span>
+                    )}
+                  </div>
+                ))}
+                {(upd.releases || []).filter((r) => r.standing === "older").length === 0 &&
+                  !upd.previous && (
+                    <p className="muted mt" style={{ fontSize: "0.85em" }}>
+                      No earlier versions available yet.
+                    </p>
+                  )}
+                <p className="muted mt" style={{ fontSize: "0.8em" }}>
+                  Tip: if a bad update won’t even start, run
+                  <span className="mono"> PIVOT-Tactical --rollback </span>
+                  from the install folder to recover.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Restart from the browser: applies a staged update on the way back up,
             and is useful on its own. */}

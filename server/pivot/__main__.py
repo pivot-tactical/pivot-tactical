@@ -55,6 +55,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # starting, swapping any staged update into place while the app is stopped.
     p.add_argument("--apply-staged", action="store_true",
                    help="apply a staged update and exit (used by the service)")
+    # Out-of-band downgrade recovery: roll back to a retained version and exit.
+    # Optional TAG selects which retained version; omitted = the most recent.
+    p.add_argument("--rollback", nargs="?", const="", default=None,
+                   metavar="TAG",
+                   help="roll back to a retained version and exit (recovery)")
     # Detached relaunch helper (packaged exe with no supervisor): wait for the
     # given pid to exit, apply any staged update, then start the app again.
     p.add_argument("--relaunch-after", type=int, default=None,
@@ -84,8 +89,6 @@ def _settings_from_args(args: argparse.Namespace) -> Settings:
     if args.port:
         overrides["port"] = args.port
     if args.data_dir:
-        from pathlib import Path
-
         overrides["data_dir"] = Path(args.data_dir)
     return Settings(**overrides)
 
@@ -114,25 +117,43 @@ def run_server(settings: Settings, manager: SessionManager) -> None:
         perform_relaunch()
 
 
-def _install_dir() -> Path:
-    """The directory the app is installed in (the frozen exe's folder)."""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    # Source checkout: the repo root is a sensible stand-in for dev testing.
-    return Path(__file__).resolve().parents[2]
-
-
 def _apply_staged(settings: Settings) -> int:
     """Swap any staged update into place, then exit (service ExecStartPre)."""
+    from pivot.runtime.lifecycle import install_dir
     from pivot.updates.manager import UpdateManager
 
     mgr = UpdateManager(version_info.version, settings.versions_dir)
-    applied = mgr.apply_pending(_install_dir())
+    applied = mgr.apply_pending(install_dir())
     if applied:
         print(f"Applied staged update {applied}.")
     else:
         print("No staged update pending.")
     return 0
+
+
+def _rollback(settings: Settings, tag: str | None) -> int:
+    """Roll the install back to a retained version and exit (out-of-band).
+
+    Recovery for a bad update that won't even boot: run
+    ``PIVOT-Tactical --rollback`` (optionally with a specific TAG) from the
+    install folder, then start PIVOT normally. With no TAG it rolls back to the
+    most recent retained version.
+    """
+    from pivot.runtime.lifecycle import install_dir
+    from pivot.updates.manager import UpdateManager
+
+    mgr = UpdateManager(version_info.version, settings.versions_dir)
+    target = tag or mgr.previous_version()
+    if target is None:
+        print("No retained version to roll back to.")
+        return 1
+    mgr.stage_rollback(target, install_dir())
+    applied = mgr.apply_pending(install_dir())
+    if applied:
+        print(f"Rolled back to {applied}. Start PIVOT normally to run it.")
+        return 0
+    print(f"Rollback to {target} failed (nothing applied).")
+    return 1
 
 
 def _relaunch_after(pid: int, settings: Settings) -> int:
@@ -162,6 +183,8 @@ def main(argv: list[str] | None = None) -> int:
     settings = _settings_from_args(args)
     if args.apply_staged:
         return _apply_staged(settings)
+    if args.rollback is not None:
+        return _rollback(settings, args.rollback or None)
     if args.relaunch_after is not None:
         return _relaunch_after(args.relaunch_after, settings)
     db = init_database(settings)

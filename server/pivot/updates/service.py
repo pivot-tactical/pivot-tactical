@@ -83,6 +83,8 @@ class UpdateService:
             "auto_update": False,
             "releases": [],
             "available": [],
+            "retained": [],
+            "previous": None,
             "auto_state": "idle",
             "auto_message": "",
         }
@@ -158,6 +160,9 @@ class UpdateService:
             "updater": self._updater_kind(),
             "releases": [_release_to_dict(r, cur) for r in releases],
             "available": [_release_to_dict(r, cur) for r in available],
+            # Retained versions for instant offline rollback (§3.7.7).
+            "retained": mgr.retained_versions(),
+            "previous": mgr.previous_version(),
         }
 
         # Auto-update policy: newest available, only out-of-band.

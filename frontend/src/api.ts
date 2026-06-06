@@ -73,6 +73,8 @@ export interface UpdateStatus {
   auto_update_error?: string;
   releases?: ReleaseInfo[];
   available: ReleaseInfo[];
+  retained?: string[];      // versions kept on disk for instant rollback
+  previous?: string | null; // the most recent retained version
 }
 
 function tokenQuery(extra = ""): string {
@@ -182,6 +184,14 @@ export const api = {
         tag, asset_url: assetUrl, sha256_url: sha256Url, sig_url: sigUrl, asset_name: assetName,
       }),
     }),
+  // Roll back to a retained version (instant, offline downgrade). Omit `tag` to
+  // roll back to the most recent retained version. Applied on the next restart.
+  rollbackUpdate: (tag?: string) =>
+    jsonFetch<{ staged: boolean; tag: string; rollback: boolean; restart_required: boolean }>(
+      "/api/admin/updates/rollback",
+      { method: "POST", body: JSON.stringify({ tag: tag ?? null }) }
+    ),
+
   // Restart the server (applies a staged update on the way back up). `force`
   // overrides the guard that refuses to restart while a session is live.
   restartServer: (force = false) =>

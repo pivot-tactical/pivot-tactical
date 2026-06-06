@@ -37,6 +37,13 @@ def test_relaunch_after_flag_parses():
     assert entry._parse_args(["--relaunch-after", "1234"]).relaunch_after == 1234
 
 
+def test_rollback_flag_parses():
+    # Absent -> None; bare flag -> "" (roll back to most recent); with a tag.
+    assert entry._parse_args([]).rollback is None
+    assert entry._parse_args(["--rollback"]).rollback == ""
+    assert entry._parse_args(["--rollback", "1.1.0"]).rollback == "1.1.0"
+
+
 def test_restart_mode_detection(monkeypatch):
     from pivot.runtime import lifecycle
 

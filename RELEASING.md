@@ -39,6 +39,21 @@ from the live GitHub list against the running version, so a dev tester on
 `1.1.0-dev.5` only moves to stable once a stable ≥ `1.1.0` ships (a lower stable
 is never offered — updates only go *up*).
 
+## Downgrade & rollback (a bad update never blocks training)
+
+Every applied update first **retains the previous install** under
+`versions/<tag>` (newest few kept). Three ways back down:
+
+1. **Instant rollback (Settings → Updates → Downgrade / recovery → Roll back):**
+   stages the retained previous build with no re-download; applies on restart.
+2. **Install any earlier version:** the same screen lists older releases and
+   re-downloads + verifies the chosen one. Both warn that a downgrade may cross a
+   DB schema change (back up data first).
+3. **Out-of-band recovery (a bad update won't even start):** run
+   `PIVOT-Tactical --rollback` (optionally `--rollback <tag>`) from the install
+   folder, then start PIVOT normally. It swaps the retained version in place and
+   exits.
+
 ## Headless presentation (tray / service)
 
 The server has no desktop GUI — everyone uses a browser. To keep it out of the

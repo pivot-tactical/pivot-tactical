@@ -24,6 +24,18 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+
+def install_dir() -> Path:
+    """The directory the app is installed in (the frozen exe's folder).
+
+    Used by the update/rollback swap so it replaces the *running* install in
+    place. In a source checkout the repo root stands in for dev testing.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[3]
 
 # Windows process-creation flags (avoid importing for their values on POSIX).
 _DETACHED_PROCESS = 0x00000008

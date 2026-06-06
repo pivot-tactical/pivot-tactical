@@ -20,6 +20,7 @@ from pivot.api.schemas import (
     PasswordChangeRequest,
     RadioResponse,
     RestartRequest,
+    RollbackRequest,
     ScenarioRequest,
     SessionResponse,
     StartSessionRequest,
@@ -404,6 +405,8 @@ def _live_update_check(manager) -> dict:
         "error": None,
         "releases": [],
         "available": [],
+        "retained": mgr.retained_versions(),
+        "previous": mgr.previous_version(),
     }
     try:
         raw = github.fetch_releases(repo, token)
@@ -494,6 +497,33 @@ def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) ->
         "staging": str(staging_dir),
         "restart_required": True,
     }
+
+
+@router.post("/admin/updates/rollback", dependencies=[Depends(require_instructor)])
+def admin_rollback(
+    req: RollbackRequest | None = None, manager=Depends(get_manager)
+) -> dict:
+    """Roll back to a retained version (instant, offline downgrade, §3.7.7).
+
+    Recovery for a bad update without re-downloading: the chosen retained version
+    (default: the most recent) is staged and applied on the next restart. This is
+    the in-app counterpart to the ``--rollback`` recovery flag. A downgrade may
+    cross a DB schema migration; the UI warns before calling this.
+    """
+    from pivot.runtime.lifecycle import install_dir
+    from pivot.updates.manager import UpdateManager
+    from pivot.version import version_info
+
+    req = req or RollbackRequest()
+    mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
+    target = req.tag or mgr.previous_version()
+    if target is None:
+        raise HTTPException(status_code=409, detail="No retained version to roll back to.")
+    try:
+        mgr.stage_rollback(target, install_dir())
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"staged": True, "tag": target, "rollback": True, "restart_required": True}
 
 
 @router.post("/admin/restart", dependencies=[Depends(require_instructor)])
