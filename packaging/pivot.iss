@@ -1,7 +1,7 @@
 ; Inno Setup script for PIVOT-Tactical (spec §3.7, §9.1).
 ;
 ; Turns the PyInstaller onedir output (dist\PIVOT-Tactical\) into a professional
-; Windows installer: per-user install (no UAC), Start-menu shortcut, uninstaller.
+; Windows installer: Start-menu shortcut, uninstaller, optional all-users install.
 ; This is the first-install path; afterwards PIVOT updates itself in place via the
 ; verified, channel-aware staged path (download -> verify -> swap on restart).
 ;
@@ -28,14 +28,16 @@ AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-; Per-user install under LocalAppData\Programs — no UAC dialog, always writable.
-; The app and its data (data\, versions\) all live here so self-updates work
-; without administrator rights.
-DefaultDirName={localappdata}\Programs\{#MyAppName}
+; Default: per-user install under LocalAppData\Programs — no UAC, always writable,
+; self-updates work without admin rights. The user can click "Install for all users"
+; in the wizard (or pass /ALLUSERS on the command line) to elevate and install
+; system-wide under Program Files instead.
+DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-; No privilege escalation needed: the app and its data are entirely user-owned.
+; Default to no elevation (per-user); allow optional all-users upgrade via dialog.
 PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=dialog commandline
 ; Paths are relative to THIS script's directory (packaging\), so reach up to the
 ; repo-root dist\ that PyInstaller writes — `iscc packaging\pivot.iss` from the
 ; repo root then finds the bundle and emits the installer to repo-root dist\.
@@ -57,6 +59,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
+
+[Dirs]
+; Create writable data and rollback-versions directories at install time.
+; Setting Permissions here means a system-wide (Program Files) install still
+; works: the installer (running elevated) grants Users modify access so the app
+; can create its DB and recordings without needing admin rights on every launch.
+Name: "{app}\data"; Permissions: users-modify
+Name: "{app}\versions"; Permissions: users-modify
 
 [Files]
 ; The entire PyInstaller onedir bundle (repo-root dist\, one level up from here).
