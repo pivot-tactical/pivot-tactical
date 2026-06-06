@@ -90,6 +90,13 @@ def _settings_from_args(args: argparse.Namespace) -> Settings:
         overrides["port"] = args.port
     if args.data_dir:
         overrides["data_dir"] = Path(args.data_dir)
+    if getattr(sys, "frozen", False):
+        # Packaged exe: anchor relative-path defaults to the exe's directory so
+        # they don't depend on cwd, which is undefined when launched via a
+        # Start-menu shortcut or a different working directory.
+        exe_dir = Path(sys.executable).parent
+        overrides.setdefault("data_dir", exe_dir / "data")
+        overrides.setdefault("versions_dir", exe_dir / "versions")
     return Settings(**overrides)
 
 

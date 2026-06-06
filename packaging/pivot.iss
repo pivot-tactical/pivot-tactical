@@ -1,7 +1,7 @@
 ; Inno Setup script for PIVOT-Tactical (spec §3.7, §9.1).
 ;
 ; Turns the PyInstaller onedir output (dist\PIVOT-Tactical\) into a professional
-; Windows installer: Program Files install, Start-menu shortcut, uninstaller.
+; Windows installer: per-user install (no UAC), Start-menu shortcut, uninstaller.
 ; This is the first-install path; afterwards PIVOT updates itself in place via the
 ; verified, channel-aware staged path (download -> verify -> swap on restart).
 ;
@@ -28,9 +28,14 @@ AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\{#MyAppName}
+; Per-user install under LocalAppData\Programs — no UAC dialog, always writable.
+; The app and its data (data\, versions\) all live here so self-updates work
+; without administrator rights.
+DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
+; No privilege escalation needed: the app and its data are entirely user-owned.
+PrivilegesRequired=lowest
 ; Paths are relative to THIS script's directory (packaging\), so reach up to the
 ; repo-root dist\ that PyInstaller writes — `iscc packaging\pivot.iss` from the
 ; repo root then finds the bundle and emits the installer to repo-root dist\.
@@ -46,9 +51,6 @@ ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
 RestartApplications=no
 AppMutex=PIVOT-Tactical-Single-Instance
-; A plain LAN tool: install per-machine but don't force an admin prompt path
-; the user can't satisfy — fall back to per-user if not elevated.
-PrivilegesRequiredOverridesAllowed=dialog commandline
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -61,11 +63,11 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 Source: "..\dist\PIVOT-Tactical\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-; Offer to launch after an interactive install; skipped on silent (WinSparkle
-; relaunches PIVOT itself when applying an update silently).
+; Offer to launch after an interactive install; silent installs skip this
+; (the in-app update mechanism relaunches PIVOT itself after applying an update).
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent

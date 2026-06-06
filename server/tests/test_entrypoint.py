@@ -44,6 +44,36 @@ def test_rollback_flag_parses():
     assert entry._parse_args(["--rollback", "1.1.0"]).rollback == "1.1.0"
 
 
+def test_settings_from_args_frozen_uses_absolute_paths(monkeypatch, tmp_path):
+    """Frozen exe must use exe-relative absolute paths regardless of cwd."""
+    import pathlib
+
+    fake_exe = tmp_path / "PIVOT-Tactical.exe"
+    fake_exe.touch()
+    monkeypatch.setattr(entry.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(entry.sys, "executable", str(fake_exe))
+
+    args = entry._parse_args([])
+    settings = entry._settings_from_args(args)
+
+    assert settings.data_dir == tmp_path / "data"
+    assert settings.versions_dir == tmp_path / "versions"
+
+
+def test_settings_from_args_frozen_explicit_data_dir_wins(monkeypatch, tmp_path):
+    """--data-dir still overrides the frozen default."""
+    fake_exe = tmp_path / "PIVOT-Tactical.exe"
+    fake_exe.touch()
+    monkeypatch.setattr(entry.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(entry.sys, "executable", str(fake_exe))
+
+    custom = tmp_path / "custom_data"
+    args = entry._parse_args(["--data-dir", str(custom)])
+    settings = entry._settings_from_args(args)
+
+    assert settings.data_dir == custom
+
+
 def test_restart_mode_detection(monkeypatch):
     from pivot.runtime import lifecycle
 
