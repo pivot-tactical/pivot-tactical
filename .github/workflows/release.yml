@@ -161,6 +161,12 @@ jobs:
         run: |
           ver="${{ github.ref_name }}"
           [[ "$ver" =~ ^v[0-9] ]] || ver="v0.0.0-dev"
+          # Ship the systemd unit + install/uninstall scripts inside the bundle so
+          # `tar xzf … && sudo ./PIVOT-Tactical/install.sh` sets up the headless
+          # background service (the Linux counterpart to the Windows installer).
+          cp packaging/linux/pivot-tactical.service dist/PIVOT-Tactical/
+          cp packaging/linux/install.sh packaging/linux/uninstall.sh dist/PIVOT-Tactical/
+          chmod +x dist/PIVOT-Tactical/install.sh dist/PIVOT-Tactical/uninstall.sh
           archive="PIVOT-Tactical-$ver-linux-x86_64.tar.gz"
           tar -czf "$archive" -C dist PIVOT-Tactical
           sha256sum "$archive" > "$archive.sha256"

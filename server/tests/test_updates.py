@@ -160,6 +160,41 @@ def test_pending_marker_roundtrip(tmp_path):
     assert data["target"] == "1.1.0"
 
 
+def test_apply_pending_swaps_install_and_retains_old(tmp_path):
+    # Current install on disk (the "running" version 1.0.0).
+    install = tmp_path / "app"
+    install.mkdir()
+    (install / "PIVOT-Tactical").write_text("old binary v1.0.0")
+    (install / "data.txt").write_text("keep-name-stable")
+
+    # A staged 1.1.0 extracted under <staging>/app/ (matches install dir name).
+    versions = tmp_path / "versions"
+    staging = versions / "_staging" / "1.1.0" / "extracted"
+    (staging / "app").mkdir(parents=True)
+    (staging / "app" / "PIVOT-Tactical").write_text("new binary v1.1.0")
+    (staging / "app" / "added.txt").write_text("brand new")
+
+    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", staging)
+
+    applied = mgr.apply_pending(install)
+
+    assert applied == "1.1.0"
+    # Install path is unchanged but now holds the new bundle.
+    assert (install / "PIVOT-Tactical").read_text() == "new binary v1.1.0"
+    assert (install / "added.txt").exists()
+    assert not (install / "data.txt").exists()  # old contents replaced
+    # Old version retained for rollback; marker + staging cleaned up.
+    assert "1.0.0" in mgr.retained_versions()
+    assert mgr.read_pending_marker(mgr.pending_marker_path) is None
+    assert not staging.exists()
+
+
+def test_apply_pending_noop_without_marker(tmp_path):
+    mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "v")
+    assert mgr.apply_pending(tmp_path / "app") is None
+
+
 def test_offline_import_verification(tmp_path):
     pkg = tmp_path / "PIVOT-Tactical-v1.1.0-win64.zip"
     pkg.write_bytes(b"PIVOT package bytes")

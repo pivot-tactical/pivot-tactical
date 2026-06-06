@@ -23,8 +23,33 @@ one-off key setup and the per-release flow. Everything is permissively licensed
    relaunches PIVOT. This is why a directly-run `.exe` could never self-update —
    the swap must happen while the app is stopped.
 
-On Linux (and source checkouts) there is no WinSparkle; the app falls back to a
-SHA-256-verified download + staged swap.
+On Linux there is no WinSparkle; the equivalent chain is a **systemd service** +
+a **SHA-256-verified download → staged swap on restart**:
+
+1. The release tarball ships `install.sh`, `uninstall.sh` and
+   `pivot-tactical.service` inside the bundle. `sudo ./install.sh` installs to
+   `/opt/pivot-tactical`, runs it headless as the `pivot` user, and stores data
+   under `/var/lib/pivot-tactical`.
+2. In-app "Install" downloads the new tarball, verifies its SHA-256, extracts it
+   to the versions store and writes a pending-update marker.
+3. The service's `ExecStartPre=… --apply-staged` swaps the staged build into
+   `/opt/pivot-tactical` **before** the new binary starts (a running executable's
+   file can be replaced safely on Linux), retaining the old version for rollback.
+   This mirrors WinSparkle's close → swap → relaunch on Windows. The swap applies
+   on the next `systemctl restart pivot-tactical`.
+
+## Headless presentation (tray / service)
+
+The server has no desktop GUI — everyone uses a browser. To keep it out of the
+way:
+
+- **Windows:** the packaged app hides its console and shows a **system-tray
+  icon** (`server/pivot/win_tray.py`, pure ctypes — no extra dependency). The
+  tray menu offers Open PIVOT / Copy LAN address / Show log / Quit. Force the
+  console with `--no-tray`; force the tray with `--tray`.
+- **Linux:** it runs as a background **systemd service** (logs to the journal:
+  `journalctl -u pivot-tactical -f`) — the idiomatic "tucked away headless"
+  equivalent.
 
 ## One-off: mint the signing key
 

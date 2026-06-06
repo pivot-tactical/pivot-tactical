@@ -192,6 +192,22 @@ def sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
+def _swap_dir_contents(install_dir: Path, new_root: Path) -> None:
+    """Replace the contents of ``install_dir`` with those of ``new_root``.
+
+    Done child-by-child rather than swapping the directory itself, so the
+    install path (referenced by the service unit and shortcuts) stays stable.
+    """
+    install_dir.mkdir(parents=True, exist_ok=True)
+    for child in list(install_dir.iterdir()):
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            child.unlink(missing_ok=True)
+    for child in list(new_root.iterdir()):
+        shutil.move(str(child), str(install_dir / child.name))
+
+
 class UpdateManager:
     """Coordinates checks, retained versions and rollback (§3.7).
 
@@ -357,3 +373,49 @@ class UpdateManager:
             return json.loads(marker_path.read_text())
         except (ValueError, OSError):
             return None
+
+    def apply_pending(self, install_dir: Path) -> str | None:
+        """Swap any staged update into ``install_dir`` (the Linux apply path).
+
+        Called out-of-band — by the systemd service's ``ExecStartPre`` before the
+        new binary starts (§3.7.5). On Linux a running executable's file can be
+        replaced safely, so the swap happens cleanly between stop and start. The
+        current install is retained first for instant rollback (§3.7.7). Returns
+        the applied tag, or None when there is nothing staged.
+        """
+        marker = self.read_pending_marker(self.pending_marker_path)
+        if not marker:
+            return None
+        staging = Path(marker.get("staging", ""))
+        target = str(marker.get("target", "")) or "unknown"
+
+        new_root = self._staged_install_root(staging, install_dir.name)
+        if new_root is None:
+            return None
+
+        install_dir = Path(install_dir)
+        # Retain the current install so a rollback is one swap away.
+        if install_dir.is_dir():
+            self.retain_current(install_dir, self.current_version)
+        _swap_dir_contents(install_dir, new_root)
+
+        self.pending_marker_path.unlink(missing_ok=True)
+        shutil.rmtree(staging, ignore_errors=True)
+        return target
+
+    @staticmethod
+    def _staged_install_root(staging: Path, install_name: str) -> Path | None:
+        """Find the extracted install root inside a staging dir.
+
+        The archive normally extracts to ``<staging>/<install_name>/…``; fall back
+        to a lone top-level directory if the bundle name differs.
+        """
+        if not staging.is_dir():
+            return None
+        named = staging / install_name
+        if named.is_dir():
+            return named
+        subdirs = [p for p in staging.iterdir() if p.is_dir()]
+        if len(subdirs) == 1:
+            return subdirs[0]
+        return staging if any(staging.iterdir()) else None
