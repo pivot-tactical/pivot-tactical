@@ -218,6 +218,24 @@ def test_stage_is_idempotent_on_restage(tmp_path):
     assert (second / "PIVOT-Tactical" / "PIVOT-Tactical.exe").exists()
 
 
+def test_staged_tag_reports_pending_stage(tmp_path):
+    versions = tmp_path / "versions"
+    staging = versions / "_staging" / "1.1.0" / "extracted"
+    staging.mkdir(parents=True)
+    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    assert mgr.staged_tag() is None  # no marker yet
+    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", staging)
+    assert mgr.staged_tag() == "1.1.0"
+
+
+def test_staged_tag_ignores_marker_when_staging_gone(tmp_path):
+    versions = tmp_path / "versions"
+    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    # Marker points at a staging dir that no longer exists -> nothing staged.
+    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", versions / "gone")
+    assert mgr.staged_tag() is None
+
+
 def test_offline_import_verification(tmp_path):
     pkg = tmp_path / "PIVOT-Tactical-v1.1.0-win64.zip"
     pkg.write_bytes(b"PIVOT package bytes")

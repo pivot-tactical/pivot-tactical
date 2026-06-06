@@ -172,6 +172,7 @@ export const api = {
   applyUpdate: (tag: string, assetUrl: string, sha256Url: string, assetName: string) =>
     jsonFetch<{
       staged?: boolean;
+      already_staged?: boolean;
       handed_to?: "winsparkle";
       tag: string;
       restart_required: boolean;

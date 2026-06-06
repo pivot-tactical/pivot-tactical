@@ -485,6 +485,16 @@ def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) ->
         raise HTTPException(status_code=500, detail="WinSparkle init/check failed")
 
     mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
+    # Already staged this exact release — skip the redundant download + extract
+    # and just tell the client to restart (§3.7.5).
+    if mgr.staged_tag() == req.tag:
+        return {
+            "staged": True,
+            "tag": req.tag,
+            "already_staged": True,
+            "restart_required": True,
+        }
+
     release = Release(
         tag=req.tag,
         asset_url=req.asset_url,

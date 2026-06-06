@@ -380,6 +380,22 @@ class UpdateManager:
         except (ValueError, OSError):
             return None
 
+    def staged_tag(self) -> str | None:
+        """The tag of an update that is already staged and awaiting restart.
+
+        Returns the pending marker's target only when its staging directory
+        still exists on disk, so a stale marker (staging since cleaned up) reads
+        as "nothing staged". Lets the apply paths skip a redundant
+        download+extract when the requested release is already staged (§3.7.5).
+        """
+        marker = self.read_pending_marker(self.pending_marker_path)
+        if not marker:
+            return None
+        staging = marker.get("staging")
+        if staging and Path(staging).exists():
+            return marker.get("target")
+        return None
+
     def apply_pending(self, install_dir: Path) -> str | None:
         """Swap any staged update into ``install_dir`` (the Linux apply path).
 

@@ -141,3 +141,25 @@ def test_downloading_state_broadcast_before_apply(tmp_path):
 
     assert "downloading" in states_seen, "expected a 'downloading' broadcast before apply"
     assert snap["auto_state"] == "applied"
+
+
+def test_default_apply_short_circuits_when_already_staged(tmp_path):
+    """If the release is already staged, _default_apply must not re-download or
+    re-extract — it reports 'already staged' and points at restart."""
+    from pivot.updates.manager import Release, UpdateManager
+
+    versions = tmp_path / "versions"
+    staging = versions / "_staging" / "1.1.0" / "extracted"
+    staging.mkdir(parents=True)
+    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", staging)
+
+    svc = _service(tmp_path, config={"github_repo": "o/r"})
+    svc._versions_dir = versions  # apply uses the service's versions dir
+
+    # A real download would raise (no network / bad url); the short-circuit must
+    # return before any download is attempted.
+    result = svc._default_apply(Release(tag="1.1.0", asset_url="http://x/none",
+                                        asset_name="a.zip"), cfg={})
+    assert result["applied"] is True
+    assert "already staged" in result["message"]

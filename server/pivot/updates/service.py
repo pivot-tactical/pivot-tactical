@@ -202,8 +202,13 @@ class UpdateService:
                         "message": f"Installing {release.tag} — the server will restart."}
             return {"applied": False, "message": "WinSparkle unavailable."}
 
-        token = str(cfg.get("github_token") or "") or None
         mgr = UpdateManager(self._version, self._versions_dir)
+        # Already staged — don't re-download/re-extract on the next poll tick.
+        if mgr.staged_tag() == release.tag:
+            return {"applied": True, "via": "staged",
+                    "message": f"{release.tag} already staged — restart to apply."}
+
+        token = str(cfg.get("github_token") or "") or None
         asset_path = mgr.download(release, token)
         mgr.stage(asset_path, release)
         return {"applied": True, "via": "staged",
