@@ -54,10 +54,12 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
     trainee_id = ws.query_params.get("trainee_id") or str(uuid.uuid4())
     info = manager.login(name, trainee_id)
     radio_id = info["radio_id"]
+    login_epoch = info.get("epoch")
 
     queue = manager.subscribe()
     audio_out: asyncio.Queue = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
-    manager.register_audio_sink(radio_id, _sink(audio_out))
+    sink = _sink(audio_out)
+    manager.register_audio_sink(radio_id, sink)
     outbound = asyncio.create_task(_pump_outbound(ws, queue))
     audio_pump = asyncio.create_task(_pump_audio(ws, audio_out))
     sync_task: asyncio.Task | None = None
@@ -107,9 +109,9 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
         pass
     finally:
         _cancel(sync_task)
-        manager.unregister_audio_sink(radio_id)
+        manager.unregister_audio_sink(radio_id, sink)
         await _shutdown([outbound, audio_pump], manager, queue)
-        manager.disconnect(trainee_id)
+        manager.disconnect(trainee_id, epoch=login_epoch)
 
 
 # --------------------------------------------------------------------------- #
@@ -209,8 +211,10 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
         pass
     finally:
         _cancel(sync_task)
+        # Only drop sinks still owned by *this* connection — a reconnected
+        # instructor may already have re-bound these radios to a new sink.
         for rid in bound:
-            manager.unregister_audio_sink(rid)
+            manager.unregister_audio_sink(rid, sink)
         await _shutdown([outbound, audio_pump], manager, queue)
 
 

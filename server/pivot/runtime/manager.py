@@ -61,6 +61,9 @@ class TerminalInfo:
     name: str
     radio_id: str
     connected_at: str
+    # Monotonic per-trainee connection counter. A reconnect bumps it so a stale
+    # connection's late teardown can tell it has been superseded (§3.4.4).
+    epoch: int = 0
 
 
 @dataclass
@@ -201,11 +204,14 @@ class SessionManager:
                     mode=mode,
                 )
             )
+        prev = self.terminals.get(trainee_id)
+        epoch = (prev.epoch + 1) if prev is not None else 1
         self.terminals[trainee_id] = TerminalInfo(
             trainee_id=trainee_id,
             name=name,
             radio_id=radio_id,
             connected_at=to_iso_utc(utc_now()),
+            epoch=epoch,
         )
         self._persist_radio_state(radio_id)
         self.broadcast("terminal_update", {"terminals": self.monitor_snapshot()})
@@ -215,9 +221,15 @@ class SessionManager:
             "frequency": format_frequency(freq_hz),
             "frequency_hz": freq_hz,
             "mode": mode.value,
+            "epoch": epoch,
         }
 
-    def disconnect(self, trainee_id: str) -> None:
+    def disconnect(self, trainee_id: str, epoch: int | None = None) -> None:
+        # If a newer connection for this trainee has logged in since (reconnect),
+        # this is a stale teardown — leave the live terminal/radio in place.
+        current = self.terminals.get(trainee_id)
+        if epoch is not None and current is not None and current.epoch != epoch:
+            return
         self.terminals.pop(trainee_id, None)
         # Keep radio_state persisted (mode survives); drop the live radio so it
         # leaves the frequency map.
@@ -304,10 +316,21 @@ class SessionManager:
 
     def register_audio_sink(self, radio_id: str, sink) -> None:
         """Register a ``sink(bytes)`` that delivers rendered PCM to a radio's
-        WebSocket. Called by the WS handler on connect."""
+        WebSocket. Called by the WS handler on connect. A newer connection for
+        the same radio replaces the older one's sink."""
         self._audio_sinks[radio_id] = sink
 
-    def unregister_audio_sink(self, radio_id: str) -> None:
+    def unregister_audio_sink(self, radio_id: str, sink=None) -> None:
+        """Drop a radio's audio sink on disconnect.
+
+        When ``sink`` is given, only unregister if it is still the *current*
+        sink for that radio. A browser reconnect (same trainee_id/instructor
+        radio) registers a new sink before the stale connection's teardown runs;
+        without this identity check the late teardown would clobber the fresh
+        sink, silencing live audio and the ambient hash on the new session.
+        """
+        if sink is not None and self._audio_sinks.get(radio_id) is not sink:
+            return  # a newer connection already owns this radio's sink
         self._audio_sinks.pop(radio_id, None)
 
     def route_tx_frame(self, radio_id: str, pcm: np.ndarray) -> None:

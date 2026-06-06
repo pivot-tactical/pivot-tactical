@@ -145,6 +145,41 @@ def test_mode_persists_across_reconnect(manager):
     assert "7.050" in info["frequency"]
 
 
+def test_stale_disconnect_keeps_reconnected_radio(manager):
+    """A reconnect bumps the epoch; the stale connection's late teardown must
+    not remove the freshly re-logged-in radio (the no-hash-after-restart bug)."""
+    manager.start_session("EX")
+    first = manager.login("ALPHA", "t-1")
+    # Browser restarts: new connection logs in again under the same id.
+    second = manager.login("ALPHA", "t-1")
+    assert second["epoch"] > first["epoch"]
+    # The stale connection now tears down with its *old* epoch.
+    manager.disconnect("t-1", epoch=first["epoch"])
+    # The live radio (and terminal) for the new connection survives.
+    assert manager.registry.get("t-1") is not None
+    assert "t-1" in manager.terminals
+
+
+def test_stale_unregister_keeps_reconnected_sink(manager):
+    """A reconnect re-registers a new sink for the same radio; the stale
+    connection's teardown must not clobber it, or the new session goes silent
+    (no live audio, no ambient hash)."""
+    manager.start_session("EX")
+    manager.login("ALPHA", "t-1")
+    old_frames, new_frames = [], []
+    old_sink = old_frames.append
+    new_sink = new_frames.append
+    manager.register_audio_sink("t-1", old_sink)
+    # Reconnect rebinds the radio to the new connection's sink.
+    manager.register_audio_sink("t-1", new_sink)
+    # Stale teardown passes its own (old) sink — must be a no-op now.
+    manager.unregister_audio_sink("t-1", old_sink)
+    assert manager._audio_sinks.get("t-1") is not None
+    # And it really is the *new* sink that survives.
+    manager._audio_sinks["t-1"](b"x")
+    assert new_frames == [b"x"] and old_frames == []
+
+
 def test_route_tx_frame_records_and_renders_to_listeners(manager):
     manager.start_session("EX")
     manager.login("TX", "tx")
