@@ -69,13 +69,14 @@ jobs:
         run: pyinstaller --noconfirm packaging/pivot.spec
 
       # --- package + checksum (one archive per platform) ---
+      # Version-agnostic asset names: a stable download URL across releases
+      # (releases/latest/download/PIVOT-Tactical-win64.zip). The version lives in
+      # the tag, the release notes and the embedded build-info.
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $ver = "${{ github.ref_name }}"
-          if ($ver -notmatch '^v\d') { $ver = "v0.0.0-dev" }
-          $archive = "PIVOT-Tactical-$ver-win64.zip"
+          $archive = "PIVOT-Tactical-win64.zip"
           Compress-Archive -Path dist/PIVOT-Tactical -DestinationPath $archive
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
           "$hash  $archive" | Out-File "$archive.sha256" -Encoding ascii -NoNewline
@@ -159,15 +160,14 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          ver="${{ github.ref_name }}"
-          [[ "$ver" =~ ^v[0-9] ]] || ver="v0.0.0-dev"
           # Ship the systemd unit + install/uninstall scripts inside the bundle so
           # `tar xzf … && sudo ./PIVOT-Tactical/install.sh` sets up the headless
           # background service (the Linux counterpart to the Windows installer).
           cp packaging/linux/pivot-tactical.service dist/PIVOT-Tactical/
           cp packaging/linux/install.sh packaging/linux/uninstall.sh dist/PIVOT-Tactical/
           chmod +x dist/PIVOT-Tactical/install.sh dist/PIVOT-Tactical/uninstall.sh
-          archive="PIVOT-Tactical-$ver-linux-x86_64.tar.gz"
+          # Version-agnostic name -> stable releases/latest/download URL.
+          archive="PIVOT-Tactical-linux-x86_64.tar.gz"
           tar -czf "$archive" -C dist PIVOT-Tactical
           sha256sum "$archive" > "$archive.sha256"
           echo "ARTIFACT=$archive" >> "$GITHUB_ENV"
@@ -181,7 +181,7 @@ jobs:
             PIVOT-Tactical-*.zip
             PIVOT-Tactical-*.tar.gz
             PIVOT-Tactical-*.sha256
-            PIVOT-Tactical-Setup-*.exe
+            PIVOT-Tactical-Setup.exe
             appcast.xml
           if-no-files-found: error
 
@@ -196,7 +196,7 @@ jobs:
             PIVOT-Tactical-*.zip
             PIVOT-Tactical-*.tar.gz
             PIVOT-Tactical-*.sha256
-            PIVOT-Tactical-Setup-*.exe
+            PIVOT-Tactical-Setup.exe
             appcast.xml
           fail_on_unmatched_files: false
           generate_release_notes: true

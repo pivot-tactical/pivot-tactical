@@ -8,8 +8,9 @@
 ;
 ; Build (in CI, version comes from the tag):
 ;   iscc /DMyAppVersion=1.2.0 packaging\pivot.iss
-; Output:
-;   dist\installer\PIVOT-Tactical-Setup-v1.2.0.exe
+; Output (version-agnostic name for a stable download URL; the version is
+; recorded in AppVersion and the appcast, not the filename):
+;   dist\installer\PIVOT-Tactical-Setup.exe
 ;
 ; Silent apply (what WinSparkle invokes):  Setup.exe /VERYSILENT /SUPPRESSMSGBOXES
 ; WinSparkle relaunches PIVOT after the installer exits, so no [Run] on silent.
@@ -35,7 +36,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=dist\installer
-OutputBaseFilename=PIVOT-Tactical-Setup-v{#MyAppVersion}
+OutputBaseFilename=PIVOT-Tactical-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

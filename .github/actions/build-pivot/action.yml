@@ -50,11 +50,15 @@ runs:
       shell: bash
       run: pyinstaller --noconfirm packaging/pivot.spec
 
+    # Version-agnostic asset names so the download URL is stable across releases
+    # (the version lives in the tag, the release notes and the embedded
+    # build-info). releases/latest/download/PIVOT-Tactical-win64.zip always
+    # resolves to the newest build.
     - name: Package (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        $archive = "PIVOT-Tactical-v$env:PIVOT_VERSION-win64.zip"
+        $archive = "PIVOT-Tactical-win64.zip"
         Compress-Archive -Path dist/PIVOT-Tactical -DestinationPath $archive
         $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
         "$hash  $archive" | Out-File "$archive.sha256" -Encoding ascii -NoNewline
@@ -63,7 +67,7 @@ runs:
       if: runner.os == 'Linux'
       shell: bash
       run: |
-        archive="PIVOT-Tactical-v$PIVOT_VERSION-linux-x86_64.tar.gz"
+        archive="PIVOT-Tactical-linux-x86_64.tar.gz"
         tar -czf "$archive" -C dist PIVOT-Tactical
         sha256sum "$archive" > "$archive.sha256"
 

@@ -10,7 +10,9 @@ one-off key setup and the per-release flow. Everything is permissively licensed
 
 1. The release workflow builds the app (PyInstaller `--onedir`), drops
    `WinSparkle.dll` beside the binary, and wraps it in an Inno Setup installer
-   (`PIVOT-Tactical-Setup-vX.Y.Z.exe`).
+   (`PIVOT-Tactical-Setup.exe`). Asset names are version-agnostic so the
+   `releases/latest/download/` URL is stable; the version lives in the tag, the
+   release notes and the embedded build-info.
 2. The installer is **signed** with the project's Ed25519 private key, and an
    `appcast.xml` feed is generated carrying that signature
    (`packaging/sign_appcast.py`).
@@ -122,7 +124,7 @@ base64 -w0 your-cert.pfx        # -> paste as WINDOWS_CERTIFICATE
 - `WINDOWS_CERTIFICATE` — base64 of the `.pfx`
 - `WINDOWS_CERTIFICATE_PASSWORD` — its export password
 
-The release workflow then signs `PIVOT-Tactical-Setup-vX.Y.Z.exe` with
+The release workflow then signs `PIVOT-Tactical-Setup.exe` with
 `signtool` (SHA-256 + RFC-3161 timestamp) **before** computing the Ed25519
 appcast signature, so both signatures are valid on the published file.
 

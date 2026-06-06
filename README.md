@@ -26,9 +26,15 @@ Licensed under **Apache-2.0**.
 PIVOT is a single self-contained download — no installer, no dependencies, and
 nothing for trainees to set up.
 
+Downloads have stable, version-agnostic names, so the same link always fetches
+the newest build (the version is in the release notes and shown in-app).
+
 ### Windows
 
-1. Download `PIVOT-Tactical-vX.Y.Z-win64.zip` from the [Releases](../../releases) page.
+1. Download the latest
+   [`PIVOT-Tactical-win64.zip`](../../releases/latest/download/PIVOT-Tactical-win64.zip)
+   (or the [`PIVOT-Tactical-Setup.exe`](../../releases/latest/download/PIVOT-Tactical-Setup.exe)
+   installer for a Start-menu entry + automatic updates).
 2. Unzip it anywhere (e.g. the desktop) and run **`PIVOT-Tactical.exe`**.
 
 ### Linux (x86_64)
@@ -36,11 +42,12 @@ nothing for trainees to set up.
 Runs on common glibc-based distributions — Ubuntu 22.04+, Debian 12+, Fedora 36+,
 Linux Mint 21+, Pop!_OS and similar.
 
-1. Download `PIVOT-Tactical-vX.Y.Z-linux-x86_64.tar.gz` from the [Releases](../../releases) page.
+1. Download the latest
+   [`PIVOT-Tactical-linux-x86_64.tar.gz`](../../releases/latest/download/PIVOT-Tactical-linux-x86_64.tar.gz).
 2. Extract and run it:
 
    ```bash
-   tar -xzf PIVOT-Tactical-vX.Y.Z-linux-x86_64.tar.gz
+   tar -xzf PIVOT-Tactical-linux-x86_64.tar.gz
    ./PIVOT-Tactical/PIVOT-Tactical
    ```
 

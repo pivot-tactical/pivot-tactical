@@ -18,9 +18,9 @@ adds nothing to the distributed binary's licence surface.
 
     # in CI, on a tag:
     PIVOT_EDDSA_PRIVATE_KEY=... python packaging/sign_appcast.py appcast \
-        --installer dist/PIVOT-Tactical-Setup-v1.2.0.exe \
+        --installer dist/PIVOT-Tactical-Setup.exe \
         --version 1.2.0 \
-        --url https://github.com/<owner>/<repo>/releases/download/v1.2.0/PIVOT-Tactical-Setup-v1.2.0.exe \
+        --url https://github.com/<owner>/<repo>/releases/download/v1.2.0/PIVOT-Tactical-Setup.exe \
         --notes-file notes.html \
         --out appcast.xml
 """
