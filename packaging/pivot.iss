@@ -2,18 +2,14 @@
 ;
 ; Turns the PyInstaller onedir output (dist\PIVOT-Tactical\) into a professional
 ; Windows installer: Program Files install, Start-menu shortcut, uninstaller.
-; This is the artifact WinSparkle downloads and runs to apply an update — the
-; running app is closed, the install is swapped on disk, and PIVOT is relaunched,
-; which is why a directly-run .exe could never update itself.
+; This is the first-install path; afterwards PIVOT updates itself in place via the
+; verified, channel-aware staged path (download -> verify -> swap on restart).
 ;
 ; Build (in CI, version comes from the tag):
 ;   iscc /DMyAppVersion=1.2.0 packaging\pivot.iss
 ; Output (version-agnostic name for a stable download URL; the version is
-; recorded in AppVersion and the appcast, not the filename):
+; recorded in AppVersion and the release notes, not the filename):
 ;   dist\installer\PIVOT-Tactical-Setup.exe
-;
-; Silent apply (what WinSparkle invokes):  Setup.exe /VERYSILENT /SUPPRESSMSGBOXES
-; WinSparkle relaunches PIVOT after the installer exits, so no [Run] on silent.
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0-dev"
@@ -35,7 +31,10 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=dist\installer
+; Paths are relative to THIS script's directory (packaging\), so reach up to the
+; repo-root dist\ that PyInstaller writes — `iscc packaging\pivot.iss` from the
+; repo root then finds the bundle and emits the installer to repo-root dist\.
+OutputDir=..\dist\installer
 OutputBaseFilename=PIVOT-Tactical-Setup
 Compression=lzma2
 SolidCompression=yes
@@ -43,7 +42,7 @@ WizardStyle=modern
 ; 64-bit only, matching the win64 build.
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-; Close a running PIVOT before upgrading, and let WinSparkle relaunch it.
+; Close a running PIVOT before installing over it.
 CloseApplications=yes
 RestartApplications=no
 AppMutex=PIVOT-Tactical-Single-Instance
@@ -58,9 +57,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
-; The entire onedir bundle, including WinSparkle.dll which CI drops in beside
-; the exe before this script runs.
-Source: "dist\PIVOT-Tactical\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; The entire PyInstaller onedir bundle (repo-root dist\, one level up from here).
+Source: "..\dist\PIVOT-Tactical\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
