@@ -334,13 +334,33 @@ function SettingsTab({ mustChangePassword, onTimezone }: { mustChangePassword: b
   const [pwMsg, setPwMsg] = useState("");
   const [upd, setUpd] = useState<Awaited<ReturnType<typeof api.checkUpdates>> | null>(null);
   const [checking, setChecking] = useState(false);
+  const [applying, setApplying] = useState<string | null>(null);
+  const [staged, setStaged] = useState<string | null>(null);
+  const [applyErr, setApplyErr] = useState<string | null>(null);
 
   async function checkUpdates() {
     setChecking(true);
+    setApplyErr(null);
     try {
-      setUpd(await api.checkUpdates());
+      const result = await api.checkUpdates();
+      setUpd(result);
+      if (result.auto_staged) setStaged(result.auto_staged);
+      if (result.auto_update_error) setApplyErr(result.auto_update_error);
     } finally {
       setChecking(false);
+    }
+  }
+
+  async function applyUpdate(a: { tag: string; asset_url: string; sha256_url: string; asset_name: string }) {
+    setApplying(a.tag);
+    setApplyErr(null);
+    try {
+      await api.applyUpdate(a.tag, a.asset_url, a.sha256_url, a.asset_name);
+      setStaged(a.tag);
+    } catch (e: any) {
+      setApplyErr(e?.message ?? "Download failed");
+    } finally {
+      setApplying(null);
     }
   }
 
@@ -425,7 +445,7 @@ function SettingsTab({ mustChangePassword, onTimezone }: { mustChangePassword: b
 
       <section className="card pad">
         <h3>Updates</h3>
-        <button className="btn" onClick={checkUpdates} disabled={checking}>
+        <button className="btn" onClick={checkUpdates} disabled={checking || applying !== null}>
           {checking ? "Checking…" : "Check for updates"}
         </button>
         {upd && (
@@ -434,14 +454,29 @@ function SettingsTab({ mustChangePassword, onTimezone }: { mustChangePassword: b
               Current {upd.current_version} · channel {upd.channel}
               {upd.auto_update ? " · auto-update on" : ""}
             </div>
-            {!upd.reachable && <p className="login__hint">Offline — use offline import (GitHub unreachable).</p>}
-            {upd.reachable && upd.available.length === 0 && <p className="muted mt">Up to date.</p>}
+            {!upd.reachable && <p className="login__hint">Offline — GitHub unreachable. Use offline import.</p>}
+            {upd.reachable && upd.available.length === 0 && !staged && <p className="muted mt">Up to date.</p>}
             {upd.available.map((a) => (
               <div className="row between mt" key={a.tag}>
-                <span className="mono">{a.tag} {a.prerelease ? "· prerelease" : ""}</span>
-                <span className="muted">{a.standing}</span>
+                <span className="mono">{a.tag}{a.prerelease ? " · prerelease" : ""}</span>
+                {staged === a.tag ? (
+                  <span className="muted">Staged — restart to apply ✓</span>
+                ) : applying === a.tag ? (
+                  <span className="muted">Downloading…</span>
+                ) : a.has_asset ? (
+                  <button className="btn btn--primary" onClick={() => applyUpdate(a)}
+                    disabled={applying !== null}>
+                    Download &amp; Install
+                  </button>
+                ) : (
+                  <span className="muted">No asset for this platform</span>
+                )}
               </div>
             ))}
+            {staged && !upd.available.find((a) => a.tag === staged) && (
+              <p className="muted mt">Update {staged} staged — restart to apply ✓</p>
+            )}
+            {applyErr && <p className="login__hint mt">{applyErr}</p>}
           </div>
         )}
         <p className="muted mt">

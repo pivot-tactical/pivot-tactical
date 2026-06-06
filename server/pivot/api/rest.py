@@ -13,6 +13,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Res
 from pivot import exporting
 from pivot.api.deps import get_auth, get_manager, require_instructor
 from pivot.api.schemas import (
+    ApplyUpdateRequest,
     LoginRequest,
     LoginResponse,
     ModeRequest,
@@ -375,12 +376,64 @@ def admin_check_updates(manager=Depends(get_manager)) -> dict:
             "published_at": r.published_at,
             "prerelease": r.prerelease,
             "asset_name": r.asset_name,
+            "asset_url": r.asset_url,
+            "sha256_url": r.sha256_url,
+            "has_asset": bool(r.asset_url),
             "standing": classify_release(r, cur).value,
         }
 
+    available = mgr.available_updates(raw)
     result["releases"] = [to_dict(r) for r in mgr.list_releases(raw)]
-    result["available"] = [to_dict(r) for r in mgr.available_updates(raw)]
+    result["available"] = [to_dict(r) for r in available]
+
+    # Auto-update: download and stage the newest available release immediately.
+    if bool(cfg.get("auto_update", False)) and available:
+        newest = available[0]
+        if newest.asset_url:
+            try:
+                asset_path = mgr.download(newest, token)
+                mgr.stage(asset_path, newest)
+                result["auto_staged"] = newest.tag
+            except Exception as exc:
+                result["auto_update_error"] = str(exc)
+
     return result
+
+
+@router.post("/admin/updates/apply", dependencies=[Depends(require_instructor)])
+def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) -> dict:
+    """Download, verify and stage an update for the next restart (§3.7.5).
+
+    The actual directory swap happens out-of-process on restart so the running
+    binary can be replaced on all platforms. Returns once the archive is
+    verified on disk; the UI should prompt for a restart.
+    """
+    from pivot.updates.manager import Release, UpdateManager
+    from pivot.version import version_info
+
+    with manager.db.session() as s:
+        cfg = ConfigStore(s).all()
+    token = str(cfg.get("github_token") or "") or None
+
+    mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
+    release = Release(
+        tag=req.tag,
+        asset_url=req.asset_url,
+        asset_name=req.asset_name,
+        sha256_url=req.sha256_url,
+    )
+    try:
+        asset_path = mgr.download(release, token)
+        staging_dir = mgr.stage(asset_path, release)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {
+        "staged": True,
+        "tag": req.tag,
+        "staging": str(staging_dir),
+        "restart_required": True,
+    }
 
 
 # --- public status --------------------------------------------------------- #

@@ -65,6 +65,15 @@ class StartSessionRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
 
 
+class ApplyUpdateRequest(BaseModel):
+    """Instructor-initiated update apply (§3.7.5)."""
+
+    tag: str
+    asset_url: str
+    sha256_url: str = ""
+    asset_name: str
+
+
 class ScenarioRequest(BaseModel):
     """Instructor scenario controls (§3.1.5). All fields optional; set what you
     want to change in one call."""

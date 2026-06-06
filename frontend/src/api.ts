@@ -139,8 +139,27 @@ export const api = {
       auto_update: boolean;
       reachable: boolean;
       error: string | null;
-      available: { tag: string; prerelease: boolean; standing: string; published_at: string }[];
+      auto_staged?: string;
+      auto_update_error?: string;
+      available: {
+        tag: string;
+        prerelease: boolean;
+        standing: string;
+        published_at: string;
+        has_asset: boolean;
+        asset_url: string;
+        sha256_url: string;
+        asset_name: string;
+      }[];
     }>("/api/admin/updates/check"),
+  applyUpdate: (tag: string, assetUrl: string, sha256Url: string, assetName: string) =>
+    jsonFetch<{ staged: boolean; tag: string; restart_required: boolean }>(
+      "/api/admin/updates/apply",
+      {
+        method: "POST",
+        body: JSON.stringify({ tag, asset_url: assetUrl, sha256_url: sha256Url, asset_name: assetName }),
+      }
+    ),
 
   // --- instructor: AAR / history ---
   sessions: () => jsonFetch<SessionSummary[]>("/api/sessions"),

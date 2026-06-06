@@ -23,11 +23,31 @@ import json
 import platform
 import shutil
 import sys
+import urllib.request
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
 from pivot.version import SemVer
+
+
+def _http_get(url: str, token: str | None = None, timeout: float = 30.0) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        return resp.read()
+
+
+def _http_download(url: str, dest: Path, token: str | None = None, timeout: float = 600.0) -> None:
+    """Stream a potentially large file to disk."""
+    req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        with dest.open("wb") as fh:
+            while chunk := resp.read(1 << 20):
+                fh.write(chunk)
 
 
 def default_asset_pattern() -> str:
@@ -71,7 +91,7 @@ class Release:
     body: str = ""
     asset_url: str = ""
     asset_name: str = ""
-    sha256: str = ""
+    sha256_url: str = ""   # URL of the .sha256 sidecar published alongside the asset
 
     @property
     def semver(self) -> SemVer | None:
@@ -85,13 +105,20 @@ class Release:
         the current platform's pattern so the running app picks its own OS asset.
         """
         pattern = asset_pattern or default_asset_pattern()
-        asset_url = asset_name = ""
-        for asset in data.get("assets", []):
+        asset_url = asset_name = sha256_url = ""
+        assets = data.get("assets", [])
+        for asset in assets:
             name = asset.get("name", "")
             if pattern in name and name.endswith(_ASSET_EXTENSIONS):
                 asset_url = asset.get("browser_download_url", "")
                 asset_name = name
                 break
+        if asset_name:
+            sidecar = asset_name + ".sha256"
+            for asset in assets:
+                if asset.get("name") == sidecar:
+                    sha256_url = asset.get("browser_download_url", "")
+                    break
         return cls(
             tag=data.get("tag_name", ""),
             name=data.get("name", "") or data.get("tag_name", ""),
@@ -100,6 +127,7 @@ class Release:
             body=data.get("body", "") or "",
             asset_url=asset_url,
             asset_name=asset_name,
+            sha256_url=sha256_url,
         )
 
 
@@ -258,6 +286,57 @@ class UpdateManager:
         """The most recent retained version (the instant-rollback target)."""
         retained = self.retained_versions()
         return retained[0] if retained else None
+
+    # -- download + stage (§3.7.5) ------------------------------------------ #
+
+    @property
+    def pending_marker_path(self) -> Path:
+        return self.versions_dir / "pending_update.json"
+
+    def download(self, release: Release, token: str | None = None) -> Path:
+        """Download the release asset to a staging folder and verify SHA-256.
+
+        Returns the path to the downloaded archive. Raises on network error or
+        checksum mismatch.
+        """
+        if not release.asset_url:
+            raise ValueError(
+                f"No asset available for this platform ({self.asset_pattern})"
+            )
+        staging = self.versions_dir / "_staging" / release.tag
+        staging.mkdir(parents=True, exist_ok=True)
+        dest = staging / release.asset_name
+        _http_download(release.asset_url, dest, token)
+        if release.sha256_url:
+            sha_text = _http_get(release.sha256_url, token).decode().strip()
+            expected = sha_text.split()[0]
+            if not verify_sha256(dest, expected):
+                dest.unlink(missing_ok=True)
+                raise ValueError(
+                    f"SHA-256 mismatch — download may be corrupt ({release.asset_name})"
+                )
+        return dest
+
+    def stage(self, asset_path: Path, release: Release) -> Path:
+        """Extract the downloaded archive and write the pending-update marker.
+
+        The launcher reads the marker on next startup and performs the actual
+        directory swap (out-of-process, so the running binary can be replaced
+        on Windows too — §3.7.5).
+        """
+        import tarfile
+        import zipfile
+
+        staging_dir = asset_path.parent / "extracted"
+        staging_dir.mkdir(exist_ok=True)
+        if asset_path.name.endswith(".tar.gz"):
+            with tarfile.open(asset_path) as tf:
+                tf.extractall(staging_dir)
+        elif asset_path.name.endswith(".zip"):
+            with zipfile.ZipFile(asset_path) as zf:
+                zf.extractall(staging_dir)
+        self.write_pending_marker(self.pending_marker_path, release.tag, staging_dir)
+        return staging_dir
 
     # -- offline import (§3.7.6) ------------------------------------------- #
 
