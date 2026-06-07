@@ -8,7 +8,7 @@ import { SevenSegmentClock } from "../components/SevenSegmentClock";
 import type { EventRow, RadioState, Terminal, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
 
-type Tab = "radios" | "log" | "monitor" | "scenario" | "settings";
+type Tab = "radios" | "monitor" | "scenario" | "settings";
 
 export function InstructorConsole({
   timezone,
@@ -128,16 +128,15 @@ export function InstructorConsole({
       </header>
 
       <nav className="console__tabs">
-        {(["radios", "log", "monitor", "scenario", "settings"] as Tab[]).map((t) => (
+        {(["radios", "monitor", "scenario", "settings"] as Tab[]).map((t) => (
           <button key={t} className={`tabbtn ${tab === t ? "tabbtn--on" : ""}`} onClick={() => setTab(t)}>
-            {t === "log" ? "Live Log" : t[0].toUpperCase() + t.slice(1)}
+            {t[0].toUpperCase() + t.slice(1)}
           </button>
         ))}
       </nav>
 
       <main className="console__body">
-        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} />}
-        {tab === "log" && <LiveLogTab events={events} />}
+        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} events={events} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
         {tab === "scenario" && <ScenarioTab />}
         {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} socket={socketRef.current} onRestart={enterRestarting} sessionActive={sessionActive} />}
@@ -158,8 +157,9 @@ function snapMHzInput(mhzStr: string, fallback = 30): number {
   return snapToStep(hz);
 }
 
-function RadiosTab({ radios, socket, audio, onChange }: {
+function RadiosTab({ radios, socket, audio, onChange, events }: {
   radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
+  events: EventRow[];
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [phase, setPhase] = useState<TxPhase>("IDLE");
@@ -218,6 +218,7 @@ function RadiosTab({ radios, socket, audio, onChange }: {
   }
 
   return (
+    <>
     <div className="grid2">
       <section className="card pad">
         <div className="row between">
@@ -270,6 +271,8 @@ function RadiosTab({ radios, socket, audio, onChange }: {
         </button>
       </section>
     </div>
+    <LiveLogTab events={events} />
+    </>
   );
 }
 
