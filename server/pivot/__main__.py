@@ -112,9 +112,13 @@ def _settings_from_args(args: argparse.Namespace) -> Settings:
     return Settings(**overrides)
 
 
-def run_server(settings: Settings, manager: SessionManager) -> None:
+def run_server(settings: Settings, manager: SessionManager, tls: tuple[Path, Path] | None = None) -> None:
     app = create_app(settings, manager=manager)
-    config = uvicorn.Config(app, host=settings.host, port=settings.port, log_level="info")
+    tls_kwargs: dict = {}
+    if tls is not None:
+        certfile, keyfile = tls
+        tls_kwargs = {"ssl_certfile": str(certfile), "ssl_keyfile": str(keyfile)}
+    config = uvicorn.Config(app, host=settings.host, port=settings.port, log_level="info", **tls_kwargs)
     server = uvicorn.Server(config)
 
     # Let the browser restart endpoint stop us gracefully. We record the intent
@@ -292,9 +296,31 @@ def main(argv: list[str] | None = None) -> int:
     auth.ensure_default()
 
     ip = _lan_ip()
-    url = f"http://{ip}:{settings.port}"
+    # Browsers only grant microphone access in a secure context (https or
+    # localhost) — over plain HTTP at a LAN address, Firefox never even shows
+    # the permission prompt (`navigator.mediaDevices` is undefined there).
+    # Self-signed TLS is the only option for an offline LAN tool, so generate
+    # one covering this address; on any failure fall back to plain HTTP rather
+    # than refuse to start.
+    from pivot.runtime.tls import ensure_cert
+
+    tls = ensure_cert(settings.data_dir / "tls", ip)
+    scheme = "https" if tls else "http"
+    url = f"{scheme}://{ip}:{settings.port}"
     print(f"PIVOT {version_info.version} — open {url} in a browser")
     print("  Trainees: enter a callsign.  Instructor: 'Log in as instructor'.")
+    if tls:
+        print(
+            "  NOTE: the browser will warn that the connection isn't private — "
+            "that's expected for a self-hosted LAN address (the certificate is "
+            "self-signed). Choose Advanced → Proceed once; this is what lets the "
+            "microphone work."
+        )
+    else:
+        print(
+            "  WARNING: couldn't set up a secure connection — the microphone may "
+            "be unavailable in some browsers (notably Firefox) at this address."
+        )
     if auth.is_default():
         print(
             f"  NOTE: instructor password is the default ('{DEFAULT_INSTRUCTOR_PASSWORD}'). "
@@ -306,10 +332,10 @@ def main(argv: list[str] | None = None) -> int:
         # tray menu offers Open / Copy address / Show log / Quit.
         from pivot.win_tray import run_with_tray
 
-        run_with_tray(lambda: run_server(settings, manager), url,
+        run_with_tray(lambda: run_server(settings, manager, tls), url,
                       tooltip=f"PIVOT {version_info.version} — {ip}:{settings.port}")
     else:
-        run_server(settings, manager)
+        run_server(settings, manager, tls)
     return 0
 
 

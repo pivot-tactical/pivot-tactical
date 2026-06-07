@@ -56,8 +56,13 @@ Linux Mint 21+, Pop!_OS and similar.
 
 ### Then
 
-* The server prints the **LAN address** (e.g. `http://192.168.1.20:8080`).
-  Everyone — instructor and trainees — opens that address in a browser.
+* The server prints the **LAN address** (e.g. `https://192.168.1.20:8080`).
+  Everyone — instructor and trainees — opens that address in a browser. The
+  browser will warn that the connection isn't private — that's expected for a
+  self-hosted address (PIVOT signs its own certificate, since there's no public
+  CA for a LAN-only tool); choose **Advanced → Proceed** once. This is also what
+  lets the browser grant microphone access — over a plain `http://` LAN address,
+  Firefox (and, really, any browser) won't even prompt for it.
 * Trainees enter a callsign. The instructor chooses **Log in as instructor** and
   enters the password (default `instructor` on first run — change it in Settings).
 

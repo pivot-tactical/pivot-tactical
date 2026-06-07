@@ -17,6 +17,7 @@ export function Login({
   const [password, setPassword] = useState("");
   const [online, setOnline] = useState<boolean | null>(null);
   const [micOk, setMicOk] = useState<boolean | null>(null);
+  const [micInsecure, setMicInsecure] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -27,6 +28,17 @@ export function Login({
   const valid = NAME_RE.test(name.trim());
 
   async function checkMic() {
+    // The microphone API only exists in a *secure context* (https or
+    // localhost) — over plain http:// at a LAN address, `navigator.mediaDevices`
+    // is simply undefined and the browser never shows a permission prompt.
+    // Detect that case up front so we can point at the real fix instead of
+    // letting it fall into the same bucket as "permission denied".
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      setMicInsecure(true);
+      setMicOk(false);
+      return;
+    }
+    setMicInsecure(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((t) => t.stop());
@@ -109,7 +121,18 @@ export function Login({
         </div>
         {mode === "trainee" && micOk === false && (
           <p className="login__hint">
-            Allow microphone access in your browser to transmit. Use a Chromium-based browser for best results.
+            {micInsecure ? (
+              <>
+                This connection isn't secure, so the browser won't allow microphone
+                access at all (no permission prompt will appear). If the address
+                bar shows <code>http://</code>, ask the instructor for the{" "}
+                <code>https://</code> address instead — the browser will warn that
+                it isn't verified (PIVOT uses a private, self-signed certificate);
+                choose <strong>Advanced → Proceed</strong> once, then reload this page.
+              </>
+            ) : (
+              "Allow microphone access in your browser to transmit."
+            )}
           </p>
         )}
       </div>
