@@ -71,9 +71,23 @@ def wait_for_exit(pid: int, timeout: float = 60.0) -> None:
     """
     if sys.platform == "win32":  # pragma: no cover - Windows-only
         import ctypes
+        from ctypes import wintypes
 
         SYNCHRONIZE = 0x00100000
         kernel32 = ctypes.windll.kernel32
+        # HANDLE is a 64-bit pointer on 64-bit Windows. Without explicit
+        # restype/argtypes, ctypes marshals it as a 32-bit int and truncates
+        # the value, producing a corrupt handle — WaitForSingleObject then
+        # fails immediately (WAIT_FAILED) instead of actually waiting, so the
+        # relauncher races ahead and starts the new process before the old one
+        # has released the port/files (it then dies silently, headless).
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
         handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
         if not handle:
             return  # already gone

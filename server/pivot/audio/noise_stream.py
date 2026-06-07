@@ -58,7 +58,10 @@ class NoiseBroadcaster:
         next_t = loop.time()
         while True:
             try:
-                self.manager.render_idle_noise_tick(self.frame_samples, self._primed)
+                if self.manager.session_active:
+                    self.manager.render_idle_noise_tick(self.frame_samples, self._primed)
+                else:
+                    self._primed.clear()  # re-prime jitter cushion when next session starts
             except Exception:  # never let the ambient stream die
                 log.exception("idle-noise tick failed")
             next_t += period

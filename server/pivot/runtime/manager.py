@@ -382,7 +382,7 @@ class SessionManager:
         idle it gets a couple of extra frames to build a small jitter cushion,
         so the player worklet never underruns into silence between frames.
         """
-        if not self._audio_sinks:
+        if not self.session_active or not self._audio_sinks:
             return
         # Group idle, sink-bound radios by net; keep a representative frequency.
         groups: dict[int, list[str]] = {}

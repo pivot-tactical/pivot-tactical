@@ -160,16 +160,18 @@ def test_no_sinks_is_a_noop(manager):
 
 
 def test_ambient_noise_reaches_an_idle_trainee(tmp_path):
-    """With the feature on, a logged-in idle trainee receives binary PCM frames
-    from the background broadcaster over the live WebSocket."""
+    """Hash reaches an idle trainee only after a scenario has been started."""
     from fastapi.testclient import TestClient
 
     from pivot.api.app import create_app
+    from pivot.api.deps import require_instructor
     from pivot.config import Settings
 
     settings = Settings(data_dir=tmp_path / "data", ambient_noise=True)
     app = create_app(settings)
+    app.dependency_overrides[require_instructor] = lambda: None
     with TestClient(app) as c:
+        c.post("/api/admin/session/start", json={"name": "EX"})
         with c.websocket_connect("/ws?name=HISS&trainee_id=n-1") as ws:
             got_bytes = False
             for _ in range(100):  # tolerate JSON (welcome/profile) interleaving
@@ -180,3 +182,24 @@ def test_ambient_noise_reaches_an_idle_trainee(tmp_path):
                     got_bytes = True
                     break
             assert got_bytes, "expected ambient noise PCM frames on an idle channel"
+
+
+def test_no_noise_tick_without_session(manager):
+    """render_idle_noise_tick must not emit any frames before a session starts."""
+    rid, sink = _idle_listener(manager, "QUIET", "t-q", "145.500 MHz")
+    primed: set[str] = set()
+    manager.render_idle_noise_tick(FRAME, primed)
+    assert sink.frames == [], "no hash should flow before a scenario is running"
+
+
+def test_noise_stops_after_session_ends(manager):
+    """Hash stops as soon as the session is ended."""
+    manager.start_session("EX")
+    rid, sink = _idle_listener(manager, "ALPHA", "t-1", "145.500 MHz")
+    primed: set[str] = set()
+    manager.render_idle_noise_tick(FRAME, primed)
+    assert sink.frames, "hash should flow during the session"
+    manager.end_session()
+    sink.frames.clear()
+    manager.render_idle_noise_tick(FRAME, primed)
+    assert sink.frames == [], "hash must stop after session ends"
