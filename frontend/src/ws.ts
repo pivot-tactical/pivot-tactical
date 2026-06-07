@@ -7,21 +7,28 @@ type Handler = (payload: any) => void;
 export class PivotSocket {
   private ws: WebSocket | null = null;
   private handlers = new Map<string, Set<Handler>>();
-  private url: string;
+  private query: () => Record<string, string>;
   private heartbeat?: number;
   private reconnectTimer?: number;
   private closed = false;
   private audioHandler?: (buf: ArrayBuffer) => void;
 
-  constructor(query: Record<string, string>) {
+  // The query may be a function so the URL is rebuilt on every (re)connect. The
+  // instructor passes a token getter: a long scenario slides its token, and a
+  // reconnect must use the *current* one or it would fall back to a trainee.
+  constructor(query: Record<string, string> | (() => Record<string, string>)) {
+    this.query = typeof query === "function" ? query : () => query;
+  }
+
+  private buildUrl(): string {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const params = new URLSearchParams(query);
-    this.url = `${proto}://${location.host}/ws?${params.toString()}`;
+    const params = new URLSearchParams(this.query());
+    return `${proto}://${location.host}/ws?${params.toString()}`;
   }
 
   connect() {
     this.closed = false;
-    this.ws = new WebSocket(this.url);
+    this.ws = new WebSocket(this.buildUrl());
     this.ws.binaryType = "arraybuffer";
     this.ws.onopen = () => {
       this.emit("open", {});

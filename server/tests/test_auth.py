@@ -73,3 +73,45 @@ def test_password_change_invalidates_tokens(database):
     assert auth.validate(token) is False
     assert auth.verify(DEFAULT_INSTRUCTOR_PASSWORD) is False
     assert auth.verify("new-password") is True
+
+
+def test_token_survives_server_restart(database):
+    """A token issued before a restart must still validate afterwards — the
+    instructor's browser is not logged out by a restart. Modelled by a fresh
+    AuthService over the same DB (the signing secret is persisted there)."""
+    issuer = AuthService(database)
+    issuer.ensure_default()
+    token = issuer.login(DEFAULT_INSTRUCTOR_PASSWORD)
+    assert token is not None
+
+    # New process: a brand-new AuthService instance, same database.
+    after_restart = AuthService(database)
+    assert after_restart.validate(token) is True
+
+
+def test_expired_token_is_rejected(database):
+    auth = AuthService(database, token_ttl=-1)  # already expired on issue
+    auth.ensure_default()
+    token = auth.login(DEFAULT_INSTRUCTOR_PASSWORD)
+    assert auth.validate(token) is False
+
+
+def test_refresh_issues_a_new_valid_token(database):
+    auth = AuthService(database)
+    auth.ensure_default()
+    token = auth.login(DEFAULT_INSTRUCTOR_PASSWORD)
+    refreshed = auth.refresh(token)
+    assert refreshed and refreshed != token
+    assert auth.validate(refreshed) is True
+    # Refreshing an invalid token yields nothing.
+    assert auth.refresh("bogus") is None
+
+
+def test_tampered_token_is_rejected(database):
+    auth = AuthService(database)
+    auth.ensure_default()
+    token = auth.login(DEFAULT_INSTRUCTOR_PASSWORD)
+    version, exp_s, nonce, sig = token.split(".")
+    # Push the expiry far out but keep the original signature — must not verify.
+    forged = f"{version}.{int(exp_s) + 10_000_000}.{nonce}.{sig}"
+    assert auth.validate(forged) is False

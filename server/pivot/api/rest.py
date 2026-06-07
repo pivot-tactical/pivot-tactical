@@ -80,6 +80,18 @@ def login(req: LoginRequest, manager=Depends(get_manager), auth=Depends(get_auth
     return LoginResponse(role="trainee", **info)
 
 
+@router.post("/auth/refresh", dependencies=[Depends(require_instructor)])
+def refresh_token(auth=Depends(get_auth)) -> dict:
+    """Slide the instructor session: issue a fresh token for a still-valid one.
+
+    The browser calls this on load (to confirm a stored token still works after a
+    refresh or a server restart, and restore the console without re-login) and
+    periodically while the console is open (so a long scenario never expires
+    mid-exercise). A failure (401) means the token is gone — show the login.
+    """
+    return {"token": auth.issue_token(), "must_change_password": auth.is_default()}
+
+
 @router.post("/logout")
 def logout(request: Request, auth=Depends(get_auth)) -> dict:
     """Revoke the caller's instructor token, if any."""

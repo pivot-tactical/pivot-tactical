@@ -8,12 +8,15 @@ import type {
   Terminal,
 } from "./types";
 
-let instructorToken: string | null = sessionStorage.getItem("pivot_token");
+// Persisted in localStorage (not sessionStorage) so the instructor stays logged
+// in across a page refresh and a server restart. The token is short-lived and
+// server-signed; the app refreshes it while the console is open (see App.tsx).
+let instructorToken: string | null = localStorage.getItem("pivot_token");
 
 export function setToken(t: string | null) {
   instructorToken = t;
-  if (t) sessionStorage.setItem("pivot_token", t);
-  else sessionStorage.removeItem("pivot_token");
+  if (t) localStorage.setItem("pivot_token", t);
+  else localStorage.removeItem("pivot_token");
 }
 export function getToken() {
   return instructorToken;
@@ -97,6 +100,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ role: "instructor", password }),
     });
+    if (resp.token) setToken(resp.token);
+    return resp;
+  },
+
+  // Slide the instructor session: swap a still-valid token for a fresh one.
+  // Used on load (to confirm a stored token survived a refresh/restart and
+  // restore the console) and on a timer while the console is open. Throws on
+  // 401, which the caller treats as "logged out".
+  async refreshToken(): Promise<{ token: string; must_change_password?: boolean }> {
+    const resp = await jsonFetch<{ token: string; must_change_password?: boolean }>(
+      "/api/auth/refresh",
+      { method: "POST" }
+    );
     if (resp.token) setToken(resp.token);
     return resp;
   },

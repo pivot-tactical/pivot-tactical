@@ -100,6 +100,28 @@ def test_instructor_login_and_authenticated_admin(raw_client):
     assert raw_client.get("/api/admin/terminals", headers=headers).status_code == 200
 
 
+def test_auth_refresh_slides_the_session(raw_client):
+    r = raw_client.post("/api/login", json={"role": "instructor",
+                                            "password": DEFAULT_INSTRUCTOR_PASSWORD})
+    token = r.json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # A valid token can be refreshed for a fresh one that also authorises admin.
+    refreshed = raw_client.post("/api/auth/refresh", headers=headers)
+    assert refreshed.status_code == 200
+    new_token = refreshed.json()["token"]
+    assert new_token and new_token != token
+    assert raw_client.get(
+        "/api/admin/terminals", headers={"Authorization": f"Bearer {new_token}"}
+    ).status_code == 200
+
+    # Without a token it is rejected — the browser then shows the login.
+    assert raw_client.post("/api/auth/refresh").status_code == 401
+    assert raw_client.post(
+        "/api/auth/refresh", headers={"Authorization": "Bearer bogus"}
+    ).status_code == 401
+
+
 def test_restart_unavailable_in_dev_run_mode(client):
     # No server host wired app.state.request_restart (TestClient) -> 503.
     r = client.post("/api/admin/restart", json={})

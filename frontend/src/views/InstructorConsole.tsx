@@ -48,7 +48,7 @@ export function InstructorConsole({
   }
 
   useEffect(() => {
-    const sock = new PivotSocket({ token: getToken() || "" });
+    const sock = new PivotSocket(() => ({ token: getToken() || "" }));
     sock.on("open", () => setConn("online"));
     sock.on("close", () => {
       if (restartingRef.current) { setConn("restarting"); startRestartPoll(); }
