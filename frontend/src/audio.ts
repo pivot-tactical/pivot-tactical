@@ -78,11 +78,17 @@ export class AudioIO {
   } | null = null;
 
   async init(): Promise<void> {
-    if (this.ctx) {
-      if (this.ctx.state === "suspended") await this.ctx.resume();
+    // Guard on player (not ctx): if a previous call created the ctx but then
+    // threw before creating the player (e.g. addModule 404), this.ctx is truthy
+    // but this.player is null. Checking only ctx would return early and leave
+    // audio permanently broken with no way to recover across user gestures.
+    if (this.player) {
+      if (this.ctx?.state === "suspended") await this.ctx.resume();
       return;
     }
-    this.ctx = new AudioContext({ sampleRate: SR });
+    if (!this.ctx) {
+      this.ctx = new AudioContext({ sampleRate: SR });
+    }
     await this.ctx.audioWorklet.addModule("/pivot-mic-worklet.js");
     await this.ctx.audioWorklet.addModule("/pivot-player-worklet.js");
     this.player = new AudioWorkletNode(this.ctx, "pivot-player");
@@ -119,6 +125,9 @@ export class AudioIO {
 
   play(pcm: ArrayBuffer): void {
     if (!this.player) return;
+    // Browsers suspend the AudioContext when the tab goes to background. Resume
+    // it so hash and voice frames don't vanish when the user alt-tabs back.
+    if (this.ctx?.state === "suspended") this.ctx.resume();
     const f32 = pcm16ToFloat(pcm);
     this.player.port.postMessage(f32, [f32.buffer]);
   }

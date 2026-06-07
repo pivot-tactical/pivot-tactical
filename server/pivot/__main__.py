@@ -12,6 +12,7 @@ desktop GUI.
 from __future__ import annotations
 
 import argparse
+import os
 import socket
 import sys
 from pathlib import Path
@@ -118,10 +119,18 @@ def run_server(settings: Settings, manager: SessionManager) -> None:
     server.run()
 
     if getattr(app.state, "restart_requested", False):
-        from pivot.runtime.lifecycle import perform_relaunch
+        from pivot.runtime.lifecycle import perform_relaunch, restart_mode
 
         print("Restart requested — bringing PIVOT back up…")
         perform_relaunch()
+        # In "relaunch" mode a detached helper is waiting for this process to
+        # exit before it can swap any staged update and start the new app.
+        # When run_server is on a daemon thread (tray mode), returning here
+        # won't exit the process — the Win32 tray message loop owns the main
+        # thread and keeps it alive indefinitely. Force the whole process out
+        # now so the relauncher can proceed.
+        if restart_mode() == "relaunch":
+            os._exit(0)
 
 
 def _apply_staged(settings: Settings) -> int:
