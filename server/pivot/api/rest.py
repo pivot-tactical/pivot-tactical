@@ -521,7 +521,6 @@ def admin_rollback(
     the in-app counterpart to the ``--rollback`` recovery flag. A downgrade may
     cross a DB schema migration; the UI warns before calling this.
     """
-    from pivot.runtime.lifecycle import install_dir
     from pivot.updates.manager import UpdateManager
     from pivot.version import version_info
 
@@ -531,7 +530,7 @@ def admin_rollback(
     if target is None:
         raise HTTPException(status_code=409, detail="No retained version to roll back to.")
     try:
-        mgr.stage_rollback(target, install_dir())
+        mgr.stage_rollback(target)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"staged": True, "tag": target, "rollback": True, "restart_required": True}

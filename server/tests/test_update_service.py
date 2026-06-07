@@ -149,10 +149,12 @@ def test_default_apply_short_circuits_when_already_staged(tmp_path):
     from pivot.updates.manager import Release, UpdateManager
 
     versions = tmp_path / "versions"
-    staging = versions / "_staging" / "1.1.0" / "extracted"
-    staging.mkdir(parents=True)
+    # Side-by-side: a staged release is already installed as its own app-<tag>
+    # folder (no separate staging copy survives extraction).
+    app_dir = versions / "app-1.1.0"
+    app_dir.mkdir(parents=True)
     mgr = UpdateManager("1.0.0", versions_dir=versions)
-    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", staging)
+    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", app_dir)
 
     svc = _service(tmp_path, config={"github_repo": "o/r"})
     svc._versions_dir = versions  # apply uses the service's versions dir

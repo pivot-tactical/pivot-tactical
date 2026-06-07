@@ -61,23 +61,66 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Dirs]
-; Create writable data and rollback-versions directories at install time.
-; Setting Permissions here means a system-wide (Program Files) install still
-; works: the installer (running elevated) grants Users modify access so the app
-; can create its DB and recordings without needing admin rights on every launch.
+; Create writable data and versions directories at install time. Setting
+; Permissions here means a system-wide (Program Files) install still works: the
+; installer (running elevated) grants Users modify access so the app can create
+; its DB/recordings and self-update without needing admin rights on every launch.
 Name: "{app}\data"; Permissions: users-modify
 Name: "{app}\versions"; Permissions: users-modify
 
+[InstallDelete]
+; Clean up a legacy flat install (pre-side-by-side, where the bundle lived
+; directly under {app}) so its files don't linger next to the new versions\
+; tree — a stray old PIVOT-Tactical.exe/_internal would otherwise sit unused
+; and confusing right beside the shortcut's real target.
+Type: files; Name: "{app}\{#MyAppExeName}"
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
-; The entire PyInstaller onedir bundle (repo-root dist\, one level up from here).
-Source: "..\dist\PIVOT-Tactical\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Lay the PyInstaller onedir bundle down as its own versioned folder rather
+; than directly in {app} — the side-by-side layout (Chrome/VS Code/Squirrel
+; model, §3.7.5): each version gets a folder of its own and a `current` link
+; always points at the active one. [Code] below flips that link once the files
+; are all in place, exactly like the in-app updater's atomic version flip.
+Source: "..\dist\PIVOT-Tactical\*"; DestDir: "{app}\versions\app-{#MyAppVersion}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\versions\current\{#MyAppExeName}"; WorkingDir: "{app}\versions\current"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\versions\current\{#MyAppExeName}"; WorkingDir: "{app}\versions\current"; Tasks: desktopicon
 
 [Run]
 ; Offer to launch after an interactive install; silent installs skip this
 ; (the in-app update mechanism relaunches PIVOT itself after applying an update).
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+; Go through `current` so this always launches whichever build is active.
+Filename: "{app}\versions\current\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+procedure FlipCurrentLink();
+var
+  ResultCode: Integer;
+  AppDir, CurrentPath: String;
+begin
+  CurrentPath := ExpandConstant('{app}\versions\current');
+  AppDir := ExpandConstant('{app}\versions\app-{#MyAppVersion}');
+
+  // The same atomic re-point the in-app updater performs (see
+  // pivot.updates.layout.Layout.activate): a junction looks like an empty
+  // directory to Windows, so an empty RemoveDir clears the reparse point
+  // without touching the version it pointed at; only a real leftover
+  // directory needs the recursive fallback. Then mklink /J — any user can
+  // create a junction, unlike a symlink, which needs Developer Mode/admin.
+  if DirExists(CurrentPath) then
+  begin
+    if not RemoveDir(CurrentPath) then
+      DelTree(CurrentPath, True, True, True);
+  end;
+  Exec(ExpandConstant('{cmd}'), '/C mklink /J "' + CurrentPath + '" "' + AppDir + '"',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    FlipCurrentLink();
+end;

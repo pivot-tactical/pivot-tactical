@@ -84,7 +84,7 @@ def test_relaunch_after_brings_app_back_even_if_apply_fails(monkeypatch, tmp_pat
     monkeypatch.setattr(lifecycle, "wait_for_exit",
                         lambda pid, **k: calls.__setitem__("waited", pid))
     monkeypatch.setattr(lifecycle, "spawn_app",
-                        lambda: calls.__setitem__("spawned", calls["spawned"] + 1))
+                        lambda exe=None: calls.__setitem__("spawned", calls["spawned"] + 1))
 
     def boom(_s):
         raise RuntimeError("bad swap")

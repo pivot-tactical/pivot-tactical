@@ -21,6 +21,14 @@ def rel(tag, prerelease=False):
     return Release(tag=tag, prerelease=prerelease)
 
 
+def _make_app(versions_dir, tag, exe_name="PIVOT-Tactical.exe", content="binary"):
+    """Drop an installed ``app-<tag>`` bundle directly onto disk (side-by-side)."""
+    app_dir = versions_dir / f"app-{tag}"
+    app_dir.mkdir(parents=True)
+    (app_dir / exe_name).write_text(content)
+    return app_dir
+
+
 def test_order_releases_newest_first():
     rels = [rel("1.0.0"), rel("1.2.0"), rel("1.1.0"), rel("2.0.0")]
     ordered = [r.tag for r in order_releases(rels)]
@@ -113,30 +121,31 @@ def test_verify_sha256(tmp_path):
 
 def test_retained_versions_and_rollback(tmp_path):
     versions = tmp_path / "versions"
-    install = tmp_path / "install"
-    install.mkdir()
-    (install / "PIVOT-Tactical.exe").write_text("v1")
+    versions.mkdir()
+    _make_app(versions, "1.0.0")
+    _make_app(versions, "1.1.0")
 
-    mgr = UpdateManager("1.0.0", versions_dir=versions, retained_count=3)
-    assert mgr.can_rollback() is False
+    mgr = UpdateManager("1.1.0", versions_dir=versions, retained_count=3)
+    mgr.layout.activate("1.1.0")
 
-    mgr.retain_current(install, "1.0.0")
-    mgr.retain_current(install, "1.1.0")
     assert mgr.can_rollback() is True
-    assert mgr.previous_version() == "1.1.0"  # newest retained first
-    assert set(mgr.retained_versions()) == {"1.0.0", "1.1.0"}
+    assert mgr.previous_version() == "1.0.0"
+    assert set(mgr.retained_versions()) == {"1.0.0"}
 
 
 def test_retained_versions_pruned_to_count(tmp_path):
     versions = tmp_path / "versions"
-    install = tmp_path / "install"
-    install.mkdir()
-    (install / "f").write_text("x")
-    mgr = UpdateManager("9.9.9", versions_dir=versions, retained_count=2)
+    versions.mkdir()
     for tag in ["1.0.0", "1.1.0", "1.2.0", "1.3.0"]:
-        mgr.retain_current(install, tag)
-    # Only the 2 newest are kept.
-    assert mgr.retained_versions() == ["1.3.0", "1.2.0"]
+        _make_app(versions, tag)
+    mgr = UpdateManager("1.3.0", versions_dir=versions, retained_count=2)
+    mgr.layout.activate("1.3.0")
+
+    mgr._prune_retained()
+
+    # The active version plus the 2 newest are kept; the rest are pruned.
+    assert mgr.layout.installed_versions() == ["1.3.0", "1.2.0"]
+    assert mgr.retained_versions() == ["1.2.0"]
 
 
 def test_downgrade_plan_warns_on_schema_boundary(tmp_path):
@@ -162,68 +171,51 @@ def test_pending_marker_roundtrip(tmp_path):
     assert data["target"] == "1.1.0"
 
 
-def test_apply_pending_swaps_install_and_retains_old(tmp_path):
-    # Current install on disk (the "running" version 1.0.0).
-    install = tmp_path / "app"
-    install.mkdir()
-    (install / "PIVOT-Tactical").write_text("old binary v1.0.0")
-    (install / "data.txt").write_text("keep-name-stable")
-
-    # A staged 1.1.0 extracted under <staging>/app/ (matches install dir name).
+def test_apply_pending_activates_staged_version(tmp_path):
     versions = tmp_path / "versions"
-    staging = versions / "_staging" / "1.1.0" / "extracted"
-    (staging / "app").mkdir(parents=True)
-    (staging / "app" / "PIVOT-Tactical").write_text("new binary v1.1.0")
-    (staging / "app" / "added.txt").write_text("brand new")
+    versions.mkdir()
+    _make_app(versions, "1.0.0", content="old binary v1.0.0")
+    new_dir = _make_app(versions, "1.1.0", content="new binary v1.1.0")
 
     mgr = UpdateManager("1.0.0", versions_dir=versions)
-    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", staging)
+    mgr.layout.activate("1.0.0")
+    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", new_dir)
 
-    applied = mgr.apply_pending(install)
+    applied = mgr.apply_pending()
 
     assert applied == "1.1.0"
-    # Install path is unchanged but now holds the new bundle.
-    assert (install / "PIVOT-Tactical").read_text() == "new binary v1.1.0"
-    assert (install / "added.txt").exists()
-    assert not (install / "data.txt").exists()  # old contents replaced
-    # Old version retained for rollback; marker + staging cleaned up.
+    # The `current` link now points at the new build — no file was touched.
+    assert mgr.layout.active_version() == "1.1.0"
+    assert (mgr.layout.current_link / "PIVOT-Tactical.exe").read_text() == "new binary v1.1.0"
+    # Old version retained for rollback; marker cleaned up.
     assert "1.0.0" in mgr.retained_versions()
     assert mgr.read_pending_marker(mgr.pending_marker_path) is None
-    assert not staging.exists()
 
 
 def test_apply_pending_noop_without_marker(tmp_path):
     mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "v")
-    assert mgr.apply_pending(tmp_path / "app") is None
+    assert mgr.apply_pending() is None
 
 
 def test_stage_rollback_then_apply_restores_retained_version(tmp_path):
     """A retained version can be staged and applied without any download — the
-    install-in-place downgrade for a bad update (§3.7.7)."""
-    install = tmp_path / "PIVOT-Tactical"
-    install.mkdir()
-    (install / "PIVOT-Tactical").write_text("new (broken) binary v1.2.0")
-    (install / "_internal").mkdir()
-    (install / "_internal" / "lib.txt").write_text("new lib")
-
+    instant, offline downgrade for a bad update (§3.7.7)."""
     versions = tmp_path / "versions"
-    # A retained good version 1.1.0 (mirrors install-dir *contents*).
-    good = versions / "1.1.0"
-    (good / "_internal").mkdir(parents=True)
-    (good / "PIVOT-Tactical").write_text("good binary v1.1.0")
-    (good / "_internal" / "lib.txt").write_text("good lib")
+    versions.mkdir()
+    _make_app(versions, "1.1.0", content="good binary v1.1.0")
+    _make_app(versions, "1.2.0", content="new (broken) binary v1.2.0")
 
     mgr = UpdateManager("1.2.0", versions_dir=versions)
+    mgr.layout.activate("1.2.0")
     assert mgr.previous_version() == "1.1.0"
 
-    mgr.stage_rollback("1.1.0", install)
+    mgr.stage_rollback("1.1.0")
     assert mgr.staged_tag() == "1.1.0"
-    # The retained copy is preserved until the swap consumes the staging copy.
-    assert (good / "PIVOT-Tactical").exists()
 
-    applied = mgr.apply_pending(install)
+    applied = mgr.apply_pending()
     assert applied == "1.1.0"
-    assert (install / "PIVOT-Tactical").read_text() == "good binary v1.1.0"
+    assert mgr.layout.active_version() == "1.1.0"
+    assert (mgr.layout.current_link / "PIVOT-Tactical.exe").read_text() == "good binary v1.1.0"
     # The broken 1.2.0 is retained so you can still roll forward.
     assert "1.2.0" in mgr.retained_versions()
 
@@ -231,7 +223,7 @@ def test_stage_rollback_then_apply_restores_retained_version(tmp_path):
 def test_stage_rollback_rejects_unknown_tag(tmp_path):
     mgr = UpdateManager("1.2.0", versions_dir=tmp_path / "versions")
     with pytest.raises(ValueError, match="No retained version"):
-        mgr.stage_rollback("9.9.9", tmp_path / "PIVOT-Tactical")
+        mgr.stage_rollback("9.9.9")
 
 
 def _make_signed(data: bytes):
@@ -330,10 +322,10 @@ def test_stage_is_idempotent_on_restage(tmp_path):
     release = Release(tag="1.1.0", asset_name=asset.name)
 
     first = mgr.stage(asset, release)
-    assert (first / "PIVOT-Tactical" / "_internal" / "watchfiles" / "x.txt").exists()
+    assert (first / "_internal" / "watchfiles" / "x.txt").exists()
     # Second stage over the populated `extracted/` must succeed, not raise.
     second = mgr.stage(asset, release)
-    assert (second / "PIVOT-Tactical" / "PIVOT-Tactical.exe").exists()
+    assert (second / "PIVOT-Tactical.exe").exists()
 
 
 def test_download_and_stage_skips_redownload_when_already_staged(tmp_path, monkeypatch):
@@ -415,109 +407,49 @@ def test_with_sharing_retry_reraises_non_sharing_errors(monkeypatch):
         mgrmod._with_sharing_retry(boom)
 
 
-def test_install_child_for_maps_nested_state(tmp_path):
-    from pivot.updates.manager import _install_child_for
-
-    install = tmp_path / "app"
-    assert _install_child_for(install, install / "data") == "data"
-    assert _install_child_for(install, install / "data" / "pivot.db") == "data"
-    assert _install_child_for(install, install / "versions" / "_staging") == "versions"
-    assert _install_child_for(install, tmp_path / "outside") is None
-
-
-def test_apply_pending_preserves_nested_data_and_versions(tmp_path):
-    """The packaged layout nests data/ and versions/ inside the install dir.
-    Applying an update must swap the app files but keep the database, the
-    retained rollback copies, and the staging dir it is reading from — the
-    real-world bug where an update wiped Program Files\\versions and fell back
-    to the old build."""
-    install = tmp_path / "PIVOT-Tactical"
-    (install / "_internal").mkdir(parents=True)
-    (install / "PIVOT-Tactical.exe").write_text("old-binary")
-    (install / "_internal" / "lib.txt").write_text("old-lib")
-
-    data = install / "data"
-    (data / "recordings").mkdir(parents=True)
-    (data / "pivot.db").write_text("TRAINING-DATA")
-
-    versions = install / "versions"
-    # A pre-existing retained version (rollback target) that must survive.
-    (versions / "v0.9.0").mkdir(parents=True)
-    (versions / "v0.9.0" / "PIVOT-Tactical.exe").write_text("v0.9.0-binary")
-
-    # The staged new build lives under versions/_staging/.../extracted.
-    extracted = versions / "_staging" / "v1.1.0" / "extracted"
-    bundle = extracted / "PIVOT-Tactical"
-    (bundle / "_internal").mkdir(parents=True)
-    (bundle / "PIVOT-Tactical.exe").write_text("new-binary")
-    (bundle / "_internal" / "lib.txt").write_text("new-lib")
-
-    mgr = UpdateManager("1.0.0", versions_dir=versions)
-    mgr.write_pending_marker(mgr.pending_marker_path, "v1.1.0", extracted)
-
-    applied = mgr.apply_pending(install, preserve_paths=[data])
-
-    assert applied == "v1.1.0"
-    # App files swapped to the new build.
-    assert (install / "PIVOT-Tactical.exe").read_text() == "new-binary"
-    assert (install / "_internal" / "lib.txt").read_text() == "new-lib"
-    # Database + recordings preserved across the swap.
-    assert (data / "pivot.db").read_text() == "TRAINING-DATA"
-    assert (data / "recordings").is_dir()
-    # Prior rollback copy kept, and the just-replaced version retained anew.
-    assert "v0.9.0" in mgr.retained_versions()
-    assert "1.0.0" in mgr.retained_versions()
-    # The retained snapshot is app-only — no nested data/ or versions/ copied in.
-    snap = versions / "1.0.0"
-    assert (snap / "PIVOT-Tactical.exe").read_text() == "old-binary"
-    assert not (snap / "data").exists()
-    assert not (snap / "versions").exists()
-
-
 def test_retained_details_reports_size_and_delete_frees_space(tmp_path):
     versions = tmp_path / "versions"
-    (versions / "v1.0.0").mkdir(parents=True)
-    (versions / "v1.0.0" / "app.bin").write_bytes(b"x" * 2048)
-    (versions / "v0.9.0").mkdir(parents=True)
-    (versions / "v0.9.0" / "app.bin").write_bytes(b"y" * 512)
+    versions.mkdir()
+    _make_app(versions, "1.0.0", exe_name="app.bin", content="x" * 2048)
+    _make_app(versions, "0.9.0", exe_name="app.bin", content="y" * 512)
     mgr = UpdateManager("1.0.0", versions_dir=versions)
 
     details = mgr.retained_details()
-    assert [d["tag"] for d in details] == ["v1.0.0", "v0.9.0"]  # newest first
+    assert [d["tag"] for d in details] == ["1.0.0", "0.9.0"]  # newest first
     by_tag = {d["tag"]: d["bytes"] for d in details}
-    assert by_tag["v1.0.0"] == 2048
-    assert by_tag["v0.9.0"] == 512
+    assert by_tag["1.0.0"] == 2048
+    assert by_tag["0.9.0"] == 512
 
-    assert mgr.delete_retained("v0.9.0") is True
-    assert not (versions / "v0.9.0").exists()
-    assert mgr.retained_versions() == ["v1.0.0"]
-    # Unknown / staging tags are refused, not deleted.
-    assert mgr.delete_retained("v9.9.9") is False
+    assert mgr.delete_retained("0.9.0") is True
+    assert not mgr.layout.app_dir("0.9.0").exists()
+    assert mgr.retained_versions() == ["1.0.0"]
+    # Unknown / non-version tags are refused, not deleted.
+    assert mgr.delete_retained("9.9.9") is False
     assert mgr.delete_retained("_staging") is False
 
 
 def test_retained_versions_excludes_staging_dir(tmp_path):
     versions = tmp_path / "versions"
-    (versions / "_staging" / "v1.1.0").mkdir(parents=True)
-    (versions / "v1.0.0").mkdir()
+    (versions / "_staging" / "1.1.0").mkdir(parents=True)
+    _make_app(versions, "1.0.0")
     mgr = UpdateManager("1.0.0", versions_dir=versions)
-    assert mgr.retained_versions() == ["v1.0.0"]  # _staging is not a version
+    assert mgr.retained_versions() == ["1.0.0"]  # _staging is not an app-<tag> dir
 
 
 def test_staged_tag_reports_pending_stage(tmp_path):
     versions = tmp_path / "versions"
-    staging = versions / "_staging" / "1.1.0" / "extracted"
-    staging.mkdir(parents=True)
+    versions.mkdir()
+    app_dir = _make_app(versions, "1.1.0")
     mgr = UpdateManager("1.0.0", versions_dir=versions)
     assert mgr.staged_tag() is None  # no marker yet
-    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", staging)
+    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", app_dir)
     assert mgr.staged_tag() == "1.1.0"
 
 
-def test_staged_tag_ignores_marker_when_staging_gone(tmp_path):
+def test_staged_tag_ignores_marker_when_app_dir_missing(tmp_path):
     versions = tmp_path / "versions"
     mgr = UpdateManager("1.0.0", versions_dir=versions)
-    # Marker points at a staging dir that no longer exists -> nothing staged.
+    # Marker points at a tag whose app-<tag> folder isn't installed -> nothing staged.
     mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", versions / "gone")
     assert mgr.staged_tag() is None
 

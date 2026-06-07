@@ -160,17 +160,11 @@ def test_rollback_without_retained_version_is_409(client):
     assert r.status_code == 409
 
 
-def test_rollback_stages_retained_version(client, settings, monkeypatch):
-    # Seed a retained version in the versions dir, then roll back to it.
-    from pivot.runtime import lifecycle
-
-    install = settings.data_dir.parent / "PIVOT-Tactical"
-    (install / "_internal").mkdir(parents=True)
-    (install / "PIVOT-Tactical").write_text("running")
-    good = settings.versions_dir / "1.1.0"
+def test_rollback_stages_retained_version(client, settings):
+    # Seed a retained version in the side-by-side versions dir, then roll back.
+    good = settings.versions_dir / "app-1.1.0"
     (good / "_internal").mkdir(parents=True)
     (good / "PIVOT-Tactical").write_text("retained 1.1.0")
-    monkeypatch.setattr(lifecycle, "install_dir", lambda: install)
 
     r = client.post("/api/admin/updates/rollback", json={})
     assert r.status_code == 200
@@ -182,10 +176,10 @@ def test_rollback_stages_retained_version(client, settings, monkeypatch):
 
 def test_retained_versions_list_and_delete(client, settings):
     # Two versions kept on disk; the pane lists them with sizes and can delete.
-    v1 = settings.versions_dir / "1.1.0"
+    v1 = settings.versions_dir / "app-1.1.0"
     v1.mkdir(parents=True)
     (v1 / "app.bin").write_bytes(b"a" * 1000)
-    v2 = settings.versions_dir / "1.0.0"
+    v2 = settings.versions_dir / "app-1.0.0"
     v2.mkdir(parents=True)
     (v2 / "app.bin").write_bytes(b"b" * 10)
 

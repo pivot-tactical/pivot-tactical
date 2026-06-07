@@ -92,12 +92,16 @@ def _settings_from_args(args: argparse.Namespace) -> Settings:
     if args.data_dir:
         overrides["data_dir"] = Path(args.data_dir)
     if getattr(sys, "frozen", False):
-        # Packaged exe: anchor relative-path defaults to the exe's directory so
-        # they don't depend on cwd, which is undefined when launched via a
-        # Start-menu shortcut or a different working directory.
-        exe_dir = Path(sys.executable).parent
-        overrides.setdefault("data_dir", exe_dir / "data")
-        overrides.setdefault("versions_dir", exe_dir / "versions")
+        # Packaged exe: anchor paths to the install ROOT (the parent of the
+        # versions/ tree), not the exe's own folder — under the side-by-side
+        # layout the exe runs from versions/current or versions/app-<ver>, while
+        # data and the version store live at the root and are shared across
+        # versions. install_root() resolves this however we were launched.
+        from pivot.runtime.lifecycle import install_root
+
+        root = install_root()
+        overrides.setdefault("data_dir", root / "data")
+        overrides.setdefault("versions_dir", root / "versions")
     return Settings(**overrides)
 
 
@@ -122,7 +126,7 @@ def run_server(settings: Settings, manager: SessionManager) -> None:
         from pivot.runtime.lifecycle import perform_relaunch, restart_mode
 
         print("Restart requested — bringing PIVOT back up…")
-        perform_relaunch()
+        perform_relaunch(settings)
         # In "relaunch" mode a detached helper is waiting for this process to
         # exit before it can swap any staged update and start the new app.
         # When run_server is on a daemon thread (tray mode), returning here
@@ -134,14 +138,15 @@ def run_server(settings: Settings, manager: SessionManager) -> None:
 
 
 def _apply_staged(settings: Settings) -> int:
-    """Swap any staged update into place, then exit (service ExecStartPre)."""
-    from pivot.runtime.lifecycle import install_dir
+    """Activate any staged update, then exit (service ExecStartPre).
+
+    Side-by-side: "applying" is just re-pointing the ``current`` link at the
+    already-installed ``app-<tag>`` folder — no file is copied or replaced.
+    """
     from pivot.updates.manager import UpdateManager
 
     mgr = UpdateManager(version_info.version, settings.versions_dir)
-    # Pin the data dir (DB + recordings) so the swap preserves it; the versions
-    # store is preserved automatically. Both are nested in the install folder.
-    applied = mgr.apply_pending(install_dir(), preserve_paths=[settings.data_dir])
+    applied = mgr.apply_pending()
     if applied:
         print(f"Applied staged update {applied}.")
     else:
@@ -157,7 +162,6 @@ def _rollback(settings: Settings, tag: str | None) -> int:
     install folder, then start PIVOT normally. With no TAG it rolls back to the
     most recent retained version.
     """
-    from pivot.runtime.lifecycle import install_dir
     from pivot.updates.manager import UpdateManager
 
     mgr = UpdateManager(version_info.version, settings.versions_dir)
@@ -165,8 +169,8 @@ def _rollback(settings: Settings, tag: str | None) -> int:
     if target is None:
         print("No retained version to roll back to.")
         return 1
-    mgr.stage_rollback(target, install_dir())
-    applied = mgr.apply_pending(install_dir(), preserve_paths=[settings.data_dir])
+    mgr.stage_rollback(target)
+    applied = mgr.apply_pending()
     if applied:
         print(f"Rolled back to {applied}. Start PIVOT normally to run it.")
         return 0
@@ -202,7 +206,7 @@ def _relaunch_after(pid: int, settings: Settings) -> int:
     """
     import traceback
 
-    from pivot.runtime.lifecycle import spawn_app, wait_for_exit
+    from pivot.runtime.lifecycle import app_exe, spawn_app, wait_for_exit
 
     old_out, old_err = sys.stdout, sys.stderr
     log = _open_relaunch_log(settings)
@@ -216,7 +220,9 @@ def _relaunch_after(pid: int, settings: Settings) -> int:
         except Exception:  # a bad update swap must not stop us coming back up
             traceback.print_exc()
         print("[relaunch] starting PIVOT again")
-        spawn_app()  # the freshly-applied app, with its own console (tray hides it)
+        # Go through the `current` link so the freshly activated version is the
+        # one that runs — not whatever build this helper happens to live in.
+        spawn_app(app_exe(settings))
         print("[relaunch] done")
         return 0
     except Exception:

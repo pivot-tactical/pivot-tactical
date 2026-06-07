@@ -26,11 +26,11 @@ import sys
 import threading
 import time
 import urllib.request
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from pivot.updates.layout import Layout
 from pivot.version import SemVer
 
 # Serialize the download+stage critical section across the whole process. Two
@@ -259,46 +259,6 @@ def _verify_signature(dest: Path, release: Release, token: str | None) -> None:
         )
 
 
-def _install_child_for(install_dir: Path, target: Path) -> str | None:
-    """Name of the ``install_dir`` child that contains (or is) ``target``.
-
-    The packaged layout nests persistent state inside the install folder —
-    ``<install>/versions`` (rollback copies) and ``<install>/data`` (the
-    database + recordings). The swap must treat those as *not* part of the app
-    payload, or it would delete the database and every retained version (and the
-    very staging dir holding the new build). Returns the top-level child name to
-    preserve, or None when ``target`` is outside the install dir.
-    """
-    try:
-        rel = Path(target).resolve().relative_to(Path(install_dir).resolve())
-    except ValueError:
-        return None
-    return rel.parts[0] if rel.parts else None
-
-
-def _swap_dir_contents(install_dir: Path, new_root: Path, preserve: set[str] = frozenset()) -> None:
-    """Replace the app files in ``install_dir`` with those of ``new_root``.
-
-    Done child-by-child rather than swapping the directory itself, so the
-    install path (referenced by the service unit and shortcuts) stays stable.
-    ``preserve`` names top-level children to leave untouched — persistent state
-    (the database, retained versions, the staging dir) that lives inside the
-    install folder and must survive an update, not be wiped by it.
-    """
-    install_dir.mkdir(parents=True, exist_ok=True)
-    for child in list(install_dir.iterdir()):
-        if child.name in preserve:
-            continue
-        if child.is_dir() and not child.is_symlink():
-            shutil.rmtree(child, ignore_errors=True)
-        else:
-            child.unlink(missing_ok=True)
-    for child in list(new_root.iterdir()):
-        if child.name in preserve:
-            continue  # never let a bundle clobber preserved state
-        shutil.move(str(child), str(install_dir / child.name))
-
-
 class UpdateManager:
     """Coordinates checks, retained versions and rollback (§3.7).
 
@@ -318,6 +278,7 @@ class UpdateManager:
     ) -> None:
         self.current_version = current_version
         self.versions_dir = Path(versions_dir)
+        self.layout = Layout(self.versions_dir)
         self.retained_count = retained_count
         self.include_prereleases = include_prereleases
         self._releases_provider = releases_provider
@@ -362,42 +323,20 @@ class UpdateManager:
         )
 
     # -- retained versions / rollback (§3.7.7) ----------------------------- #
+    #
+    # Side-by-side model: every installed version is a full ``app-<ver>`` folder
+    # under versions/. "Retained" versions are simply the installed ones other
+    # than the active build — each is an instant, offline rollback target (just
+    # re-point ``current``). No copies are made; retaining a version is free.
 
     def retained_versions(self) -> list[str]:
-        if not self.versions_dir.is_dir():
-            return []
-        # Skip the staging area — it's the work dir for a pending update, not a
-        # retained version, and must never be offered for rollback or pruned.
-        tags = [p.name for p in self.versions_dir.iterdir() if p.is_dir() and p.name != "_staging"]
-        # Newest semver first; non-semver names sorted last.
-        tags.sort(key=lambda t: SemVer.try_parse(t) or SemVer(0, 0, 0), reverse=True)
-        return tags
-
-    def retain_current(self, install_dir: Path, tag: str, exclude: set[str] = frozenset()) -> Path:
-        """Copy the current install into the retained store before a swap (§3.7.7).
-
-        ``exclude`` names top-level children to skip — the persistent dirs that
-        live inside the install folder (``versions``, ``data``). They must not go
-        into the snapshot: copying ``versions`` into ``versions/<tag>`` recurses
-        into itself, and a retained app copy has no business carrying the
-        database. A retained version is the app payload only.
-        """
-        self.versions_dir.mkdir(parents=True, exist_ok=True)
-        dest = self.versions_dir / tag
-        if dest.exists():
-            shutil.rmtree(dest)
-
-        def _ignore(directory, names):
-            return set(exclude) & set(names) if Path(directory) == Path(install_dir) else set()
-
-        shutil.copytree(install_dir, dest, ignore=_ignore)
-        self._prune_retained()
-        return dest
+        """Installed versions available as rollback targets (not the active one)."""
+        active = self.layout.active_version()
+        return [t for t in self.layout.installed_versions() if t != active]
 
     def _prune_retained(self) -> None:
-        tags = self.retained_versions()
-        for stale in tags[self.retained_count :]:
-            shutil.rmtree(self.versions_dir / stale, ignore_errors=True)
+        # Keep the newest N installed versions (the active one is always kept).
+        self.layout.prune(self.retained_count)
 
     def can_rollback(self) -> bool:
         return len(self.retained_versions()) > 0
@@ -412,7 +351,7 @@ class UpdateManager:
         """
         out: list[dict] = []
         for tag in self.retained_versions():
-            path = self.versions_dir / tag
+            path = self.layout.app_dir(tag)
             total = 0
             for p in path.rglob("*"):
                 if p.is_file():
@@ -426,41 +365,28 @@ class UpdateManager:
     def delete_retained(self, tag: str) -> bool:
         """Delete a retained version to free disk space (§3.7.7).
 
-        Only removes a real retained version (never the staging dir or an unknown
-        tag). Returns False when there's nothing by that tag to delete.
+        Removes the version's ``app-<tag>`` folder. Refuses the active version and
+        unknown tags. Returns False when there's nothing to delete.
         """
-        if tag not in self.retained_versions():
-            return False
-        shutil.rmtree(self.versions_dir / tag, ignore_errors=True)
-        return True
+        return self.layout.delete_version(tag)
 
     def previous_version(self) -> str | None:
         """The most recent retained version (the instant-rollback target)."""
         retained = self.retained_versions()
         return retained[0] if retained else None
 
-    def stage_rollback(self, tag: str, install_dir: Path) -> Path:
-        """Stage a retained version for the next restart to apply (§3.7.7).
+    def stage_rollback(self, tag: str) -> str:
+        """Mark a retained version to activate on the next restart (§3.7.7).
 
-        A downgrade with no download: the retained copy in ``versions/<tag>`` is
-        placed into a fresh staging dir (nested under the install name so the
-        normal :meth:`apply_pending` swap finds it), and a pending marker is
-        written. The retained copy is left intact until the swap consumes the
-        staging copy, so a failed rollback never destroys the fallback. Raises
-        if ``tag`` is not a retained version.
+        Side-by-side makes a downgrade trivial: no copy, no extract — the target
+        ``app-<tag>`` is already on disk, so we just record it as the pending
+        target. ``apply_pending`` then re-points ``current`` at it. Raises if the
+        version isn't installed.
         """
-        retained = self.versions_dir / tag
-        if tag not in self.retained_versions() or not retained.is_dir():
+        if not self.layout.app_dir(tag).is_dir():
             raise ValueError(f"No retained version to roll back to: {tag}")
-        staging = self.versions_dir / "_staging" / f"rollback-{tag}"
-        if staging.exists():
-            shutil.rmtree(staging, ignore_errors=True)
-        # Nest under the install dir's name so _staged_install_root picks the
-        # bundle root unambiguously (avoids the lone-subdir heuristic).
-        bundle = staging / Path(install_dir).name
-        shutil.copytree(retained, bundle)
-        self.write_pending_marker(self.pending_marker_path, tag, staging)
-        return staging
+        self.write_pending_marker(self.pending_marker_path, tag, self.layout.app_dir(tag))
+        return tag
 
     # -- download + stage (§3.7.5) ------------------------------------------ #
 
@@ -494,11 +420,12 @@ class UpdateManager:
         return dest
 
     def stage(self, asset_path: Path, release: Release) -> Path:
-        """Extract the downloaded archive and write the pending-update marker.
+        """Extract the archive into a versioned ``app-<tag>`` folder and mark it.
 
-        The launcher reads the marker on next startup and performs the actual
-        directory swap (out-of-process, so the running binary can be replaced
-        on Windows too — §3.7.5).
+        Side-by-side: the new build is installed *beside* the running one, never
+        over it — so nothing is locked and there is no swap to fail. The relaunch
+        then just re-points ``current`` at this folder (§3.7.5). Returns the
+        ``app-<tag>`` path.
         """
         import tarfile
         import zipfile
@@ -507,18 +434,24 @@ class UpdateManager:
         # already-staged release again) must not collide with leftovers from the
         # previous attempt. On Windows, extracting over an existing tree fails
         # with WinError 183 ("file already exists"), so wipe first.
-        staging_dir = asset_path.parent / "extracted"
-        if staging_dir.exists():
-            shutil.rmtree(staging_dir, ignore_errors=True)
-        staging_dir.mkdir(parents=True, exist_ok=True)
+        extracted = asset_path.parent / "extracted"
+        if extracted.exists():
+            shutil.rmtree(extracted, ignore_errors=True)
+        extracted.mkdir(parents=True, exist_ok=True)
         if asset_path.name.endswith(".tar.gz"):
             with tarfile.open(asset_path) as tf:
-                tf.extractall(staging_dir)
+                tf.extractall(extracted)
         elif asset_path.name.endswith(".zip"):
             with zipfile.ZipFile(asset_path) as zf:
-                zf.extractall(staging_dir)
-        self.write_pending_marker(self.pending_marker_path, release.tag, staging_dir)
-        return staging_dir
+                zf.extractall(extracted)
+
+        bundle = self._bundle_root(extracted)
+        if bundle is None:
+            raise ValueError(f"Staged archive has no bundle root ({release.asset_name})")
+        app_dir = self.layout.place_version(release.tag, bundle)
+        shutil.rmtree(extracted, ignore_errors=True)  # bundle moved out; drop scratch
+        self.write_pending_marker(self.pending_marker_path, release.tag, app_dir)
+        return app_dir
 
     def download_and_stage(self, release: Release, token: str | None = None) -> Path:
         """Download + verify + extract ``release``, returning the staging dir.
@@ -560,74 +493,69 @@ class UpdateManager:
             return None
 
     def staged_tag(self) -> str | None:
-        """The tag of an update that is already staged and awaiting restart.
+        """The tag of an update that is staged and awaiting activation.
 
-        Returns the pending marker's target only when its staging directory
-        still exists on disk, so a stale marker (staging since cleaned up) reads
-        as "nothing staged". Lets the apply paths skip a redundant
-        download+extract when the requested release is already staged (§3.7.5).
+        Returns the pending marker's target only when its ``app-<tag>`` folder is
+        actually on disk and isn't already the active version — so a stale marker
+        (or one left after a successful apply) reads as "nothing staged". Lets the
+        apply paths skip a redundant download+extract (§3.7.5).
         """
         marker = self.read_pending_marker(self.pending_marker_path)
         if not marker:
             return None
-        staging = marker.get("staging")
-        if staging and Path(staging).exists():
-            return marker.get("target")
-        return None
+        target = marker.get("target")
+        if not target or not self.layout.app_dir(target).is_dir():
+            return None
+        if target == self.layout.active_version():
+            return None
+        return target
 
-    def apply_pending(self, install_dir: Path, preserve_paths: Iterable[Path] = ()) -> str | None:
-        """Swap any staged update into ``install_dir`` (the Linux apply path).
+    def staged_app_exe(self, exe_name: str) -> Path | None:
+        """Path to the exe inside the staged ``app-<tag>``, if one is staged.
 
-        Called out-of-band — by the systemd service's ``ExecStartPre`` before the
-        new binary starts (§3.7.5). On Linux a running executable's file can be
-        replaced safely, so the swap happens cleanly between stop and start. The
-        current install is retained first for instant rollback (§3.7.7). Returns
-        the applied tag, or None when there is nothing staged.
+        Lets the relauncher run the helper *from the staged build* rather than the
+        active one — so the version flip is performed by a process that lives in
+        neither the old nor (well, actually the new) install's busy files. Returns
+        None when nothing is staged.
+        """
+        target = self.staged_tag()
+        if target is None:
+            return None
+        return self.layout.app_exe(target, exe_name)
 
-        Persistent state nested inside the install folder is preserved across the
-        swap: always the versions store (which holds the staging dir and every
-        rollback copy), plus any ``preserve_paths`` the caller pins (the data dir
-        — database + recordings). Without this the swap would delete the new
-        build out from under itself and wipe the database and all rollbacks.
+    def apply_pending(self) -> str | None:
+        """Activate any staged/rolled-back version (§3.7.5).
+
+        Side-by-side: there is no file swap. The target ``app-<tag>`` is already
+        installed; applying it just re-points ``current`` at it (an atomic-ish
+        link flip that touches no running file) and prunes old versions. Returns
+        the activated tag, or None when there is nothing pending.
         """
         marker = self.read_pending_marker(self.pending_marker_path)
         if not marker:
             return None
-        staging = Path(marker.get("staging", ""))
-        target = str(marker.get("target", "")) or "unknown"
-
-        new_root = self._staged_install_root(staging, install_dir.name)
-        if new_root is None:
+        target = str(marker.get("target", "")) or ""
+        if not target or not self.layout.app_dir(target).is_dir():
             return None
 
-        install_dir = Path(install_dir)
-        preserve = {
-            name
-            for p in (self.versions_dir, *preserve_paths)
-            if (name := _install_child_for(install_dir, p)) is not None
-        }
-        # Retain the current install so a rollback is one swap away.
-        if install_dir.is_dir():
-            self.retain_current(install_dir, self.current_version, exclude=preserve)
-        _swap_dir_contents(install_dir, new_root, preserve=preserve)
-
+        self.layout.activate(target)
         self.pending_marker_path.unlink(missing_ok=True)
-        shutil.rmtree(staging, ignore_errors=True)
+        self._prune_retained()
         return target
 
     @staticmethod
-    def _staged_install_root(staging: Path, install_name: str) -> Path | None:
-        """Find the extracted install root inside a staging dir.
+    def _bundle_root(extracted: Path) -> Path | None:
+        """Find the bundle root inside an extraction dir.
 
-        The archive normally extracts to ``<staging>/<install_name>/…``; fall back
-        to a lone top-level directory if the bundle name differs.
+        The archive normally extracts to ``<extracted>/PIVOT-Tactical/…``; fall
+        back to a lone top-level directory, or the extraction dir itself.
         """
-        if not staging.is_dir():
+        if not extracted.is_dir():
             return None
-        named = staging / install_name
+        named = extracted / "PIVOT-Tactical"
         if named.is_dir():
             return named
-        subdirs = [p for p in staging.iterdir() if p.is_dir()]
+        subdirs = [p for p in extracted.iterdir() if p.is_dir()]
         if len(subdirs) == 1:
             return subdirs[0]
-        return staging if any(staging.iterdir()) else None
+        return extracted if any(extracted.iterdir()) else None

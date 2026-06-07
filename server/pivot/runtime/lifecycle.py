@@ -27,15 +27,24 @@ import time
 from pathlib import Path
 
 
-def install_dir() -> Path:
-    """The directory the app is installed in (the frozen exe's folder).
+def install_root() -> Path:
+    """The install root that holds ``versions/`` and ``data/`` (spec §3.7.5).
 
-    Used by the update/rollback swap so it replaces the *running* install in
-    place. In a source checkout the repo root stands in for dev testing.
+    Side-by-side layout: the running exe lives in ``<root>/versions/current/`` (a
+    link) or ``<root>/versions/app-<ver>/``, so the root is the parent of the
+    ``versions`` folder. Discover it by walking up from the exe — robust whether
+    we were launched through the ``current`` link or directly from a version
+    folder. Falls back to the exe's own folder (a legacy flat install) and, in a
+    source checkout, to the repo root for dev testing.
     """
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+        exe = Path(sys.executable).resolve()
+        for parent in exe.parents:
+            if parent.name == "versions":
+                return parent.parent
+        return exe.parent  # legacy flat layout
     return Path(__file__).resolve().parents[3]
+
 
 # Windows process-creation flags (avoid importing for their values on POSIX).
 _DETACHED_PROCESS = 0x00000008
@@ -106,13 +115,40 @@ def wait_for_exit(pid: int, timeout: float = 60.0) -> None:
         time.sleep(0.2)
 
 
-def spawn_relauncher() -> None:
+def _relauncher_exe(settings) -> str:
+    """Which exe should run the detached relaunch helper.
+
+    When an update is staged, run the helper from the **new** ``app-<tag>``
+    build, not the active one. That way the process performing the version flip
+    lives outside the active version's folder, so nothing it needs is the file we
+    are switching away from. With no staged update (a plain restart) the running
+    exe is fine — there is no flip to do. Any trouble resolving the staged exe
+    falls back to the running exe.
+    """
+    if settings is None:
+        return sys.executable
+    try:
+        from pivot.updates.manager import UpdateManager
+        from pivot.version import version_info
+
+        mgr = UpdateManager(version_info.version, settings.versions_dir)
+        staged_exe = mgr.staged_app_exe(Path(sys.executable).name)
+        if staged_exe is not None:
+            return str(staged_exe)
+    except Exception:
+        pass
+    return sys.executable
+
+
+def spawn_relauncher(settings=None) -> None:
     """Spawn the detached helper that relaunches us after we exit (frozen exe).
 
-    The helper is this same executable invoked with ``--relaunch-after <pid>``;
-    it waits for us, applies any staged update, then starts the app again.
+    The helper is invoked with ``--relaunch-after <pid>``; it waits for us,
+    activates any staged/rolled-back version (a link flip — no file is replaced),
+    then starts the app again. See :func:`_relauncher_exe` for which build runs
+    it.
     """
-    exe = sys.executable
+    exe = _relauncher_exe(settings)
     kwargs: dict = {"close_fds": True}
     if sys.platform == "win32":  # pragma: no cover - Windows-only
         kwargs["creationflags"] = (
@@ -123,7 +159,22 @@ def spawn_relauncher() -> None:
     subprocess.Popen([exe, "--relaunch-after", str(os.getpid())], **kwargs)
 
 
-def spawn_app() -> None:
+def app_exe(settings=None) -> str:
+    """Path to the active app exe — what the relauncher should start.
+
+    Always go through the ``current`` link so we launch whatever version is now
+    active (after a flip). Falls back to the running exe for a legacy flat
+    install or a dev run.
+    """
+    exe_name = Path(sys.executable).name
+    if settings is not None:
+        candidate = Path(settings.versions_dir) / "current" / exe_name
+        if candidate.exists():
+            return str(candidate)
+    return sys.executable
+
+
+def spawn_app(exe: str | None = None) -> None:
     """Start a fresh PIVOT process — the relaunched app after a restart.
 
     The relauncher that calls this is detached with no console (see
@@ -133,16 +184,20 @@ def spawn_app() -> None:
     gets — the tray then hides it — so its logging works and the tray's "show
     log" can still surface it. This is the process that keeps running; the
     relauncher exits once it has spawned us.
+
+    ``exe`` defaults to this process's executable; the relauncher passes the
+    active ``current`` exe so the freshly activated version is the one that runs.
     """
+    target = exe or sys.executable
     kwargs: dict = {"close_fds": True}
     if sys.platform == "win32":  # pragma: no cover - Windows-only
         kwargs["creationflags"] = _CREATE_NEW_CONSOLE
     else:
         kwargs["start_new_session"] = True
-    subprocess.Popen([sys.executable], **kwargs)
+    subprocess.Popen([target], **kwargs)
 
 
-def perform_relaunch() -> None:
+def perform_relaunch(settings=None) -> None:
     """Bring the app back after a graceful stop, per :func:`restart_mode`.
 
     Called once the server has shut down. For ``systemd`` it is a no-op (the
@@ -156,4 +211,4 @@ def perform_relaunch() -> None:
     if mode == "exec":
         os.execv(sys.executable, [sys.executable, *sys.argv])  # pragma: no cover
         return
-    spawn_relauncher()
+    spawn_relauncher(settings)
