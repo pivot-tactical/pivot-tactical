@@ -18,6 +18,7 @@ apply) so the policy is unit-tested without a network or a real updater.
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -25,6 +26,8 @@ from pathlib import Path
 from pivot.core.timebase import to_iso_utc, utc_now
 from pivot.updates.manager import Release, UpdateManager, classify_release
 from pivot.version import SemVer
+
+log = logging.getLogger("pivot.updates")
 
 # How often the background thread re-checks, when left to its own devices.
 DEFAULT_INTERVAL_SECONDS = 6 * 60 * 60  # 6 hours
@@ -141,6 +144,11 @@ class UpdateService:
         try:
             raw = self._fetch(repo, token)
         except Exception as exc:
+            # Surfaced verbatim in Settings ("GitHub unreachable — <reason>") and
+            # logged here so the instructor can diagnose proxy/DNS/TLS/rate-limit
+            # failures that don't affect ordinary browsing (the browser uses the
+            # OS proxy/cert store; this stdlib urllib request does not) (§3.7.3).
+            log.warning("update check for %r failed: %s", repo, exc)
             self._merge({"reachable": False, "error": str(exc), "checking": False,
                          "last_checked": to_iso_utc(utc_now())})
             return self.snapshot()

@@ -639,7 +639,14 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
           if (upd.auto_state === "error")
             return <p className="login__hint mt">Auto-update failed: {upd.auto_message}</p>;
           if (!upd.reachable && !upd.checking)
-            return <p className="login__hint mt">GitHub unreachable — connect to the internet, or use offline import.</p>;
+            return <p className="login__hint mt">
+              GitHub unreachable{upd.error ? <> — <code>{upd.error}</code></> : ""}.{" "}
+              If your browser can reach the internet but this fails, the cause is
+              usually a proxy, firewall or TLS-inspecting certificate that this
+              server process doesn't see (browsers use the OS's settings; this
+              check doesn't) — check the server's console/log for the same
+              message, or use offline import.
+            </p>;
           if (upd.reachable && upd.available.length === 0)
             return <p className="mt" style={{ fontWeight: 600 }}>You’re up to date.</p>;
           if (upd.reachable && upd.available.length > 0)

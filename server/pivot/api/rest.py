@@ -6,6 +6,7 @@ valid instructor bearer token (:func:`pivot.api.deps.require_instructor`).
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
@@ -33,6 +34,7 @@ from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
 
 router = APIRouter(prefix="/api")
+log = logging.getLogger("pivot.updates")
 
 # Config keys the instructor may change from the Settings page.
 _SETTABLE_KEYS = {
@@ -424,6 +426,7 @@ def _live_update_check(manager) -> dict:
     try:
         raw = github.fetch_releases(repo, token)
     except Exception as exc:  # network/HTTP/JSON — stay graceful for air-gapped
+        log.warning("update check for %r failed: %s", repo, exc)
         result["reachable"] = False
         result["error"] = str(exc)
         return result
