@@ -157,6 +157,16 @@ function snapMHzInput(mhzStr: string, fallback = 30): number {
   return snapToStep(hz);
 }
 
+// Confirm a typed frequency for an instructor radio row, then blur the box —
+// otherwise focus stays in it and the spacebar PTT just types spaces into it
+// instead of keying up.
+function confirmRadioFreq(el: HTMLInputElement, r: RadioState, socket: PivotSocket | null) {
+  const snapped = snapMHzInput(el.value, r.frequency_hz / 1e6);
+  el.value = fmtMHz(snapped);
+  socket?.instrTune(r.radio_id, `${fmtMHz(snapped)} MHz`);
+  el.blur();
+}
+
 function RadiosTab({ radios, socket, audio, onChange, events }: {
   radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
   events: EventRow[];
@@ -236,15 +246,19 @@ function RadiosTab({ radios, socket, audio, onChange, events }: {
                 <td><input type="radio" checked={active?.radio_id === r.radio_id} onChange={() => setSelected(r.radio_id)} /></td>
                 <td className="mono">{r.name}</td>
                 <td className="mono">
-                  <input className="input mono w110" defaultValue={fmtMHz(r.frequency_hz)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const el = e.target as HTMLInputElement;
-                        const snapped = snapMHzInput(el.value, r.frequency_hz / 1e6);
-                        el.value = fmtMHz(snapped);
-                        socket?.instrTune(r.radio_id, `${fmtMHz(snapped)} MHz`);
-                      }
-                    }} />
+                  <span className="row">
+                    <input className="input mono w110" defaultValue={fmtMHz(r.frequency_hz)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") confirmRadioFreq(e.currentTarget, r, socket);
+                      }} />
+                    <button className="btn btn--ghost"
+                      onClick={(e) => {
+                        const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+                        confirmRadioFreq(input, r, socket);
+                      }}>
+                      Tune
+                    </button>
+                  </span>
                 </td>
                 <td>{r.band_region}</td>
                 <td>

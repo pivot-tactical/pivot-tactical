@@ -47,6 +47,7 @@ export function Radio({
   const [mode, setMode] = useState<RadioMode>(login.mode ?? "Plain");
   const [phase, setPhase] = useState<TxPhase>("IDLE");
   const [entry, setEntry] = useState(formatMHz(initialHz));
+  const entryRef = useRef<HTMLInputElement>(null);
   const audio = useRef(new AudioIO());
   const region = regionFor(freqHz);
   const transmitting = phase !== "IDLE";
@@ -134,6 +135,15 @@ export function Radio({
     socket.tune(`${formatMHz(snapped)} MHz`);
   }
 
+  // Confirm the typed frequency and hand focus back to the page — otherwise it
+  // stays in the entry box and the spacebar PTT (§3.4.5) just types spaces
+  // into it instead of keying up.
+  function confirmEntry() {
+    const v = parseFloat(entry);
+    if (!isNaN(v)) applyTune(v * 1e6);
+    entryRef.current?.blur();
+  }
+
   function toggleMode() {
     if (transmitting) return; // disabled during own TX (§3.4.5)
     const next: RadioMode = mode === "Plain" ? "Cypher" : "Plain";
@@ -156,19 +166,20 @@ export function Radio({
               ▼
             </button>
             <input
+              ref={entryRef}
               className="input mono freq__entry"
               value={entry}
               disabled={transmitting}
               onChange={(e) => setEntry(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const v = parseFloat(entry);
-                  if (!isNaN(v)) applyTune(v * 1e6);
-                }
+                if (e.key === "Enter") confirmEntry();
               }}
             />
             <button className="btn btn--step" onClick={() => applyTune(freqHz + STEP_HZ)} disabled={transmitting}>
               ▲
+            </button>
+            <button className="btn btn--primary" onClick={confirmEntry} disabled={transmitting}>
+              Tune
             </button>
           </div>
         </div>
