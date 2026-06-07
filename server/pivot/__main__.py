@@ -17,14 +17,21 @@ import socket
 import sys
 from pathlib import Path
 
-import uvicorn
+# Printed before the slow imports below (uvicorn, pivot.api.app — which pulls in
+# the DSP/transcription stack: numpy, scipy, faster-whisper, …) so the console
+# shows *something* immediately on launch rather than sitting blank for several
+# seconds, which reads as "PIVOT isn't starting" (flush: stdout may be
+# block-buffered when it isn't a real console, e.g. the packaged exe).
+print("PIVOT is starting — please wait…", flush=True)
 
-from pivot.api.app import create_app
-from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD, AuthService
-from pivot.config import Settings
-from pivot.db.database import init_database
-from pivot.runtime.manager import SessionManager
-from pivot.version import version_info
+import uvicorn  # noqa: E402
+
+from pivot.api.app import create_app  # noqa: E402
+from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD, AuthService  # noqa: E402
+from pivot.config import Settings  # noqa: E402
+from pivot.db.database import init_database  # noqa: E402
+from pivot.runtime.manager import SessionManager  # noqa: E402
+from pivot.version import version_info  # noqa: E402
 
 
 def _lan_ip() -> str:
