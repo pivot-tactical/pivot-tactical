@@ -407,6 +407,63 @@ def test_with_sharing_retry_reraises_non_sharing_errors(monkeypatch):
         mgrmod._with_sharing_retry(boom)
 
 
+def test_with_http_retry_rides_out_transient_gateway_error(monkeypatch):
+    """A one-off GitHub 502/503/504 (the user-reported 'Bad Gateway') is retried
+    with backoff, not surfaced as 'Auto-update failed'."""
+    import urllib.error
+
+    from pivot.updates import manager as mgrmod
+
+    monkeypatch.setattr(mgrmod.time, "sleep", lambda *_: None)
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise urllib.error.HTTPError("http://x", 502, "Bad Gateway", {}, None)
+        return b"payload"
+
+    assert mgrmod._with_http_retry(flaky) == b"payload"
+    assert calls["n"] == 3
+
+
+def test_with_http_retry_retries_connection_failures(monkeypatch):
+    """A dropped connection / timeout (URLError with no HTTP status) is retried."""
+    import urllib.error
+
+    from pivot.updates import manager as mgrmod
+
+    monkeypatch.setattr(mgrmod.time, "sleep", lambda *_: None)
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise urllib.error.URLError("connection reset")
+        return b"ok"
+
+    assert mgrmod._with_http_retry(flaky) == b"ok"
+    assert calls["n"] == 2
+
+
+def test_with_http_retry_reraises_permanent_http_errors(monkeypatch):
+    """A 404 (release/asset genuinely gone) must fail fast, not spin on retries."""
+    import urllib.error
+
+    from pivot.updates import manager as mgrmod
+
+    monkeypatch.setattr(mgrmod.time, "sleep", lambda *_: None)
+    calls = {"n": 0}
+
+    def gone():
+        calls["n"] += 1
+        raise urllib.error.HTTPError("http://x", 404, "Not Found", {}, None)
+
+    with pytest.raises(urllib.error.HTTPError):
+        mgrmod._with_http_retry(gone)
+    assert calls["n"] == 1  # no retries for a permanent error
+
+
 def test_retained_details_reports_size_and_delete_frees_space(tmp_path):
     versions = tmp_path / "versions"
     versions.mkdir()

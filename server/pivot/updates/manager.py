@@ -25,6 +25,7 @@ import shutil
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from enum import Enum
@@ -46,6 +47,39 @@ def _is_sharing_violation(exc: OSError) -> bool:
     # ERROR_SHARING_VIOLATION (32) / ERROR_LOCK_VIOLATION (33): a transient
     # Windows lock, typically real-time AV scanning the freshly written file.
     return getattr(exc, "winerror", None) in (32, 33)
+
+
+# HTTP status codes that are transient gateway/rate-limit hiccups, not a real
+# "this release is unavailable". GitHub's release-asset CDN occasionally returns
+# 502/503/504 under load and 429 when rate-limited; retrying with backoff rides
+# these out instead of surfacing "Auto-update failed: HTTP Error 502" to the
+# instructor for what is almost always a momentary blip.
+_TRANSIENT_HTTP_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
+def _is_transient_http(exc: Exception) -> bool:
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code in _TRANSIENT_HTTP_STATUS
+    # A URLError with no HTTP status is a connection-level failure (reset DNS
+    # hiccup, timeout) — also worth a retry. socket timeouts surface as these.
+    return isinstance(exc, (urllib.error.URLError, TimeoutError))
+
+
+def _with_http_retry(fn, attempts: int = 4, delay: float = 1.5):
+    """Run a network ``fn``, retrying transient gateway/timeout failures.
+
+    Backs off (1.5s, 3s, 4.5s) across attempts before giving up, so a one-off
+    GitHub 502/503/504/429 or a dropped connection mid-download is retried
+    rather than failing the whole update. Permanent errors (404, auth, checksum
+    mismatch) carry no transient status and are re-raised immediately.
+    """
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 — re-raised below unless transient
+            if not _is_transient_http(exc) or attempt == attempts - 1:
+                raise
+            time.sleep(delay * (attempt + 1))
 
 
 def _with_sharing_retry(fn, *, attempts: int = 8, delay: float = 0.25):
@@ -70,19 +104,29 @@ def _http_get(url: str, token: str | None = None, timeout: float = 30.0) -> byte
     req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
-        return resp.read()
+
+    def _fetch() -> bytes:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            return resp.read()
+
+    return _with_http_retry(_fetch)
 
 
 def _http_download(url: str, dest: Path, token: str | None = None, timeout: float = 600.0) -> None:
-    """Stream a potentially large file to disk."""
+    """Stream a potentially large file to disk, retrying transient failures."""
     req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
-        with dest.open("wb") as fh:
-            while chunk := resp.read(1 << 20):
-                fh.write(chunk)
+
+    def _fetch() -> None:
+        # Re-open from scratch each attempt so a connection dropped mid-stream
+        # doesn't leave a truncated file behind to be staged.
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            with dest.open("wb") as fh:
+                while chunk := resp.read(1 << 20):
+                    fh.write(chunk)
+
+    _with_http_retry(_fetch)
 
 
 def default_asset_pattern() -> str:
