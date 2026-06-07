@@ -66,6 +66,9 @@ def test_admin_terminals_and_session(client):
     r = client.get("/api/admin/terminals")
     assert r.status_code == 200
     assert r.json()["session_active"] is True
+    # The running scenario's name is exposed so the console can restore the box
+    # after a refresh / restart (a resumed session has no broadcast to carry it).
+    assert r.json()["session_name"] == "EX"
 
 
 def test_admin_scenario(client):
@@ -175,6 +178,30 @@ def test_rollback_stages_retained_version(client, settings, monkeypatch):
     assert body["rollback"] is True
     assert body["tag"] == "1.1.0"
     assert body["restart_required"] is True
+
+
+def test_retained_versions_list_and_delete(client, settings):
+    # Two versions kept on disk; the pane lists them with sizes and can delete.
+    v1 = settings.versions_dir / "1.1.0"
+    v1.mkdir(parents=True)
+    (v1 / "app.bin").write_bytes(b"a" * 1000)
+    v2 = settings.versions_dir / "1.0.0"
+    v2.mkdir(parents=True)
+    (v2 / "app.bin").write_bytes(b"b" * 10)
+
+    listing = client.get("/api/admin/updates/retained")
+    assert listing.status_code == 200
+    tags = [d["tag"] for d in listing.json()["retained"]]
+    assert tags == ["1.1.0", "1.0.0"]
+    assert {d["tag"]: d["bytes"] for d in listing.json()["retained"]}["1.1.0"] == 1000
+
+    gone = client.delete("/api/admin/updates/retained/1.0.0")
+    assert gone.status_code == 200
+    assert [d["tag"] for d in gone.json()["retained"]] == ["1.1.0"]
+    assert not v2.exists()
+
+    # Deleting something that isn't there is a 404, not a silent success.
+    assert client.delete("/api/admin/updates/retained/9.9.9").status_code == 404
 
 
 def test_change_password_and_relogin(raw_client):

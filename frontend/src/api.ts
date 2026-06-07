@@ -172,9 +172,12 @@ export const api = {
     }),
   endSession: () => jsonFetch("/api/admin/session/end", { method: "POST" }),
   terminals: () =>
-    jsonFetch<{ session_active: boolean; session_id: string | null; terminals: Terminal[] }>(
-      "/api/admin/terminals"
-    ),
+    jsonFetch<{
+      session_active: boolean;
+      session_id: string | null;
+      session_name: string | null;
+      terminals: Terminal[];
+    }>("/api/admin/terminals"),
   scenario: (payload: Record<string, unknown>) =>
     jsonFetch("/api/admin/scenario", { method: "POST", body: JSON.stringify(payload) }),
   getConfig: () => jsonFetch<Record<string, unknown>>("/api/admin/config"),
@@ -206,6 +209,18 @@ export const api = {
     jsonFetch<{ staged: boolean; tag: string; rollback: boolean; restart_required: boolean }>(
       "/api/admin/updates/rollback",
       { method: "POST", body: JSON.stringify({ tag: tag ?? null }) }
+    ),
+
+  // Versions kept on disk for instant rollback, with their size on disk.
+  retainedVersions: () =>
+    jsonFetch<{ retained: { tag: string; bytes: number }[]; current_version: string }>(
+      "/api/admin/updates/retained"
+    ),
+  // Delete a stored version to free disk space.
+  deleteRetained: (tag: string) =>
+    jsonFetch<{ deleted: string; retained: { tag: string; bytes: number }[] }>(
+      `/api/admin/updates/retained/${encodeURIComponent(tag)}`,
+      { method: "DELETE" }
     ),
 
   // Restart the server (applies a staged update on the way back up). `force`

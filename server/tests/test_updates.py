@@ -474,6 +474,28 @@ def test_apply_pending_preserves_nested_data_and_versions(tmp_path):
     assert not (snap / "versions").exists()
 
 
+def test_retained_details_reports_size_and_delete_frees_space(tmp_path):
+    versions = tmp_path / "versions"
+    (versions / "v1.0.0").mkdir(parents=True)
+    (versions / "v1.0.0" / "app.bin").write_bytes(b"x" * 2048)
+    (versions / "v0.9.0").mkdir(parents=True)
+    (versions / "v0.9.0" / "app.bin").write_bytes(b"y" * 512)
+    mgr = UpdateManager("1.0.0", versions_dir=versions)
+
+    details = mgr.retained_details()
+    assert [d["tag"] for d in details] == ["v1.0.0", "v0.9.0"]  # newest first
+    by_tag = {d["tag"]: d["bytes"] for d in details}
+    assert by_tag["v1.0.0"] == 2048
+    assert by_tag["v0.9.0"] == 512
+
+    assert mgr.delete_retained("v0.9.0") is True
+    assert not (versions / "v0.9.0").exists()
+    assert mgr.retained_versions() == ["v1.0.0"]
+    # Unknown / staging tags are refused, not deleted.
+    assert mgr.delete_retained("v9.9.9") is False
+    assert mgr.delete_retained("_staging") is False
+
+
 def test_retained_versions_excludes_staging_dir(tmp_path):
     versions = tmp_path / "versions"
     (versions / "_staging" / "v1.1.0").mkdir(parents=True)

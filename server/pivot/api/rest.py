@@ -228,6 +228,7 @@ def admin_terminals(manager=Depends(get_manager)) -> dict:
     return {
         "session_active": manager.session_active,
         "session_id": manager.current_session_id,
+        "session_name": manager.current_session_name,
         "terminals": manager.monitor_snapshot(),
     }
 
@@ -534,6 +535,33 @@ def admin_rollback(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"staged": True, "tag": target, "rollback": True, "restart_required": True}
+
+
+@router.get("/admin/updates/retained", dependencies=[Depends(require_instructor)])
+def admin_retained_versions(manager=Depends(get_manager)) -> dict:
+    """Versions kept on disk for instant rollback, with their size (§3.7.7).
+
+    Distinct from the older *releases* in the update list: those re-download,
+    these are already on disk. Lets the Updates pane show what's stored and how
+    much space it uses before deleting it.
+    """
+    from pivot.updates.manager import UpdateManager
+    from pivot.version import version_info
+
+    mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
+    return {"retained": mgr.retained_details(), "current_version": version_info.version}
+
+
+@router.delete("/admin/updates/retained/{tag}", dependencies=[Depends(require_instructor)])
+def admin_delete_retained(tag: str, manager=Depends(get_manager)) -> dict:
+    """Delete a retained version to free disk space (§3.7.7)."""
+    from pivot.updates.manager import UpdateManager
+    from pivot.version import version_info
+
+    mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
+    if not mgr.delete_retained(tag):
+        raise HTTPException(status_code=404, detail=f"No retained version: {tag}")
+    return {"deleted": tag, "retained": mgr.retained_details()}
 
 
 @router.post("/admin/restart", dependencies=[Depends(require_instructor)])

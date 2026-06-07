@@ -402,6 +402,38 @@ class UpdateManager:
     def can_rollback(self) -> bool:
         return len(self.retained_versions()) > 0
 
+    def retained_details(self) -> list[dict]:
+        """Retained versions with their on-disk size, newest first (§3.7.7).
+
+        Surfaced in the Updates pane so the instructor can see what is actually
+        kept on disk (vs. an older release that would re-download) and how much
+        space each takes before deleting it. Size is walked on demand, not on the
+        status poll, so the hot path stays cheap.
+        """
+        out: list[dict] = []
+        for tag in self.retained_versions():
+            path = self.versions_dir / tag
+            total = 0
+            for p in path.rglob("*"):
+                if p.is_file():
+                    try:
+                        total += p.stat().st_size
+                    except OSError:  # a file vanished mid-walk — skip it
+                        pass
+            out.append({"tag": tag, "bytes": total})
+        return out
+
+    def delete_retained(self, tag: str) -> bool:
+        """Delete a retained version to free disk space (§3.7.7).
+
+        Only removes a real retained version (never the staging dir or an unknown
+        tag). Returns False when there's nothing by that tag to delete.
+        """
+        if tag not in self.retained_versions():
+            return False
+        shutil.rmtree(self.versions_dir / tag, ignore_errors=True)
+        return True
+
     def previous_version(self) -> str | None:
         """The most recent retained version (the instant-rollback target)."""
         retained = self.retained_versions()

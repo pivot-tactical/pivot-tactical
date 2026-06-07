@@ -30,6 +30,8 @@ def test_running_session_resumes_after_restart(database, settings):
     resumed = SessionManager(database, settings)
     assert resumed.session_active
     assert resumed.current_session_id == started["id"]
+    # The name must come back too, so the console box isn't blank after a restart.
+    assert resumed.current_session_name == started["name"]
 
 
 def test_ended_session_does_not_resume_after_restart(database, settings):

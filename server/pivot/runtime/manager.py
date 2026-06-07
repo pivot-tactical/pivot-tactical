@@ -98,6 +98,7 @@ class SessionManager:
             # breaking the "scenarios survive a restart" requirement (§3.1).
             resumed = repo.active_session(s)
             self.current_session_id: str | None = resumed.id if resumed else None
+            self.current_session_name: str | None = resumed.name if resumed else None
         self.terminals: dict[str, TerminalInfo] = {}
         self._active_tx: dict[str, _TxAccumulator] = {}
         self._subscribers: set[asyncio.Queue] = set()
@@ -156,6 +157,7 @@ class SessionManager:
         with self.db.session() as s:
             row = repo.start_session(s, name)
             self.current_session_id = row.id
+            self.current_session_name = row.name
             result = {"id": row.id, "name": row.name, "started_at": row.started_at}
         self.broadcast("session_started", result)
         return result
@@ -169,6 +171,7 @@ class SessionManager:
                 {"id": row.id, "name": row.name, "ended_at": row.ended_at} if row else None
             )
         self.current_session_id = None
+        self.current_session_name = None
         self._active_tx.clear()
         if result:
             self.broadcast("session_ended", result)

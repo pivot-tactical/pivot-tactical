@@ -75,6 +75,9 @@ export function InstructorConsole({
     api.instructorRadios().then(setRadios).catch(() => {});
     api.terminals().then((t) => {
       setSessionActive(t.session_active);
+      // Restore the running scenario's name after a refresh or a server restart
+      // (a resumed session has no session_started broadcast to carry it).
+      if (t.session_name) setSessionName(t.session_name);
       setTerminals(t.terminals.filter((x) => !x.is_instructor));
     }).catch(() => {});
 
@@ -362,6 +365,15 @@ function ScenarioTab() {
   );
 }
 
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+}
+
 function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessionActive }: {
   mustChangePassword: boolean; onTimezone: (tz: string) => void; socket: PivotSocket | null;
   onRestart: () => void; sessionActive: boolean;
@@ -377,6 +389,10 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
   const [applyErr, setApplyErr] = useState<string | null>(null);
   const [restartErr, setRestartErr] = useState<string | null>(null);
   const [showDowngrade, setShowDowngrade] = useState(false);
+  // Versions actually stored on disk (instant rollback / deletable), loaded
+  // lazily when the downgrade pane is opened. Distinct from older *releases*,
+  // which re-download.
+  const [retained, setRetained] = useState<{ tag: string; bytes: number }[] | null>(null);
 
   async function restart(force: boolean) {
     setRestartErr(null);
@@ -463,6 +479,30 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
       setStaged(res.tag);
     } catch (e: any) {
       setApplyErr(e?.message ?? "Rollback failed");
+    } finally {
+      setApplying(null);
+    }
+  }
+
+  // Load the on-disk version list when the downgrade pane is first opened (and
+  // after a delete), so the size walk only runs when the instructor looks.
+  useEffect(() => {
+    if (!showDowngrade) return;
+    api.retainedVersions().then((r) => setRetained(r.retained)).catch(() => setRetained([]));
+  }, [showDowngrade]);
+
+  async function deleteRetained(tag: string) {
+    if (!window.confirm(`Delete stored version ${tag} from disk? ` +
+        `You can re-download it later, but instant rollback to it will no longer be available.`)) {
+      return;
+    }
+    setApplying(`delete:${tag}`);
+    setApplyErr(null);
+    try {
+      const res = await api.deleteRetained(tag);
+      setRetained(res.retained);
+    } catch (e: any) {
+      setApplyErr(e?.message ?? "Delete failed");
     } finally {
       setApplying(null);
     }
@@ -622,18 +662,42 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
             </button>
             {showDowngrade && (
               <div className="mt">
-                {upd.previous && (
-                  <div className="row between mt">
-                    <span className="mono">Roll back to {upd.previous} (kept on disk)</span>
-                    {applying === `rollback:${upd.previous}` ? (
-                      <span className="muted">Staging…</span>
-                    ) : (
-                      <button className="btn btn--danger" onClick={() => rollback(upd.previous!)}
-                        disabled={applying !== null}>
-                        Roll back
-                      </button>
-                    )}
-                  </div>
+                {/* Stored on disk: instant rollback, no download — and deletable
+                    to free space. These are the versions actually present in the
+                    install's versions folder (unlike the re-download list below). */}
+                <p className="muted" style={{ fontSize: "0.85em" }}>
+                  Stored on disk (instant rollback, no download):
+                </p>
+                {retained === null ? (
+                  <p className="muted mt" style={{ fontSize: "0.85em" }}>Loading…</p>
+                ) : retained.length === 0 ? (
+                  <p className="muted mt" style={{ fontSize: "0.85em" }}>
+                    No versions stored on disk yet. One is kept each time you update.
+                  </p>
+                ) : (
+                  retained.map((v) => (
+                    <div className="row between mt" key={v.tag} style={{ alignItems: "center" }}>
+                      <span className="mono">{v.tag} · {fmtBytes(v.bytes)}</span>
+                      <span className="row gap" style={{ alignItems: "center" }}>
+                        {applying === `rollback:${v.tag}` ? (
+                          <span className="muted">Staging…</span>
+                        ) : (
+                          <button className="btn btn--danger" onClick={() => rollback(v.tag)}
+                            disabled={applying !== null}>
+                            Roll back
+                          </button>
+                        )}
+                        {applying === `delete:${v.tag}` ? (
+                          <span className="muted">Deleting…</span>
+                        ) : (
+                          <button className="btn btn--ghost" onClick={() => deleteRetained(v.tag)}
+                            disabled={applying !== null} title="Delete from disk to free space">
+                            Delete
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                  ))
                 )}
                 <p className="muted mt" style={{ fontSize: "0.85em" }}>
                   Or install any earlier version (re-downloads &amp; verifies it):
@@ -652,12 +716,11 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
                     )}
                   </div>
                 ))}
-                {(upd.releases || []).filter((r) => r.standing === "older").length === 0 &&
-                  !upd.previous && (
-                    <p className="muted mt" style={{ fontSize: "0.85em" }}>
-                      No earlier versions available yet.
-                    </p>
-                  )}
+                {(upd.releases || []).filter((r) => r.standing === "older").length === 0 && (
+                  <p className="muted mt" style={{ fontSize: "0.85em" }}>
+                    No earlier versions available to download.
+                  </p>
+                )}
                 <p className="muted mt" style={{ fontSize: "0.8em" }}>
                   Tip: if a bad update won’t even start, run
                   <span className="mono"> PIVOT-Tactical --rollback </span>
