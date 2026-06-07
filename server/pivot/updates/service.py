@@ -206,8 +206,7 @@ class UpdateService:
                     "message": f"{release.tag} already staged — restart to apply."}
 
         token = str(cfg.get("github_token") or "") or None
-        asset_path = mgr.download(release, token)
-        mgr.stage(asset_path, release)
+        mgr.download_and_stage(release, token)
         return {"applied": True, "via": "staged",
                 "message": f"{release.tag} staged — restart to apply."}
 

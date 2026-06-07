@@ -23,12 +23,46 @@ import json
 import platform
 import shutil
 import sys
+import threading
+import time
 import urllib.request
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
 from pivot.version import SemVer
+
+# Serialize the download+stage critical section across the whole process. Two
+# triggers can fire it at once — the background update-service poll loop and the
+# instructor console's /updates/check call (both auto-stage when auto_update is
+# on) — and on Windows two writers to the same _staging archive collide with
+# WinError 32 ("being used by another process"). One staging op at a time; the
+# loser re-checks staged_tag() and skips the redundant download+extract.
+_STAGE_LOCK = threading.RLock()
+
+
+def _is_sharing_violation(exc: OSError) -> bool:
+    # ERROR_SHARING_VIOLATION (32) / ERROR_LOCK_VIOLATION (33): a transient
+    # Windows lock, typically real-time AV scanning the freshly written file.
+    return getattr(exc, "winerror", None) in (32, 33)
+
+
+def _with_sharing_retry(fn, *, attempts: int = 8, delay: float = 0.25):
+    """Run ``fn``, retrying briefly while Windows reports a sharing violation.
+
+    A freshly downloaded archive in Program Files is often held open for a
+    moment by Windows Defender; the next open then fails with WinError 32.
+    Backing off and retrying rides out that window instead of failing the whole
+    update. Network errors (URLError) carry no ``winerror`` and so are re-raised
+    immediately rather than retried here.
+    """
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except OSError as exc:
+            if not _is_sharing_violation(exc) or attempt == attempts - 1:
+                raise
+            time.sleep(delay * (attempt + 1))
 
 
 def _http_get(url: str, token: str | None = None, timeout: float = 30.0) -> bytes:
@@ -415,6 +449,25 @@ class UpdateManager:
                 zf.extractall(staging_dir)
         self.write_pending_marker(self.pending_marker_path, release.tag, staging_dir)
         return staging_dir
+
+    def download_and_stage(self, release: Release, token: str | None = None) -> Path:
+        """Download + verify + extract ``release``, returning the staging dir.
+
+        The single entry point every auto/manual apply path uses, so they can't
+        collide on the shared ``_staging`` archive. Serialized process-wide and
+        idempotent: if another trigger already staged this release while we
+        waited for the lock, the existing staging dir is returned without
+        re-downloading. Transient Windows sharing violations (AV scanning the
+        fresh archive) are retried rather than failing the update (§3.7.5).
+        """
+        with _STAGE_LOCK:
+            if self.staged_tag() == release.tag:
+                marker = self.read_pending_marker(self.pending_marker_path) or {}
+                staged = marker.get("staging")
+                if staged and Path(staged).exists():
+                    return Path(staged)
+            asset_path = _with_sharing_retry(lambda: self.download(release, token))
+            return _with_sharing_retry(lambda: self.stage(asset_path, release))
 
     # -- offline import (§3.7.6) ------------------------------------------- #
 

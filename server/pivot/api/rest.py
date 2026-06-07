@@ -452,8 +452,7 @@ def _live_update_check(manager) -> dict:
         newest = available[0]
         if newest.asset_url:
             try:
-                asset_path = mgr.download(newest, token)
-                mgr.stage(asset_path, newest)
+                mgr.download_and_stage(newest, token)
                 result["auto_staged"] = newest.tag
             except Exception as exc:
                 result["auto_update_error"] = str(exc)
@@ -498,8 +497,7 @@ def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) ->
         sig_url=req.sig_url,
     )
     try:
-        asset_path = mgr.download(release, token)
-        staging_dir = mgr.stage(asset_path, release)
+        staging_dir = mgr.download_and_stage(release, token)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

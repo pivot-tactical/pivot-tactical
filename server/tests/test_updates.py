@@ -336,6 +336,85 @@ def test_stage_is_idempotent_on_restage(tmp_path):
     assert (second / "PIVOT-Tactical" / "PIVOT-Tactical.exe").exists()
 
 
+def test_download_and_stage_skips_redownload_when_already_staged(tmp_path, monkeypatch):
+    """The two auto-update triggers (background poll + console /updates/check)
+    both stage the newest release. The second to run must short-circuit on the
+    pending marker rather than re-download into — and collide on — the shared
+    _staging archive (the Windows WinError 32 the user hit)."""
+    import hashlib
+    import io
+    import zipfile
+
+    from pivot.updates import manager as mgrmod
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("PIVOT-Tactical/PIVOT-Tactical.exe", "binary")
+    archive = buf.getvalue()
+    pub_b64, sig_b64 = _make_signed(archive)
+    monkeypatch.setenv("PIVOT_EDDSA_PUBLIC_KEY", pub_b64)
+
+    sha = hashlib.sha256(archive).hexdigest()
+    downloads = {"n": 0}
+
+    def fake_download(url, dest, token=None, timeout=600.0):
+        downloads["n"] += 1
+        dest.write_bytes(archive)
+
+    def fake_get(url, token=None):
+        if url.endswith(".sha256"):
+            return f"{sha}  asset".encode()
+        if url.endswith(".sig"):
+            return sig_b64.encode()
+        raise AssertionError(url)
+
+    monkeypatch.setattr(mgrmod, "_http_download", fake_download)
+    monkeypatch.setattr(mgrmod, "_http_get", fake_get)
+
+    mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
+    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
+                  sha256_url="http://x/a.zip.sha256", sig_url="http://x/a.zip.sig")
+    first = mgr.download_and_stage(rel)
+    second = mgr.download_and_stage(rel)
+
+    assert first == second
+    assert downloads["n"] == 1  # second trigger reused the staged copy
+    assert mgr.staged_tag() == "1.1.0"
+
+
+def test_with_sharing_retry_rides_out_transient_lock(monkeypatch):
+    """A freshly written archive briefly held by AV (WinError 32) is retried,
+    not surfaced as an auto-update failure."""
+    from pivot.updates import manager as mgrmod
+
+    monkeypatch.setattr(mgrmod.time, "sleep", lambda *_: None)
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            exc = OSError("being used by another process")
+            exc.winerror = 32
+            raise exc
+        return "ok"
+
+    assert mgrmod._with_sharing_retry(flaky) == "ok"
+    assert calls["n"] == 3
+
+
+def test_with_sharing_retry_reraises_non_sharing_errors(monkeypatch):
+    """Network/other errors carry no winerror and must fail fast, not spin."""
+    from pivot.updates import manager as mgrmod
+
+    monkeypatch.setattr(mgrmod.time, "sleep", lambda *_: None)
+
+    def boom():
+        raise FileNotFoundError("nope")
+
+    with pytest.raises(FileNotFoundError):
+        mgrmod._with_sharing_retry(boom)
+
+
 def test_staged_tag_reports_pending_stage(tmp_path):
     versions = tmp_path / "versions"
     staging = versions / "_staging" / "1.1.0" / "extracted"
