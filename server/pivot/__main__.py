@@ -172,22 +172,58 @@ def _rollback(settings: Settings, tag: str | None) -> int:
     return 1
 
 
+def _open_relaunch_log(settings: Settings):
+    """Open the relaunch helper's log file, or return None if it can't be made.
+
+    The helper runs detached with no console, so its inherited stdout/stderr are
+    dead — pointing them at a file makes every ``print`` (ours and the update
+    swap's) both safe and, finally, debuggable after a failed restart.
+    """
+    try:
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        return open(settings.data_dir / "relaunch.log", "a", encoding="utf-8", buffering=1)
+    except OSError:
+        return None
+
+
 def _relaunch_after(pid: int, settings: Settings) -> int:
     """Wait for ``pid`` to exit, apply any staged update, then start the app.
 
     The detached helper a browser-initiated restart spawns on platforms without
     a supervisor (the packaged Windows exe). Running the swap only after the old
     process is gone lets the install files be replaced safely (§3.7.5).
+
+    Detached means no usable stdout: a stray ``print`` would raise and kill the
+    helper before it relaunches — which looked like "PIVOT closes on restart and
+    never comes back". Redirect output to a log file, and always bring the app
+    back, even if applying an update fails.
     """
-    import subprocess
+    import traceback
 
-    from pivot.runtime.lifecycle import wait_for_exit
+    from pivot.runtime.lifecycle import spawn_app, wait_for_exit
 
-    wait_for_exit(pid)
-    _apply_staged(settings)
-    # Start the freshly-applied app again (default args: tray on Windows).
-    subprocess.Popen([sys.executable], close_fds=True)
-    return 0
+    old_out, old_err = sys.stdout, sys.stderr
+    log = _open_relaunch_log(settings)
+    if log is not None:
+        sys.stdout = sys.stderr = log
+    try:
+        print(f"[relaunch] waiting for pid {pid} to exit")
+        wait_for_exit(pid)
+        try:
+            _apply_staged(settings)
+        except Exception:  # a bad update swap must not stop us coming back up
+            traceback.print_exc()
+        print("[relaunch] starting PIVOT again")
+        spawn_app()  # the freshly-applied app, with its own console (tray hides it)
+        print("[relaunch] done")
+        return 0
+    except Exception:
+        traceback.print_exc()
+        return 1
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+        if log is not None:
+            log.close()
 
 
 def main(argv: list[str] | None = None) -> int:

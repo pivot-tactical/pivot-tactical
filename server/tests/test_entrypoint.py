@@ -46,8 +46,6 @@ def test_rollback_flag_parses():
 
 def test_settings_from_args_frozen_uses_absolute_paths(monkeypatch, tmp_path):
     """Frozen exe must use exe-relative absolute paths regardless of cwd."""
-    import pathlib
-
     fake_exe = tmp_path / "PIVOT-Tactical.exe"
     fake_exe.touch()
     monkeypatch.setattr(entry.sys, "frozen", True, raising=False)
@@ -72,6 +70,33 @@ def test_settings_from_args_frozen_explicit_data_dir_wins(monkeypatch, tmp_path)
     settings = entry._settings_from_args(args)
 
     assert settings.data_dir == custom
+
+
+def test_relaunch_after_brings_app_back_even_if_apply_fails(monkeypatch, tmp_path):
+    """The detached relauncher must wait, then start the app — and still start it
+    if applying a staged update raises — while logging to a file rather than a
+    dead console (which previously killed it before it relaunched)."""
+    from pivot.config import Settings
+    from pivot.runtime import lifecycle
+
+    settings = Settings(data_dir=tmp_path / "data", versions_dir=tmp_path / "versions")
+    calls = {"waited": None, "spawned": 0}
+    monkeypatch.setattr(lifecycle, "wait_for_exit",
+                        lambda pid, **k: calls.__setitem__("waited", pid))
+    monkeypatch.setattr(lifecycle, "spawn_app",
+                        lambda: calls.__setitem__("spawned", calls["spawned"] + 1))
+
+    def boom(_s):
+        raise RuntimeError("bad swap")
+
+    monkeypatch.setattr(entry, "_apply_staged", boom)
+
+    rc = entry._relaunch_after(4321, settings)
+
+    assert rc == 0
+    assert calls["waited"] == 4321
+    assert calls["spawned"] == 1                      # app brought back despite the failure
+    assert (tmp_path / "data" / "relaunch.log").exists()  # work is captured, not lost
 
 
 def test_restart_mode_detection(monkeypatch):

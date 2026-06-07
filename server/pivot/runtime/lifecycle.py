@@ -41,6 +41,7 @@ def install_dir() -> Path:
 _DETACHED_PROCESS = 0x00000008
 _CREATE_NEW_PROCESS_GROUP = 0x00000200
 _CREATE_NO_WINDOW = 0x08000000
+_CREATE_NEW_CONSOLE = 0x00000010
 
 
 def restart_mode() -> str:
@@ -120,6 +121,25 @@ def spawn_relauncher() -> None:
     else:
         kwargs["start_new_session"] = True
     subprocess.Popen([exe, "--relaunch-after", str(os.getpid())], **kwargs)
+
+
+def spawn_app() -> None:
+    """Start a fresh PIVOT process — the relaunched app after a restart.
+
+    The relauncher that calls this is detached with no console (see
+    :func:`spawn_relauncher`), so a child that merely inherited its handles would
+    have no console either and would die on its first ``print()`` at startup.
+    Give the new app its own console, exactly as a normal double-click launch
+    gets — the tray then hides it — so its logging works and the tray's "show
+    log" can still surface it. This is the process that keeps running; the
+    relauncher exits once it has spawned us.
+    """
+    kwargs: dict = {"close_fds": True}
+    if sys.platform == "win32":  # pragma: no cover - Windows-only
+        kwargs["creationflags"] = _CREATE_NEW_CONSOLE
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen([sys.executable], **kwargs)
 
 
 def perform_relaunch() -> None:
