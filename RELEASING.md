@@ -102,6 +102,24 @@ A `workflow_dispatch` run builds and uploads artifacts without publishing. Witho
 the secrets the build still succeeds — the installer is left unsigned and the
 `.sig` sidecars are skipped (the app then trusts SHA-256 alone).
 
+### Version numbering & the dev counter
+
+- **Stable releases** take their version straight from the git tag (`v1.2.0` →
+  `1.2.0`). The first stable release is **`v1.0.0`** — and a tester sitting on a
+  `1.0.0-dev.N` prerelease is correctly offered it as an *upgrade*, because a
+  release outranks its own prereleases (`1.0.0-dev.68 < 1.0.0`).
+- **Dev prereleases** are `<base>-dev.N`, where `<base>` is `__version__` in
+  `server/pivot/version.py` and **N restarts at 1 for each base version**. The
+  number is `max(existing N for this base) + 1`, computed once per CI run, so it
+  never reuses a value and survives the prune below.
+- **After cutting a stable release, bump `__version__`** to the next target
+  (e.g. `1.0.0` → `1.0.1`) and merge it. That's what makes the next prerelease
+  `1.0.1-dev.1` rather than continuing the old base. (Forgetting to bump isn't
+  dangerous — dev builds just keep counting up on the old base until you do.)
+- **Prerelease cleanup** keeps only the newest **10** `-dev.N` prereleases;
+  **stable releases are never pruned** (the filter matches `prerelease == true`
+  *and* a `-dev.` tag), so every shipped version stays available for rollback.
+
 ## Security: where the keys live (and what is *never* committed)
 
 There are **two independent signatures**, and **no private key is ever stored in

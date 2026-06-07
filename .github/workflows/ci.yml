@@ -125,13 +125,62 @@ jobs:
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # Compute the prerelease version ONCE, here, so the build jobs and the publish
+  # job share a single source of truth — the version baked into the binary
+  # (_buildinfo) must equal the published tag, or a running prerelease would
+  # mis-rank itself against the releases list. The dev counter resets per base
+  # version (the first build after shipping v1.0.0 is v1.0.1-dev.1), so it's
+  # derived from the existing releases rather than the global run number.
+  prerelease-version:
+    name: Compute prerelease version
+    needs: [changes]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: compute
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const m = fs.readFileSync('server/pivot/version.py', 'utf8')
+              .match(/__version__ = "([^"]+)"/);
+            if (!m) { core.setFailed('could not read __version__ from version.py'); return; }
+            const base = m[1];
+            // Per-base dev counter: N restarts at 1 when the base version bumps,
+            // so the first prerelease after a stable v1.0.0 is v1.0.1-dev.1.
+            // We take max(existing N for this base) + 1 — not a count — so it
+            // stays correct after the "keep newest 10" prune drops low numbers
+            // and never reuses a number. A different base version (e.g. lingering
+            // 1.0.0-dev.* releases) has a different prefix and is ignored.
+            // NB: two prereleases racing on the SAME base+commit-distance can
+            // compute the same number; the later publish updates that tag in
+            // place (harmless for throwaway dev builds).
+            const prefix = `v${base}-dev.`;
+            const { data: releases } = await github.rest.repos.listReleases(
+              { ...context.repo, per_page: 100 });
+            let maxN = 0;
+            for (const r of releases) {
+              if (!r.tag_name.startsWith(prefix)) continue;
+              const n = parseInt(r.tag_name.slice(prefix.length), 10);
+              if (Number.isInteger(n) && n > maxN) maxN = n;
+            }
+            const version = `${base}-dev.${maxN + 1}`;
+            core.setOutput('version', version);
+            core.info(`Next prerelease: v${version}`);
+
   # ---- Prerelease: only after CI passes, only on same-repo PRs with code ----
   # Two explicitly-named jobs (not a matrix) so the check labels stay clean even
   # when skipped. The build steps live in a shared composite action to avoid
   # duplication.
   prerelease-build-windows:
     name: Prerelease build (Windows)
-    needs: [backend, frontend, changes]
+    needs: [backend, frontend, changes, prerelease-version]
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
@@ -142,13 +191,14 @@ jobs:
       - uses: ./.github/actions/build-pivot
         with:
           artifact: win64
+          version: ${{ needs.prerelease-version.outputs.version }}
           eddsa_private_key: ${{ secrets.PIVOT_EDDSA_PRIVATE_KEY }}
           windows_certificate: ${{ secrets.WINDOWS_CERTIFICATE }}
           windows_certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
   prerelease-build-linux:
     name: Prerelease build (Linux)
-    needs: [backend, frontend, changes]
+    needs: [backend, frontend, changes, prerelease-version]
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
@@ -159,11 +209,12 @@ jobs:
       - uses: ./.github/actions/build-pivot
         with:
           artifact: linux-x86_64
+          version: ${{ needs.prerelease-version.outputs.version }}
           eddsa_private_key: ${{ secrets.PIVOT_EDDSA_PRIVATE_KEY }}
 
   prerelease-publish:
     name: Prerelease publish
-    needs: [prerelease-build-windows, prerelease-build-linux]
+    needs: [prerelease-build-windows, prerelease-build-linux, prerelease-version]
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -173,15 +224,12 @@ jobs:
       pull-requests: write # post the version↔commit comment
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
 
-      - name: Compute prerelease version
+      # Same version computed in the prerelease-version job, so the published tag
+      # matches the version already baked into the artifacts.
+      - name: Resolve prerelease version
         shell: bash
-        run: |
-          base=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('server/pivot/version.py').read_text()).group(1))")
-          echo "PIVOT_VERSION=${base}-dev.${{ github.run_number }}" >> "$GITHUB_ENV"
+        run: echo "PIVOT_VERSION=${{ needs.prerelease-version.outputs.version }}" >> "$GITHUB_ENV"
 
       - name: Collect artifacts
         uses: actions/download-artifact@v4
