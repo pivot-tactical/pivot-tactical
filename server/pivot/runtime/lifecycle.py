@@ -212,3 +212,92 @@ def perform_relaunch(settings=None) -> None:
         os.execv(sys.executable, [sys.executable, *sys.argv])  # pragma: no cover
         return
     spawn_relauncher(settings)
+
+
+def is_elevated() -> bool:
+    """True if this process can write protected install locations.
+
+    Admin on Windows / root on POSIX. The version flip re-points the ``current``
+    junction inside the install dir; in an all-users (Program Files) install only
+    an elevated process can create a *trusted* junction — a non-elevated one is
+    blocked on traversal by Windows Redirection Guard (WinError 448).
+    """
+    if sys.platform == "win32":  # pragma: no cover - Windows-only
+        try:
+            import ctypes
+
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            return False
+    try:
+        return os.geteuid() == 0
+    except AttributeError:  # pragma: no cover - non-POSIX without geteuid
+        return False
+
+
+def run_elevated_apply(exe: str, timeout: float = 300.0) -> int:  # pragma: no cover - Windows-only
+    """Re-run ``--apply-staged`` elevated (UAC) and wait for it to finish.
+
+    Used during relaunch when a staged update or rollback is pending and we are
+    not already admin: ``ShellExecuteEx`` with the ``runas`` verb raises the UAC
+    prompt, the elevated child performs the junction flip (creating a *trusted*
+    junction Windows will let anyone traverse), then we start the app normally.
+    Returns the child's exit code (a non-zero / cancelled prompt leaves the
+    pending marker in place so the next restart can retry).
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    class _SHELLEXECUTEINFOW(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.DWORD),
+            ("fMask", ctypes.c_ulong),
+            ("hwnd", wintypes.HWND),
+            ("lpVerb", wintypes.LPCWSTR),
+            ("lpFile", wintypes.LPCWSTR),
+            ("lpParameters", wintypes.LPCWSTR),
+            ("lpDirectory", wintypes.LPCWSTR),
+            ("nShow", ctypes.c_int),
+            ("hInstApp", wintypes.HINSTANCE),
+            ("lpIDList", ctypes.c_void_p),
+            ("lpClass", wintypes.LPCWSTR),
+            ("hkeyClass", ctypes.c_void_p),
+            ("dwHotKey", wintypes.DWORD),
+            ("hIcon", wintypes.HANDLE),
+            ("hProcess", wintypes.HANDLE),
+        ]
+
+    SEE_MASK_NOCLOSEPROCESS = 0x00000040
+    SW_HIDE = 0
+
+    shell32 = ctypes.windll.shell32
+    kernel32 = ctypes.windll.kernel32
+    shell32.ShellExecuteExW.argtypes = [ctypes.c_void_p]
+    shell32.ShellExecuteExW.restype = wintypes.BOOL
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    info = _SHELLEXECUTEINFOW()
+    info.cbSize = ctypes.sizeof(info)
+    info.fMask = SEE_MASK_NOCLOSEPROCESS
+    info.lpVerb = "runas"
+    info.lpFile = exe
+    info.lpParameters = "--apply-staged"
+    info.nShow = SW_HIDE
+    if not shell32.ShellExecuteExW(ctypes.byref(info)):
+        raise ctypes.WinError()
+
+    handle = info.hProcess
+    if not handle:
+        return 0
+    try:
+        kernel32.WaitForSingleObject(handle, int(max(0.0, timeout) * 1000))
+        code = wintypes.DWORD()
+        kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        return int(code.value)
+    finally:
+        kernel32.CloseHandle(handle)

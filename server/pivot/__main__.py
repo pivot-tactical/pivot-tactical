@@ -154,6 +154,36 @@ def _apply_staged(settings: Settings) -> int:
     return 0
 
 
+def _apply_staged_for_relaunch(settings: Settings) -> None:
+    """Apply a pending update during relaunch, elevating the flip if required.
+
+    The junction flip needs admin rights in an all-users (Program Files) install
+    — a junction re-pointed by a non-elevated process is rejected on traversal by
+    Windows Redirection Guard (WinError 448). So when something is pending and we
+    are not already elevated, re-run ``--apply-staged`` through a UAC prompt and
+    let the elevated child do the flip. A plain restart (no pending marker) must
+    never prompt, and platforms without this constraint (Linux service, dev runs,
+    already-admin) apply directly in-process.
+    """
+    from pivot.runtime.lifecycle import is_elevated, run_elevated_apply
+    from pivot.updates.manager import UpdateManager
+
+    mgr = UpdateManager(version_info.version, settings.versions_dir)
+    if mgr.read_pending_marker(mgr.pending_marker_path) is None:
+        print("No staged update pending.")
+        return
+    if sys.platform == "win32" and getattr(sys, "frozen", False) and not is_elevated():
+        # Run the flip from the staged build's exe (avoids depending on the
+        # current link, which may itself be the broken/untrusted one we're
+        # replacing). Fall back to this helper's own exe.
+        exe = mgr.staged_app_exe(Path(sys.executable).name) or Path(sys.executable)
+        print("[relaunch] applying staged update with elevation (UAC)…")
+        code = run_elevated_apply(str(exe))
+        print(f"[relaunch] elevated apply exited with {code}")
+        return
+    _apply_staged(settings)
+
+
 def _rollback(settings: Settings, tag: str | None) -> int:
     """Roll the install back to a retained version and exit (out-of-band).
 
@@ -216,7 +246,7 @@ def _relaunch_after(pid: int, settings: Settings) -> int:
         print(f"[relaunch] waiting for pid {pid} to exit")
         wait_for_exit(pid)
         try:
-            _apply_staged(settings)
+            _apply_staged_for_relaunch(settings)
         except Exception:  # a bad update swap must not stop us coming back up
             traceback.print_exc()
         print("[relaunch] starting PIVOT again")

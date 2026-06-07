@@ -114,10 +114,15 @@ class Layout:
         """Tags of the ``app-<ver>`` folders present, newest semver first."""
         if not self.versions.is_dir():
             return []
+        # Filter by name BEFORE is_dir(): the `current` link (and any other
+        # non-app entry) must never be stat'd here. A junction re-pointed by a
+        # non-elevated process is flagged untrusted by Windows Redirection Guard,
+        # and is_dir() on it then raises WinError 448 — which would otherwise
+        # crash pruning/discovery just for walking past it.
         tags = [
             p.name[len(_APP_PREFIX):]
             for p in self.versions.iterdir()
-            if p.is_dir() and p.name.startswith(_APP_PREFIX)
+            if p.name.startswith(_APP_PREFIX) and p.is_dir()
         ]
         tags.sort(key=lambda t: SemVer.try_parse(t) or SemVer(0, 0, 0), reverse=True)
         return tags

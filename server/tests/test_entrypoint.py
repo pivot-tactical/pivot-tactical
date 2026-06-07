@@ -86,6 +86,12 @@ def test_relaunch_after_brings_app_back_even_if_apply_fails(monkeypatch, tmp_pat
     monkeypatch.setattr(lifecycle, "spawn_app",
                         lambda exe=None: calls.__setitem__("spawned", calls["spawned"] + 1))
 
+    # A staged update is pending, but applying it blows up.
+    from pivot.updates.manager import UpdateManager
+    mgr = UpdateManager("1.0.0", versions_dir=settings.versions_dir)
+    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0",
+                             settings.versions_dir / "app-1.1.0")
+
     def boom(_s):
         raise RuntimeError("bad swap")
 
@@ -97,6 +103,37 @@ def test_relaunch_after_brings_app_back_even_if_apply_fails(monkeypatch, tmp_pat
     assert calls["waited"] == 4321
     assert calls["spawned"] == 1                      # app brought back despite the failure
     assert (tmp_path / "data" / "relaunch.log").exists()  # work is captured, not lost
+
+
+def test_apply_staged_for_relaunch_noop_without_marker(monkeypatch, tmp_path):
+    """A plain restart (nothing staged) must not apply — and must never elevate."""
+    from pivot.config import Settings
+
+    settings = Settings(data_dir=tmp_path / "data", versions_dir=tmp_path / "versions")
+    called = {"apply": 0}
+    monkeypatch.setattr(entry, "_apply_staged", lambda _s: called.__setitem__("apply", 1))
+
+    entry._apply_staged_for_relaunch(settings)  # no pending marker
+
+    assert called["apply"] == 0
+
+
+def test_apply_staged_for_relaunch_applies_in_process_when_not_frozen(monkeypatch, tmp_path):
+    """On a dev/Linux run a pending update applies directly, with no UAC dance."""
+    from pivot.config import Settings
+    from pivot.updates.manager import UpdateManager
+
+    settings = Settings(data_dir=tmp_path / "data", versions_dir=tmp_path / "versions")
+    mgr = UpdateManager("1.0.0", versions_dir=settings.versions_dir)
+    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0",
+                             settings.versions_dir / "app-1.1.0")
+    called = {"apply": 0}
+    monkeypatch.setattr(entry, "_apply_staged", lambda _s: called.__setitem__("apply", 1))
+    monkeypatch.setattr(entry.sys, "frozen", False, raising=False)
+
+    entry._apply_staged_for_relaunch(settings)
+
+    assert called["apply"] == 1
 
 
 def test_restart_mode_detection(monkeypatch):
