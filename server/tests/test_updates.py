@@ -415,6 +415,73 @@ def test_with_sharing_retry_reraises_non_sharing_errors(monkeypatch):
         mgrmod._with_sharing_retry(boom)
 
 
+def test_install_child_for_maps_nested_state(tmp_path):
+    from pivot.updates.manager import _install_child_for
+
+    install = tmp_path / "app"
+    assert _install_child_for(install, install / "data") == "data"
+    assert _install_child_for(install, install / "data" / "pivot.db") == "data"
+    assert _install_child_for(install, install / "versions" / "_staging") == "versions"
+    assert _install_child_for(install, tmp_path / "outside") is None
+
+
+def test_apply_pending_preserves_nested_data_and_versions(tmp_path):
+    """The packaged layout nests data/ and versions/ inside the install dir.
+    Applying an update must swap the app files but keep the database, the
+    retained rollback copies, and the staging dir it is reading from — the
+    real-world bug where an update wiped Program Files\\versions and fell back
+    to the old build."""
+    install = tmp_path / "PIVOT-Tactical"
+    (install / "_internal").mkdir(parents=True)
+    (install / "PIVOT-Tactical.exe").write_text("old-binary")
+    (install / "_internal" / "lib.txt").write_text("old-lib")
+
+    data = install / "data"
+    (data / "recordings").mkdir(parents=True)
+    (data / "pivot.db").write_text("TRAINING-DATA")
+
+    versions = install / "versions"
+    # A pre-existing retained version (rollback target) that must survive.
+    (versions / "v0.9.0").mkdir(parents=True)
+    (versions / "v0.9.0" / "PIVOT-Tactical.exe").write_text("v0.9.0-binary")
+
+    # The staged new build lives under versions/_staging/.../extracted.
+    extracted = versions / "_staging" / "v1.1.0" / "extracted"
+    bundle = extracted / "PIVOT-Tactical"
+    (bundle / "_internal").mkdir(parents=True)
+    (bundle / "PIVOT-Tactical.exe").write_text("new-binary")
+    (bundle / "_internal" / "lib.txt").write_text("new-lib")
+
+    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    mgr.write_pending_marker(mgr.pending_marker_path, "v1.1.0", extracted)
+
+    applied = mgr.apply_pending(install, preserve_paths=[data])
+
+    assert applied == "v1.1.0"
+    # App files swapped to the new build.
+    assert (install / "PIVOT-Tactical.exe").read_text() == "new-binary"
+    assert (install / "_internal" / "lib.txt").read_text() == "new-lib"
+    # Database + recordings preserved across the swap.
+    assert (data / "pivot.db").read_text() == "TRAINING-DATA"
+    assert (data / "recordings").is_dir()
+    # Prior rollback copy kept, and the just-replaced version retained anew.
+    assert "v0.9.0" in mgr.retained_versions()
+    assert "1.0.0" in mgr.retained_versions()
+    # The retained snapshot is app-only — no nested data/ or versions/ copied in.
+    snap = versions / "1.0.0"
+    assert (snap / "PIVOT-Tactical.exe").read_text() == "old-binary"
+    assert not (snap / "data").exists()
+    assert not (snap / "versions").exists()
+
+
+def test_retained_versions_excludes_staging_dir(tmp_path):
+    versions = tmp_path / "versions"
+    (versions / "_staging" / "v1.1.0").mkdir(parents=True)
+    (versions / "v1.0.0").mkdir()
+    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    assert mgr.retained_versions() == ["v1.0.0"]  # _staging is not a version
+
+
 def test_staged_tag_reports_pending_stage(tmp_path):
     versions = tmp_path / "versions"
     staging = versions / "_staging" / "1.1.0" / "extracted"

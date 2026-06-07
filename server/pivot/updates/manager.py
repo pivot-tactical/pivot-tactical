@@ -26,6 +26,7 @@ import sys
 import threading
 import time
 import urllib.request
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -258,19 +259,43 @@ def _verify_signature(dest: Path, release: Release, token: str | None) -> None:
         )
 
 
-def _swap_dir_contents(install_dir: Path, new_root: Path) -> None:
-    """Replace the contents of ``install_dir`` with those of ``new_root``.
+def _install_child_for(install_dir: Path, target: Path) -> str | None:
+    """Name of the ``install_dir`` child that contains (or is) ``target``.
+
+    The packaged layout nests persistent state inside the install folder —
+    ``<install>/versions`` (rollback copies) and ``<install>/data`` (the
+    database + recordings). The swap must treat those as *not* part of the app
+    payload, or it would delete the database and every retained version (and the
+    very staging dir holding the new build). Returns the top-level child name to
+    preserve, or None when ``target`` is outside the install dir.
+    """
+    try:
+        rel = Path(target).resolve().relative_to(Path(install_dir).resolve())
+    except ValueError:
+        return None
+    return rel.parts[0] if rel.parts else None
+
+
+def _swap_dir_contents(install_dir: Path, new_root: Path, preserve: set[str] = frozenset()) -> None:
+    """Replace the app files in ``install_dir`` with those of ``new_root``.
 
     Done child-by-child rather than swapping the directory itself, so the
     install path (referenced by the service unit and shortcuts) stays stable.
+    ``preserve`` names top-level children to leave untouched — persistent state
+    (the database, retained versions, the staging dir) that lives inside the
+    install folder and must survive an update, not be wiped by it.
     """
     install_dir.mkdir(parents=True, exist_ok=True)
     for child in list(install_dir.iterdir()):
+        if child.name in preserve:
+            continue
         if child.is_dir() and not child.is_symlink():
             shutil.rmtree(child, ignore_errors=True)
         else:
             child.unlink(missing_ok=True)
     for child in list(new_root.iterdir()):
+        if child.name in preserve:
+            continue  # never let a bundle clobber preserved state
         shutil.move(str(child), str(install_dir / child.name))
 
 
@@ -341,18 +366,31 @@ class UpdateManager:
     def retained_versions(self) -> list[str]:
         if not self.versions_dir.is_dir():
             return []
-        tags = [p.name for p in self.versions_dir.iterdir() if p.is_dir()]
+        # Skip the staging area — it's the work dir for a pending update, not a
+        # retained version, and must never be offered for rollback or pruned.
+        tags = [p.name for p in self.versions_dir.iterdir() if p.is_dir() and p.name != "_staging"]
         # Newest semver first; non-semver names sorted last.
         tags.sort(key=lambda t: SemVer.try_parse(t) or SemVer(0, 0, 0), reverse=True)
         return tags
 
-    def retain_current(self, install_dir: Path, tag: str) -> Path:
-        """Copy the current install into the retained store before a swap (§3.7.7)."""
+    def retain_current(self, install_dir: Path, tag: str, exclude: set[str] = frozenset()) -> Path:
+        """Copy the current install into the retained store before a swap (§3.7.7).
+
+        ``exclude`` names top-level children to skip — the persistent dirs that
+        live inside the install folder (``versions``, ``data``). They must not go
+        into the snapshot: copying ``versions`` into ``versions/<tag>`` recurses
+        into itself, and a retained app copy has no business carrying the
+        database. A retained version is the app payload only.
+        """
         self.versions_dir.mkdir(parents=True, exist_ok=True)
         dest = self.versions_dir / tag
         if dest.exists():
             shutil.rmtree(dest)
-        shutil.copytree(install_dir, dest)
+
+        def _ignore(directory, names):
+            return set(exclude) & set(names) if Path(directory) == Path(install_dir) else set()
+
+        shutil.copytree(install_dir, dest, ignore=_ignore)
         self._prune_retained()
         return dest
 
@@ -505,7 +543,7 @@ class UpdateManager:
             return marker.get("target")
         return None
 
-    def apply_pending(self, install_dir: Path) -> str | None:
+    def apply_pending(self, install_dir: Path, preserve_paths: Iterable[Path] = ()) -> str | None:
         """Swap any staged update into ``install_dir`` (the Linux apply path).
 
         Called out-of-band — by the systemd service's ``ExecStartPre`` before the
@@ -513,6 +551,12 @@ class UpdateManager:
         replaced safely, so the swap happens cleanly between stop and start. The
         current install is retained first for instant rollback (§3.7.7). Returns
         the applied tag, or None when there is nothing staged.
+
+        Persistent state nested inside the install folder is preserved across the
+        swap: always the versions store (which holds the staging dir and every
+        rollback copy), plus any ``preserve_paths`` the caller pins (the data dir
+        — database + recordings). Without this the swap would delete the new
+        build out from under itself and wipe the database and all rollbacks.
         """
         marker = self.read_pending_marker(self.pending_marker_path)
         if not marker:
@@ -525,10 +569,15 @@ class UpdateManager:
             return None
 
         install_dir = Path(install_dir)
+        preserve = {
+            name
+            for p in (self.versions_dir, *preserve_paths)
+            if (name := _install_child_for(install_dir, p)) is not None
+        }
         # Retain the current install so a rollback is one swap away.
         if install_dir.is_dir():
-            self.retain_current(install_dir, self.current_version)
-        _swap_dir_contents(install_dir, new_root)
+            self.retain_current(install_dir, self.current_version, exclude=preserve)
+        _swap_dir_contents(install_dir, new_root, preserve=preserve)
 
         self.pending_marker_path.unlink(missing_ok=True)
         shutil.rmtree(staging, ignore_errors=True)

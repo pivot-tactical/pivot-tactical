@@ -139,7 +139,9 @@ def _apply_staged(settings: Settings) -> int:
     from pivot.updates.manager import UpdateManager
 
     mgr = UpdateManager(version_info.version, settings.versions_dir)
-    applied = mgr.apply_pending(install_dir())
+    # Pin the data dir (DB + recordings) so the swap preserves it; the versions
+    # store is preserved automatically. Both are nested in the install folder.
+    applied = mgr.apply_pending(install_dir(), preserve_paths=[settings.data_dir])
     if applied:
         print(f"Applied staged update {applied}.")
     else:
@@ -164,7 +166,7 @@ def _rollback(settings: Settings, tag: str | None) -> int:
         print("No retained version to roll back to.")
         return 1
     mgr.stage_rollback(target, install_dir())
-    applied = mgr.apply_pending(install_dir())
+    applied = mgr.apply_pending(install_dir(), preserve_paths=[settings.data_dir])
     if applied:
         print(f"Rolled back to {applied}. Start PIVOT normally to run it.")
         return 0
