@@ -572,8 +572,8 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
           </select>
         </Field>
         <Field label="Compute type">
-          <select className="input" value={cfg.whisper_compute_type || "int8"} onChange={(e) => set("whisper_compute_type", e.target.value)}>
-            {["int8", "int8_float16", "float16"].map((m) => <option key={m}>{m}</option>)}
+          <select className="input" value={cfg.whisper_compute_type || "auto"} onChange={(e) => set("whisper_compute_type", e.target.value)}>
+            {["auto", "int8", "int8_float16", "float16"].map((m) => <option key={m}>{m}</option>)}
           </select>
         </Field>
         <Field label="Amber confidence threshold">

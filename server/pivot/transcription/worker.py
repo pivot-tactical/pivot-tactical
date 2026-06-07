@@ -52,7 +52,9 @@ class TranscriptionWorker:
     ) -> None:
         self.db = db
         self.settings = settings
+        self._injected_transcriber = transcriber is not None
         self._transcriber = transcriber
+        self._transcriber_key: tuple[str, str] | None = None
         self._queue: queue.Queue[str] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -106,6 +108,8 @@ class TranscriptionWorker:
             language = str(cfg.get("whisper_language", "en"))
             initial_prompt = self._build_prompt(cfg)
             skip_under = float(cfg.get("transcription_skip_under_seconds", 0.5))
+            whisper_model = str(cfg.get("whisper_model", "small"))
+            whisper_compute_type = str(cfg.get("whisper_compute_type", "auto"))
             event = repo.get_event(s, event_id)
             if event is None:
                 return TranscriptionStatus.FAILED
@@ -124,7 +128,7 @@ class TranscriptionWorker:
             return TranscriptionStatus.SKIPPED
 
         try:
-            transcriber = self._get_transcriber()
+            transcriber = self._get_transcriber(whisper_model, whisper_compute_type)
             result = transcriber.transcribe(
                 audio, sr, language=language, initial_prompt=initial_prompt
             )
@@ -153,14 +157,21 @@ class TranscriptionWorker:
             base = (base + " " + joined).strip()
         return base
 
-    def _get_transcriber(self) -> Transcriber:
-        if self._transcriber is None:
+    def _get_transcriber(self, model: str, compute_type: str) -> Transcriber:
+        """Build (or rebuild) the backend, picking up Settings changes live.
+
+        Without this, a model/compute-type change made after the first failed
+        attempt (e.g. switching off an unsupported ``int8`` variant) would
+        silently keep using the original — already-broken — instance until the
+        whole server restarted (§3.1.6).
+        """
+        if self._injected_transcriber:
+            return self._transcriber
+
+        key = (model, compute_type)
+        if self._transcriber is None or key != self._transcriber_key:
             from pivot.transcription.whisper import FasterWhisperTranscriber
 
-            with self.db.session() as s:
-                cfg = ConfigStore(s)
-                self._transcriber = FasterWhisperTranscriber(
-                    model_size=str(cfg.get("whisper_model", "small")),
-                    compute_type=str(cfg.get("whisper_compute_type", "int8")),
-                )
+            self._transcriber = FasterWhisperTranscriber(model_size=model, compute_type=compute_type)
+            self._transcriber_key = key
         return self._transcriber

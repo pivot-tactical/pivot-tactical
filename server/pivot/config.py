@@ -82,7 +82,7 @@ DEFAULT_CONFIG: dict[str, object] = {
     "schema_version": 1,
     # --- transcription (§3.1.6) ---
     "whisper_model": "small",            # tiny/base/small/medium/large-v3
-    "whisper_compute_type": "int8",      # int8 / int8_float16 / float16
+    "whisper_compute_type": "auto",      # auto / int8 / int8_float16 / float16
     "whisper_language": "en",
     "transcription_confidence_threshold": 0.80,
     "transcription_skip_under_seconds": 0.5,

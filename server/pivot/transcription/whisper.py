@@ -21,7 +21,7 @@ class FasterWhisperTranscriber:
     def __init__(
         self,
         model_size: str = "small",
-        compute_type: str = "int8",
+        compute_type: str = "auto",
         device: str = "auto",
         beam_size: int = 5,
     ) -> None:
