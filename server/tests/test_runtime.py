@@ -19,6 +19,29 @@ def tone(seconds=0.3, sr=16000, freq=440):
     return (0.5 * np.sin(2 * np.pi * freq * t)).astype(np.float32)
 
 
+def test_running_session_resumes_after_restart(database, settings):
+    """A scenario running when the server goes down (e.g. an update restart)
+    must come back active, not silently ended — otherwise the ambient hash
+    stops and trainees are dropped from the live session."""
+    first = SessionManager(database, settings)
+    started = first.start_session("EX1")
+
+    # A fresh manager on the same DB models the process restarting.
+    resumed = SessionManager(database, settings)
+    assert resumed.session_active
+    assert resumed.current_session_id == started["id"]
+
+
+def test_ended_session_does_not_resume_after_restart(database, settings):
+    first = SessionManager(database, settings)
+    first.start_session("EX1")
+    first.end_session()
+
+    resumed = SessionManager(database, settings)
+    assert not resumed.session_active
+    assert resumed.current_session_id is None
+
+
 def test_login_creates_radio_on_default_freq(manager):
     info = manager.login("ALPHA", "t-1")
     assert info["mode"] == "Plain"

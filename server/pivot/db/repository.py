@@ -92,6 +92,20 @@ def end_session(session: Session, session_id: str) -> SessionRow | None:
     return row
 
 
+def active_session(session: Session) -> SessionRow | None:
+    """The most recently started session that hasn't ended yet, if any.
+
+    A running scenario is an un-ended row. The manager restores it on startup so
+    a server restart (e.g. applying an update) resumes the live session instead
+    of silently dropping it — scenarios must survive a restart uninterrupted.
+    """
+    return session.scalars(
+        select(SessionRow)
+        .where(SessionRow.ended_at.is_(None))
+        .order_by(SessionRow.started_at.desc())
+    ).first()
+
+
 def list_sessions(session: Session) -> list[SessionRow]:
     return list(session.scalars(select(SessionRow).order_by(SessionRow.started_at.desc())))
 

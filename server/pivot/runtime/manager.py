@@ -91,7 +91,13 @@ class SessionManager:
             self.registry = RadioRegistry(tuning_step_hz=cfg.tuning_step_hz())
             self.band_profile = repo.load_band_profile(s)
             self._load_instructor_radios(s)
-        self.current_session_id: str | None = None
+            # Resume a scenario that was running when the server went down (e.g.
+            # an update restart). The session lives in the DB as an un-ended row;
+            # without this a restart silently ends it — trainees stay connected
+            # but session_active flips to False, dropping the ambient hash and
+            # breaking the "scenarios survive a restart" requirement (§3.1).
+            resumed = repo.active_session(s)
+            self.current_session_id: str | None = resumed.id if resumed else None
         self.terminals: dict[str, TerminalInfo] = {}
         self._active_tx: dict[str, _TxAccumulator] = {}
         self._subscribers: set[asyncio.Queue] = set()
