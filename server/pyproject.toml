@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pivot-tactical"
-version = "1.0.0"
+version = "1.0.2"
 description = "PIVOT — Procedural Interactive Voice Operations Trainer (Tactical). LAN-only radio voice-procedure trainer."
 # NOTE: no `readme` here — setuptools refuses files outside the package root
 # (server/), and the project README lives at the repo root. See README.md.
