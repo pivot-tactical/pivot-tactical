@@ -16,8 +16,7 @@ near-clean UHF.
 Licensed under **Apache-2.0**.
 
 > **Status:** PIVOT is in active development. Prebuilt downloads are published on
-> the [**Releases**](../../releases) page; until the first release is cut, that
-> page may be empty.
+> the [**Releases**](../../releases) page
 
 ---
 
