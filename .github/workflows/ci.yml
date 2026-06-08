@@ -151,22 +151,7 @@ jobs:
             const m = fs.readFileSync('server/pivot/version.py', 'utf8')
               .match(/__version__ = "([^"]+)"/);
             if (!m) { core.setFailed('could not read __version__ from version.py'); return; }
-            let base = m[1];
-            const { data: releases } = await github.rest.repos.listReleases(
-              { ...context.repo, per_page: 100 });
-
-            // __version__ is bumped by hand once development starts on the next
-            // release, but that's easy to forget right after cutting a tag — and
-            // if it's missed, `base` still names the version that *just shipped*
-            // stable, so dev builds would keep counting up the old prefix
-            // (v1.0.0-dev.71 instead of v1.0.1-dev.1). Self-correct: if a stable
-            // release already exists for `base`, development has moved on to the
-            // next patch regardless of what the source says.
-            if (releases.some((r) => !r.prerelease && r.tag_name === `v${base}`)) {
-              const bm = base.match(/^(\d+)\.(\d+)\.(\d+)$/);
-              if (bm) base = `${bm[1]}.${bm[2]}.${parseInt(bm[3], 10) + 1}`;
-            }
-
+            const base = m[1];
             // Per-base dev counter: N restarts at 1 when the base version bumps,
             // so the first prerelease after a stable v1.0.0 is v1.0.1-dev.1.
             // We take max(existing N for this base) + 1 — not a count — so it
@@ -176,7 +161,18 @@ jobs:
             // NB: two prereleases racing on the SAME base+commit-distance can
             // compute the same number; the later publish updates that tag in
             // place (harmless for throwaway dev builds).
+            //
+            // `base` is read from THIS branch's own version.py, not inferred
+            // from the global release list — only the branch author knows
+            // whether their change is a patch/minor/major bump, and concurrent
+            // branches may legitimately target different next-versions. The
+            // counterpart fix is automating the bump on release (see
+            // release.yml's "Bump development version" job) so __version__ on
+            // `main` is always correct the moment a stable tag ships, and branches
+            // cut afterwards inherit the right base without a manual step.
             const prefix = `v${base}-dev.`;
+            const { data: releases } = await github.rest.repos.listReleases(
+              { ...context.repo, per_page: 100 });
             let maxN = 0;
             for (const r of releases) {
               if (!r.tag_name.startsWith(prefix)) continue;
