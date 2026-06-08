@@ -66,3 +66,58 @@ jobs:
             PIVOT-Tactical-Setup.exe
           fail_on_unmatched_files: false
           generate_release_notes: true
+
+  # Bumps __version__ (and friends) on `main` to the next patch the moment a
+  # stable tag ships, so development immediately starts targeting the right
+  # version — the prerelease counter in ci.yml trusts each branch's own
+  # __version__ (concurrent branches may legitimately target different next
+  # versions), so this is what keeps that source of truth from going stale and
+  # producing surprises like a dev build still numbered off the version that
+  # just shipped (v1.0.0-dev.71 instead of v1.0.1-dev.1).
+  #
+  # Patch-only: a release that bumps minor/major is a deliberate decision the
+  # author makes by hand on `main` (this would otherwise guess wrong).
+  bump-version:
+    name: Bump development version
+    needs: [build]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Compute next patch version
+        id: next
+        run: |
+          ver="${{ github.ref_name }}"
+          ver="${ver#v}"
+          IFS='.' read -r major minor patch <<< "$ver"
+          echo "next=${major}.${minor}.$((patch + 1))" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version files
+        run: |
+          next="${{ steps.next.outputs.next }}"
+          sed -i "s/^__version__ = \".*\"/__version__ = \"$next\"/" server/pivot/version.py
+          sed -i "s/^version = \".*\"/version = \"$next\"/" server/pyproject.toml
+          (cd frontend && npm version "$next" --no-git-tag-version --allow-same-version)
+
+      - name: Commit and push to main
+        run: |
+          next="${{ steps.next.outputs.next }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add server/pivot/version.py server/pyproject.toml frontend/package.json frontend/package-lock.json
+          if git diff --cached --quiet; then
+            echo "Already at $next — nothing to bump."
+            exit 0
+          fi
+          git commit -m "Bump development version to $next [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git rebase origin/main
+            sleep $((attempt * 3))
+          done
+          echo "::error::failed to push version bump to main after retries"
+          exit 1
