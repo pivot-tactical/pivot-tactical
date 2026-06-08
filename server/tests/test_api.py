@@ -8,6 +8,7 @@ from pivot.api.app import create_app
 from pivot.api.deps import require_instructor
 from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD
 from pivot.db.config_store import ConfigStore
+from pivot.version import version_info
 
 
 @pytest.fixture
@@ -25,6 +26,38 @@ def raw_client(settings):
     app = create_app(settings)
     with TestClient(app) as c:
         yield c
+
+
+def test_spa_path_traversal(client, tmp_path, monkeypatch):
+    """Ensure the SPA fallback route resists path traversal attacks."""
+    from pivot.api import app
+
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "assets").mkdir()
+    (dist / "index.html").write_text("index")
+    (dist / "app.js").write_text("js")
+
+    # Create a file outside the dist dir to try and access
+    secret_dir = tmp_path / "secret"
+    secret_dir.mkdir()
+    (secret_dir / "passwd").write_text("secret_content")
+
+    monkeypatch.setattr(app, "frontend_dist_dir", lambda: dist)
+
+    from fastapi.testclient import TestClient
+    from pivot.api.app import create_app
+
+    test_app = create_app()
+    test_client = TestClient(test_app)
+
+    # Normal access works
+    assert test_client.get("/app.js").text == "js"
+
+    # Path traversal fails and falls back to index.html
+    # Traverse up and try to read secret/passwd
+    assert test_client.get("/../secret/passwd").text == "index"
+    assert test_client.get("/%2e%2e/secret/passwd").text == "index"
 
 
 def test_status_endpoint(client):
@@ -322,7 +355,7 @@ def test_update_check_respects_channel(client, monkeypatch):
     # the (non-blocking) /check then returns the same result.
     # Stable channel: prerelease excluded, only 1.1.0 is an available update.
     r = client.post("/api/admin/updates/refresh").json()
-    assert r["reachable"] is True and r["current_version"] == "1.0.0"
+    assert r["reachable"] is True and r["current_version"] == version_info.version
     assert [a["tag"] for a in r["available"]] == ["1.1.0"]
     cached = client.get("/api/admin/updates/check").json()
     assert [a["tag"] for a in cached["available"]] == ["1.1.0"]
