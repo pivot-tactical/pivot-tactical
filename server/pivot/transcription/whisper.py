@@ -16,13 +16,23 @@ from pivot.transcription.worker import TranscriptionResult
 
 
 class FasterWhisperTranscriber:
-    """Lazy, configurable faster-whisper wrapper."""
+    """Lazy, configurable faster-whisper wrapper.
+
+    ``device`` is pinned to ``"cpu"`` — *not* ``"auto"`` — on purpose. CTranslate2's
+    "auto" device selection probes for an NVIDIA GPU and, if it finds one, commits
+    to CUDA outright; it doesn't fall back to CPU when the (multi-gigabyte) CUDA
+    runtime libraries (e.g. ``cublas64_12.dll``) aren't present. PIVOT is a
+    self-contained, offline, headless tool that intentionally never bundles them,
+    so "auto" reliably crashes transcription on any machine that merely *has* a
+    GPU. ``compute_type`` stays "auto" so CTranslate2 still picks whatever CPU
+    kernel that hardware can run efficiently (§3.1.6).
+    """
 
     def __init__(
         self,
         model_size: str = "small",
         compute_type: str = "auto",
-        device: str = "auto",
+        device: str = "cpu",
         beam_size: int = 5,
     ) -> None:
         self.model_size = model_size
