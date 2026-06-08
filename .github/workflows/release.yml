@@ -1,0 +1,68 @@
+name: Release
+
+# Builds the distributable bundles and publishes them to GitHub Releases when a
+# version tag (vX.Y.Z) is pushed. The in-app updater consumes exactly these
+# assets: a per-platform archive plus its SHA-256 sidecar, verified before any
+# staged swap (spec §3.7.5). Run manually via "Run workflow" to validate a build
+# without cutting a release (artifacts are uploaded, nothing is published).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # publish release assets
+
+jobs:
+  build:
+    name: Build ${{ matrix.artifact }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x86_64 only. Linux is built on an older LTS to keep the glibc floor
+          # low so it runs on common distros (Ubuntu 22.04+, Debian 12+, …).
+          - os: windows-latest
+            artifact: win64
+          - os: ubuntu-22.04
+            artifact: linux-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Identical build to the prereleases: same shared action, so a stable
+      # release and a dev prerelease are byte-for-byte the same in form and
+      # update through the same verified, channel-aware staged path.
+      - name: Version from tag
+        shell: bash
+        run: |
+          ver="${{ github.ref_name }}"
+          if [[ "$ver" =~ ^v[0-9] ]]; then ver="${ver#v}"; else ver="0.0.0-dev"; fi
+          echo "REL_VERSION=$ver" >> "$GITHUB_ENV"
+
+      - uses: ./.github/actions/build-pivot
+        with:
+          artifact: ${{ matrix.artifact }}
+          version: ${{ env.REL_VERSION }}
+          eddsa_private_key: ${{ secrets.PIVOT_EDDSA_PRIVATE_KEY }}
+          windows_certificate: ${{ secrets.WINDOWS_CERTIFICATE }}
+          windows_certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+
+      # --- publish to the GitHub Release on a tag ---
+      # The shared action leaves the assets in the workspace. Version-agnostic
+      # names give a stable releases/latest/download URL; each archive ships its
+      # .sha256 (integrity) and .sig (Ed25519 authenticity) which the in-app
+      # updater verifies before staging.
+      - name: Publish to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            PIVOT-Tactical-win64.zip
+            PIVOT-Tactical-linux-x86_64.tar.gz
+            PIVOT-Tactical-*.sha256
+            PIVOT-Tactical-*.sig
+            PIVOT-Tactical-Setup.exe
+          fail_on_unmatched_files: false
+          generate_release_notes: true

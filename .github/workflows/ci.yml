@@ -1,0 +1,284 @@
+name: CI
+
+# Single pipeline so the prerelease build can depend on CI via `needs` (job
+# dependencies only work within one workflow). Order of operations on a PR:
+#   backend (licence → lint → tests) + frontend  ──►  prerelease build ──► publish
+# The prerelease jobs only start once CI has passed, so a broken commit never
+# produces a published build.
+#
+# `push` is limited to main to avoid the duplicate run you get when a PR-branch
+# push fires both `push` and `pull_request` for the same commit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+# Cancel an in-progress run (CI *and* its prerelease build) when a newer commit
+# supersedes it — only the latest commit on a branch is built.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests & licence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install (base runtime deps + test tools)
+        run: |
+          python -m pip install --upgrade pip
+          # Base deps are all permissive/testable; native extras (aiortc,
+          # faster-whisper) are intentionally NOT installed here.
+          pip install -e ./server
+          # cryptography is a build/release-only dep (Ed25519 appcast signing in
+          # packaging/sign_appcast.py); its tests run here, so install it too.
+          pip install pytest pytest-asyncio httpx ruff cryptography
+
+      # Licence gate runs FIRST so a compliance problem fails fast, before we
+      # spend time linting and testing (spec §13.7).
+      - name: Licence policy scan (spec §13.7)
+        working-directory: server
+        # Fails the build on any GPL/AGPL strong-copyleft runtime dependency.
+        run: python -m pivot.tools.licenses --check
+
+      - name: Lint
+        run: ruff check server/pivot
+
+      - name: Run tests
+        working-directory: server
+        run: python -m pytest -q
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install & build
+        working-directory: frontend
+        run: |
+          npm install
+          npm run build
+
+      - name: Frontend licence summary (spec §13.7)
+        working-directory: frontend
+        env:
+          npm_config_loglevel: error # silence license-checker's own npm deprecation chatter
+        # --excludePrivatePackages drops our own (private, unpublished) package,
+        # which license-checker would otherwise label "UNLICENSED". Informational
+        # summary; the enforced denylist gate is the Python scan in the backend job.
+        run: npx --yes license-checker --production --summary --excludePrivatePackages || true
+
+  # A prerelease is built only when a commit actually changes the app or its
+  # build. This is an ALLOWLIST: it ignores test files, CI/workflows, agentic
+  # tool logs (.claude/**), docs, LICENSE/NOTICE — anything that doesn't change
+  # what gets shipped.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: detect
+        shell: bash
+        run: |
+          # Diff only the commits added by THIS push (synchronize provides
+          # before/after), so a doc/test/workflow-only commit skips the build
+          # even on a PR that contains app changes elsewhere. Fall back to the
+          # whole-PR diff on opened/reopened or if `before` is unavailable.
+          zero=0000000000000000000000000000000000000000
+          before="${{ github.event.before }}"
+          after="${{ github.event.pull_request.head.sha }}"
+          if [ -z "$before" ] || [ "$before" = "$zero" ] || ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
+            before="${{ github.event.pull_request.base.sha }}"
+          fi
+          if [ -z "$before" ] || [ -z "$after" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # Paths that affect the shipped application or how it is built.
+          # NB: server/pivot/** is app code; server/tests/** is intentionally
+          # excluded, as are .github/**, .claude/**, *.md, etc.
+          allow='^(server/pivot/|server/requirements\.txt$|server/pyproject\.toml$|frontend/src/|frontend/public/|frontend/index\.html$|frontend/package(-lock)?\.json$|frontend/vite\.config\.ts$|frontend/tsconfig|packaging/)'
+          changed=$(git diff --name-only "$before" "$after" 2>/dev/null || true)
+          echo "Changed files in this push:" >&2; echo "$changed" >&2
+          if echo "$changed" | grep -qE "$allow"; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false (no app/build files changed in this push)" >&2
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Compute the prerelease version ONCE, here, so the build jobs and the publish
+  # job share a single source of truth — the version baked into the binary
+  # (_buildinfo) must equal the published tag, or a running prerelease would
+  # mis-rank itself against the releases list. The dev counter resets per base
+  # version (the first build after shipping v1.0.0 is v1.0.1-dev.1), so it's
+  # derived from the existing releases rather than the global run number.
+  prerelease-version:
+    name: Compute prerelease version
+    needs: [changes]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: compute
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const m = fs.readFileSync('server/pivot/version.py', 'utf8')
+              .match(/__version__ = "([^"]+)"/);
+            if (!m) { core.setFailed('could not read __version__ from version.py'); return; }
+            const base = m[1];
+            // Per-base dev counter: N restarts at 1 when the base version bumps,
+            // so the first prerelease after a stable v1.0.0 is v1.0.1-dev.1.
+            // We take max(existing N for this base) + 1 — not a count — so it
+            // stays correct after the "keep newest 10" prune drops low numbers
+            // and never reuses a number. A different base version (e.g. lingering
+            // 1.0.0-dev.* releases) has a different prefix and is ignored.
+            // NB: two prereleases racing on the SAME base+commit-distance can
+            // compute the same number; the later publish updates that tag in
+            // place (harmless for throwaway dev builds).
+            const prefix = `v${base}-dev.`;
+            const { data: releases } = await github.rest.repos.listReleases(
+              { ...context.repo, per_page: 100 });
+            let maxN = 0;
+            for (const r of releases) {
+              if (!r.tag_name.startsWith(prefix)) continue;
+              const n = parseInt(r.tag_name.slice(prefix.length), 10);
+              if (Number.isInteger(n) && n > maxN) maxN = n;
+            }
+            const version = `${base}-dev.${maxN + 1}`;
+            core.setOutput('version', version);
+            core.info(`Next prerelease: v${version}`);
+
+  # ---- Prerelease: only after CI passes, only on same-repo PRs with code ----
+  # Two explicitly-named jobs (not a matrix) so the check labels stay clean even
+  # when skipped. The build steps live in a shared composite action to avoid
+  # duplication.
+  prerelease-build-windows:
+    name: Prerelease build (Windows)
+    needs: [backend, frontend, changes, prerelease-version]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.changes.outputs.code == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-pivot
+        with:
+          artifact: win64
+          version: ${{ needs.prerelease-version.outputs.version }}
+          eddsa_private_key: ${{ secrets.PIVOT_EDDSA_PRIVATE_KEY }}
+          windows_certificate: ${{ secrets.WINDOWS_CERTIFICATE }}
+          windows_certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+
+  prerelease-build-linux:
+    name: Prerelease build (Linux)
+    needs: [backend, frontend, changes, prerelease-version]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-pivot
+        with:
+          artifact: linux-x86_64
+          version: ${{ needs.prerelease-version.outputs.version }}
+          eddsa_private_key: ${{ secrets.PIVOT_EDDSA_PRIVATE_KEY }}
+
+  prerelease-publish:
+    name: Prerelease publish
+    needs: [prerelease-build-windows, prerelease-build-linux, prerelease-version]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # publish prerelease + tags
+      pull-requests: write # post the version↔commit comment
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same version computed in the prerelease-version job, so the published tag
+      # matches the version already baked into the artifacts.
+      - name: Resolve prerelease version
+        shell: bash
+        run: echo "PIVOT_VERSION=${{ needs.prerelease-version.outputs.version }}" >> "$GITHUB_ENV"
+
+      - name: Collect artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+          merge-multiple: true
+
+      - name: Publish prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.PIVOT_VERSION }}
+          name: PIVOT v${{ env.PIVOT_VERSION }} (prerelease)
+          prerelease: true
+          target_commitish: ${{ github.event.pull_request.head.sha }}
+          files: dist-artifacts/PIVOT-Tactical-*
+          fail_on_unmatched_files: true
+
+      - name: Comment the prerelease on the PR
+        uses: actions/github-script@v7
+        with:
+          # One new comment per build, left in place. Every prerelease still
+          # exists, so its announcement stays in the thread as a running history,
+          # and each new build notifies (a fresh comment, not an in-place edit).
+          script: |
+            const version = process.env.PIVOT_VERSION;
+            const tag = `v${version}`;
+            const sha = context.payload.pull_request.head.sha.substring(0, 7);
+            const url = `https://github.com/${context.repo.owner}/${context.repo.repo}/releases/tag/${tag}`;
+            const body = [
+              `### 🤖 Prerelease build ready — \`${tag}\``,
+              `Commit \`${sha}\` · [**Download**](${url})`,
+              '',
+              'Install it, then choose *Include prereleases* in **Settings → Updates**.',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              ...context.repo, issue_number: context.issue.number, body,
+            });
+
+      - name: Prune old dev prereleases (keep newest 10)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: releases } = await github.rest.repos.listReleases({ ...context.repo, per_page: 100 });
+            const dev = releases
+              .filter((r) => r.prerelease && r.tag_name.includes('-dev.'))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            for (const r of dev.slice(10)) {
+              await github.rest.repos.deleteRelease({ ...context.repo, release_id: r.id });
+              try {
+                await github.rest.git.deleteRef({ ...context.repo, ref: `tags/${r.tag_name}` });
+              } catch (e) { /* tag already gone */ }
+            }

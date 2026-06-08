@@ -1,0 +1,36 @@
+[Unit]
+# PIVOT runs headless as a background service — the Linux equivalent of the
+# Windows "minimise to the system tray" behaviour. Instructor and trainees use a
+# browser over the LAN; logs go to the journal (journalctl -u pivot-tactical).
+Description=PIVOT Tactical voice-procedure trainer
+Documentation=https://github.com/pivot-tactical/pivot-tactical
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pivot
+Group=pivot
+# Data (DB, recordings, logs) and retained versions live outside the install
+# dir so an update swap never touches them.
+Environment=PIVOT_DATA_DIR=/var/lib/pivot-tactical
+Environment=PIVOT_VERSIONS_DIR=/var/lib/pivot-tactical/versions
+# Out-of-band update apply: swap any staged update into place while stopped,
+# then start the (now updated) binary — mirrors WinSparkle's close/swap/relaunch
+# on Windows (spec §3.7.5). The install dir is owned by the pivot user so this
+# self-update needs no root.
+ExecStartPre=/opt/pivot-tactical/PIVOT-Tactical --apply-staged
+ExecStart=/opt/pivot-tactical/PIVOT-Tactical --no-tray
+# Always relaunch on exit (except an explicit `systemctl stop`), so a
+# browser-initiated restart comes straight back — and ExecStartPre applies any
+# staged update on the way up. `systemctl stop` still stops cleanly.
+Restart=always
+RestartSec=2
+# Modest hardening for a LAN service.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/pivot-tactical /opt/pivot-tactical
+
+[Install]
+WantedBy=multi-user.target

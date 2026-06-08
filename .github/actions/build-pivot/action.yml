@@ -1,0 +1,161 @@
+name: Build PIVOT bundle
+description: >-
+  Build the frontend + PyInstaller bundle for the current OS, wrap Windows in an
+  Inno Setup installer, sign every published asset with the project's Ed25519 key
+  (and Authenticode-sign the Windows installer when a cert is provided), then
+  upload them as a workflow artifact. Shared by BOTH the prerelease (PR) builds
+  and the tagged release build so the two trains are byte-for-byte identical in
+  form and update exactly the same way.
+
+inputs:
+  artifact:
+    description: Platform tag for the artifact name (e.g. win64, linux-x86_64).
+    required: true
+  version:
+    description: >-
+      Version to embed. When empty, a prerelease version `<base>-dev.<run>` is
+      computed from server/pivot/version.py.
+    required: false
+    default: ""
+  eddsa_private_key:
+    description: Base64 Ed25519 private key (CI secret) used to sign assets.
+    required: false
+    default: ""
+  windows_certificate:
+    description: Base64 PFX for Authenticode signing the Windows installer.
+    required: false
+    default: ""
+  windows_certificate_password:
+    description: Password for the Authenticode PFX.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Resolve version
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.version }}" ]; then
+          ver="${{ inputs.version }}"
+        else
+          base=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('server/pivot/version.py').read_text()).group(1))")
+          ver="${base}-dev.${{ github.run_number }}"
+        fi
+        echo "PIVOT_VERSION=$ver" >> "$GITHUB_ENV"
+
+    # Generate _buildinfo BEFORE installing the package, so the version is baked
+    # into the source that gets installed/bundled (else the app reports the base
+    # version and the prerelease update channel sees no updates).
+    - name: Embed build info
+      shell: bash
+      run: PIVOT_BUILD_VERSION="$PIVOT_VERSION" python packaging/gen_buildinfo.py
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+
+    - name: Build frontend
+      shell: bash
+      working-directory: frontend
+      run: npm ci && npm run build
+
+    - name: Install build dependencies
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r server/requirements.txt
+        pip install pyinstaller cryptography
+        pip install ./server --no-deps
+
+    - name: Build with PyInstaller
+      shell: bash
+      run: pyinstaller --noconfirm packaging/pivot.spec
+
+    # --- package the portable bundle (version-agnostic name) ---
+    - name: Package (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $archive = "PIVOT-Tactical-win64.zip"
+        Compress-Archive -Path dist/PIVOT-Tactical -DestinationPath $archive
+        $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+        "$hash  $archive" | Out-File "$archive.sha256" -Encoding ascii -NoNewline
+
+    - name: Package (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        # Ship the systemd unit + install/uninstall scripts inside the bundle so
+        # `tar xzf … && sudo ./PIVOT-Tactical/install.sh` sets up the headless
+        # background service (the Linux counterpart to the Windows installer).
+        cp packaging/linux/pivot-tactical.service dist/PIVOT-Tactical/
+        cp packaging/linux/install.sh packaging/linux/uninstall.sh dist/PIVOT-Tactical/
+        chmod +x dist/PIVOT-Tactical/install.sh dist/PIVOT-Tactical/uninstall.sh
+        archive="PIVOT-Tactical-linux-x86_64.tar.gz"
+        tar -czf "$archive" -C dist PIVOT-Tactical
+        sha256sum "$archive" > "$archive.sha256"
+
+    # --- Windows installer (Inno Setup): Start-menu entry, uninstaller ---
+    - name: Build installer (Inno Setup)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        choco install innosetup --no-progress -y
+        $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        & $iscc "/DMyAppVersion=$env:PIVOT_VERSION" packaging\pivot.iss
+        Copy-Item dist\installer\PIVOT-Tactical-Setup.exe .
+
+    # Authenticode-sign the installer so Windows SmartScreen/UAC trust it. Must
+    # run BEFORE Ed25519 signing (it changes the .exe bytes). Gated on the cert
+    # secret: without it the installer is simply unsigned, not a build failure.
+    - name: Code-sign installer (Authenticode)
+      if: runner.os == 'Windows' && inputs.windows_certificate != ''
+      shell: pwsh
+      run: |
+        $pfx = Join-Path $env:RUNNER_TEMP "pivot-codesign.pfx"
+        [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String("${{ inputs.windows_certificate }}"))
+        $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+          Sort-Object FullName -Descending | Select-Object -First 1
+        if (-not $signtool) { throw "signtool.exe not found in the Windows SDK" }
+        try {
+          & $signtool.FullName sign `
+            /f $pfx /p "${{ inputs.windows_certificate_password }}" `
+            /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+            "PIVOT-Tactical-Setup.exe"
+          if ($LASTEXITCODE -ne 0) { throw "signtool failed ($LASTEXITCODE)" }
+          & $signtool.FullName verify /pa "PIVOT-Tactical-Setup.exe"
+        }
+        finally { Remove-Item $pfx -Force -ErrorAction SilentlyContinue }
+
+    # --- Ed25519-sign every published asset (authenticity for the in-app
+    #     updater). Produces <asset>.sig sidecars the app verifies against the
+    #     embedded public key before staging. Identical on both trains. ---
+    - name: Sign assets (Ed25519)
+      if: inputs.eddsa_private_key != ''
+      shell: bash
+      env:
+        PIVOT_EDDSA_PRIVATE_KEY: ${{ inputs.eddsa_private_key }}
+      run: |
+        for f in PIVOT-Tactical-win64.zip PIVOT-Tactical-linux-x86_64.tar.gz PIVOT-Tactical-Setup.exe; do
+          if [ -f "$f" ]; then
+            python packaging/sign_appcast.py sign --file "$f"
+            echo "signed $f"
+          fi
+        done
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: prerelease-${{ inputs.artifact }}
+        path: |
+          PIVOT-Tactical-win64.zip
+          PIVOT-Tactical-linux-x86_64.tar.gz
+          PIVOT-Tactical-*.sha256
+          PIVOT-Tactical-*.sig
+          PIVOT-Tactical-Setup.exe
+        if-no-files-found: error
