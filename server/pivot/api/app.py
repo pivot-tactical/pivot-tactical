@@ -213,7 +213,9 @@ def _mount_frontend(app: FastAPI) -> None:
 
     @app.get("/{path:path}")
     def _spa(path: str) -> FileResponse:
-        target = dist / path
+        target = (dist / path).resolve()
+        if not target.is_relative_to(dist.resolve()):
+            return FileResponse(dist / "index.html")
         if target.is_file():
             return FileResponse(target)
         return FileResponse(dist / "index.html")
