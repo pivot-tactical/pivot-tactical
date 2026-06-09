@@ -38,3 +38,19 @@ def test_apply_update_request_invalid_urls():
             asset_url="https://github.com.evil.com/malicious.zip",
         )
     assert "URL must point to GitHub" in str(exc_info.value)
+
+    with pytest.raises(ValidationError) as exc_info:
+        ApplyUpdateRequest(
+            tag="1.0.0",
+            asset_name="PIVOT.zip",
+            asset_url="https://evil.githubusercontent.com/malicious.zip",
+        )
+    assert "URL must point to GitHub" in str(exc_info.value)
+
+    with pytest.raises(ValidationError) as exc_info:
+        ApplyUpdateRequest(
+            tag="1.0.0",
+            asset_name="PIVOT.zip",
+            asset_url="https://github.com@evil.com/malicious.zip",
+        )
+    assert "URL must point to GitHub" in str(exc_info.value)

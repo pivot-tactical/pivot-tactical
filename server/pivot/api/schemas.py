@@ -86,7 +86,7 @@ class ApplyUpdateRequest(BaseModel):
             raise ValueError("must be an https URL")
         hostname = parsed.hostname or ""
         allowed = ("github.com", "api.github.com", "objects.githubusercontent.com")
-        if hostname not in allowed and not hostname.endswith(".githubusercontent.com"):
+        if hostname not in allowed:
             raise ValueError("URL must point to GitHub")
         return v
 
