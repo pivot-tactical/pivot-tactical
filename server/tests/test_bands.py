@@ -1,6 +1,5 @@
 """Tests for the frequency model (spec §3.1.2, §4.1)."""
 
-import math
 
 import pytest
 

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+import urllib.parse
+
+from pydantic import BaseModel, Field, field_validator
 
 from pivot.core.crypto import RadioMode
 
@@ -73,6 +75,20 @@ class ApplyUpdateRequest(BaseModel):
     sha256_url: str = ""
     sig_url: str = ""
     asset_name: str
+
+    @field_validator("asset_url", "sha256_url", "sig_url")
+    @classmethod
+    def validate_github_url(cls, v: str) -> str:
+        if not v:
+            return v
+        parsed = urllib.parse.urlparse(v)
+        if parsed.scheme != "https":
+            raise ValueError("must be an https URL")
+        hostname = parsed.hostname or ""
+        allowed = ("github.com", "api.github.com", "objects.githubusercontent.com")
+        if hostname not in allowed and not hostname.endswith(".githubusercontent.com"):
+            raise ValueError("URL must point to GitHub")
+        return v
 
 
 class RollbackRequest(BaseModel):
