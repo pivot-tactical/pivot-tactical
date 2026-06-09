@@ -4,10 +4,10 @@ import pytest
 
 from pivot.core.bands import BandProfile, JammingSpan
 from pivot.core.crypto import Audibility, RadioMode, SyncStatus
+from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
 from pivot.db.migrations import CURRENT_SCHEMA_VERSION, crosses_migration_boundary
 from pivot.db.models import EventRow, TranscriptionStatus
-from pivot.db import repository as repo
 
 
 def test_initialise_seeds_config_and_band_profile(database):

@@ -46,6 +46,7 @@ def test_spa_path_traversal(client, tmp_path, monkeypatch):
     monkeypatch.setattr(app, "frontend_dist_dir", lambda: dist)
 
     from fastapi.testclient import TestClient
+
     from pivot.api.app import create_app
 
     test_app = create_app()
