@@ -65,13 +65,15 @@ def render_net_frame(
     single = frames[0]
 
     for reception in receptions_needed:
-        if reception is Reception.CLEAR:
-            out[reception] = engine.render_clear(single, conditions, rng)
-        elif reception is Reception.HASH:
-            out[reception] = engine.render_hash(single, conditions, rng)
-        elif reception is Reception.PLAIN_COLLISION:
-            out[reception] = engine.render_plain_collision(frames, conditions, rng)
-        elif reception is Reception.CRYPTO_JAM:
-            out[reception] = engine.render_crypto_jam(n, conditions, rng)
-        # SILENCE needs no render.
+        match reception:
+            case Reception.CLEAR:
+                out[reception] = engine.render_clear(single, conditions, rng)
+            case Reception.HASH:
+                out[reception] = engine.render_hash(single, conditions, rng)
+            case Reception.PLAIN_COLLISION:
+                out[reception] = engine.render_plain_collision(frames, conditions, rng)
+            case Reception.CRYPTO_JAM:
+                out[reception] = engine.render_crypto_jam(n, conditions, rng)
+            case _:
+                pass  # SILENCE needs no render.
     return out
