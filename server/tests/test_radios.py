@@ -195,3 +195,59 @@ def test_radio_status_strings():
     assert reg.get("a").status == "crypto-sync"
     reg.sync_complete("a")
     assert reg.get("a").status == "transmitting"
+
+def test_render_map_empty():
+    reg = RadioRegistry()
+    rmap = reg.render_map_for_net(14_250_000)
+    assert rmap == {}
+
+def test_render_map_isolated_nets():
+    reg = RadioRegistry()
+    reg.add(make_radio("a", 14_250_000))
+    reg.add(make_radio("b", 7_100_000))
+
+    rmap_14 = reg.render_map_for_net(14_250_000)
+    assert "a" in rmap_14
+    assert "b" not in rmap_14
+
+    rmap_7 = reg.render_map_for_net(7_100_000)
+    assert "b" in rmap_7
+    assert "a" not in rmap_7
+
+def test_render_map_no_transmitters():
+    reg = RadioRegistry()
+    reg.add(make_radio("a", 14_250_000))
+    reg.add(make_radio("b", 14_250_000))
+
+    rmap = reg.render_map_for_net(14_250_000)
+    assert rmap["a"] is Reception.SILENCE
+    assert rmap["b"] is Reception.SILENCE
+
+def test_render_map_plain_collision():
+    reg = RadioRegistry()
+    reg.add(make_radio("tx1", 14_250_000))
+    reg.add(make_radio("tx2", 14_250_000))
+    reg.add(make_radio("rx", 14_250_000))
+
+    reg.begin_key("tx1", "e1", crypto_enabled=False)
+    reg.begin_key("tx2", "e2", crypto_enabled=False)
+
+    rmap = reg.render_map_for_net(14_250_000)
+    assert rmap["rx"] is Reception.PLAIN_COLLISION
+    # Transmitters cannot hear while transmitting
+    assert rmap["tx1"] is Reception.SILENCE
+    assert rmap["tx2"] is Reception.SILENCE
+
+def test_render_map_mixed_reception():
+    reg = RadioRegistry()
+    reg.add(make_radio("tx_cypher", 14_250_000, mode=RadioMode.CYPHER))
+    reg.add(make_radio("rx_plain", 14_250_000, mode=RadioMode.PLAIN))
+    reg.add(make_radio("rx_cypher", 14_250_000, mode=RadioMode.CYPHER))
+
+    reg.begin_key("tx_cypher", "e", crypto_enabled=True)
+    reg.sync_complete("tx_cypher")
+
+    rmap = reg.render_map_for_net(14_250_000)
+    assert rmap["tx_cypher"] is Reception.SILENCE
+    assert rmap["rx_plain"] is Reception.HASH
+    assert rmap["rx_cypher"] is Reception.CLEAR
