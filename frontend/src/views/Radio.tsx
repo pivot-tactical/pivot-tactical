@@ -162,12 +162,13 @@ export function Radio({
         <div className="freq">
           <div className="freq__display mono">{formatMHz(freqHz)}<span className="freq__unit">MHz</span></div>
           <div className="freq__controls">
-            <button className="btn btn--step" onClick={() => applyTune(freqHz - STEP_HZ)} disabled={transmitting}>
+            <button className="btn btn--step" aria-label="Decrease frequency" onClick={() => applyTune(freqHz - STEP_HZ)} disabled={transmitting}>
               ▼
             </button>
             <input
               ref={entryRef}
               className="input mono freq__entry"
+              aria-label="Frequency in MHz"
               value={entry}
               disabled={transmitting}
               onChange={(e) => setEntry(e.target.value)}
@@ -175,7 +176,7 @@ export function Radio({
                 if (e.key === "Enter") confirmEntry();
               }}
             />
-            <button className="btn btn--step" onClick={() => applyTune(freqHz + STEP_HZ)} disabled={transmitting}>
+            <button className="btn btn--step" aria-label="Increase frequency" onClick={() => applyTune(freqHz + STEP_HZ)} disabled={transmitting}>
               ▲
             </button>
             <button className="btn btn--primary" onClick={confirmEntry} disabled={transmitting}>
