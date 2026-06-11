@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, getToken } from "../api";
 import type { ReleaseInfo, UpdateStatus } from "../api";
 import { AudioIO, playClick, playSyncTone } from "../audio";
@@ -9,6 +9,24 @@ import type { EventRow, RadioState, Terminal, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
 
 type Tab = "radios" | "monitor" | "scenario" | "settings";
+
+const FALLBACK_TIMEZONES = [
+  "UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+  "America/Anchorage", "Pacific/Honolulu", "Europe/London", "Europe/Berlin", "Europe/Paris",
+  "Europe/Moscow", "Africa/Cairo", "Asia/Jerusalem", "Asia/Dubai", "Asia/Karachi",
+  "Asia/Kolkata", "Asia/Bangkok", "Asia/Shanghai", "Asia/Tokyo", "Australia/Sydney",
+  "Pacific/Auckland",
+];
+
+function getTimezoneOptions(): string[] {
+  try {
+    const supported = (Intl as any).supportedValuesOf?.("timeZone");
+    if (Array.isArray(supported) && supported.length) return supported;
+  } catch {
+    // fall through to fallback list
+  }
+  return FALLBACK_TIMEZONES;
+}
 
 export function InstructorConsole({
   timezone,
@@ -399,6 +417,7 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
   const [saved, setSaved] = useState(false);
   const [pw, setPw] = useState({ current: "", next: "" });
   const [pwMsg, setPwMsg] = useState("");
+  const timezoneOptions = useMemo(getTimezoneOptions, []);
   const [upd, setUpd] = useState<UpdateStatus | null>(null);
   const [checking, setChecking] = useState(false);
   const [applying, setApplying] = useState<string | null>(null);
@@ -586,7 +605,12 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
             value={cfg.crypto_delay_ms ?? 1500} onChange={(e) => set("crypto_delay_ms", parseInt(e.target.value))} />
         </Field>
         <Field label="Display timezone">
-          <input className="input mono" value={cfg.display_timezone || "UTC"} onChange={(e) => set("display_timezone", e.target.value)} />
+          <select className="input mono" value={cfg.display_timezone || "UTC"} onChange={(e) => set("display_timezone", e.target.value)}>
+            {timezoneOptions.includes(cfg.display_timezone || "UTC") ? null : (
+              <option value={cfg.display_timezone || "UTC"}>{cfg.display_timezone || "UTC"}</option>
+            )}
+            {timezoneOptions.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
+          </select>
         </Field>
         <button className="btn btn--primary" onClick={save}>{saved ? "Saved ✓" : "Save Settings"}</button>
       </section>
