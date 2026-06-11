@@ -12,6 +12,7 @@ desktop GUI.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 import socket
 import sys
@@ -31,6 +32,7 @@ from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD, AuthService  # noqa: E402
 from pivot.config import Settings  # noqa: E402
 from pivot.db.database import init_database  # noqa: E402
 from pivot.runtime.manager import SessionManager  # noqa: E402
+from pivot.runtime.redirect import serve_redirector  # noqa: E402
 from pivot.version import version_info  # noqa: E402
 
 
@@ -112,13 +114,48 @@ def _settings_from_args(args: argparse.Namespace) -> Settings:
     return Settings(**overrides)
 
 
+def _run_uvicorn_coro(coro, config: uvicorn.Config) -> None:
+    """Run ``coro`` to completion the same way ``uvicorn.Server.run`` would.
+
+    Replicates ``Server.run``'s event-loop setup (uvloop where available)
+    across the uvicorn versions we support: >=0.36 exposes
+    ``Config.get_loop_factory``/``uvicorn._compat.asyncio_run``; older
+    versions use ``Config.setup_event_loop`` + plain ``asyncio.run``.
+    """
+    get_loop_factory = getattr(config, "get_loop_factory", None)
+    if get_loop_factory is not None:
+        from uvicorn._compat import asyncio_run
+
+        asyncio_run(coro, loop_factory=get_loop_factory())
+    else:
+        config.setup_event_loop()
+        asyncio.run(coro)
+
+
+async def _serve_with_redirect(server: uvicorn.Server, settings: Settings) -> None:
+    """Run uvicorn on a loopback-only port behind the public HTTP->HTTPS redirector.
+
+    The TLS server binds an ephemeral loopback port; the redirector owns the
+    public ``settings.port``, proxying real TLS connections through to it and
+    answering plain-HTTP ones with a redirect to ``https://``.
+    """
+    sock = server.config.bind_socket()
+    https_port = sock.getsockname()[1]
+    redirector = await serve_redirector(settings.host, settings.port, https_port)
+    async with redirector:
+        await server.serve(sockets=[sock])
+
+
 def run_server(settings: Settings, manager: SessionManager, tls: tuple[Path, Path] | None = None) -> None:
-    app = create_app(settings, manager=manager)
-    tls_kwargs: dict = {}
+    app = create_app(settings, manager=manager, force_https=tls is not None)
     if tls is not None:
         certfile, keyfile = tls
         tls_kwargs = {"ssl_certfile": str(certfile), "ssl_keyfile": str(keyfile)}
-    config = uvicorn.Config(app, host=settings.host, port=settings.port, log_level="info", **tls_kwargs)
+        # Loopback + ephemeral port: the public port is owned by the redirector
+        # (see _serve_with_redirect), which proxies TLS connections here.
+        config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="info", **tls_kwargs)
+    else:
+        config = uvicorn.Config(app, host=settings.host, port=settings.port, log_level="info")
     server = uvicorn.Server(config)
 
     # Let the browser restart endpoint stop us gracefully. We record the intent
@@ -131,7 +168,8 @@ def run_server(settings: Settings, manager: SessionManager, tls: tuple[Path, Pat
     app.state.request_restart = request_restart
     app.state.restart_requested = False
 
-    server.run()
+    coro = _serve_with_redirect(server, settings) if tls is not None else server.serve()
+    _run_uvicorn_coro(coro, config)
 
     if getattr(app.state, "restart_requested", False):
         from pivot.runtime.lifecycle import perform_relaunch, restart_mode
