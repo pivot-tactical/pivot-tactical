@@ -104,17 +104,43 @@ body {
 .freq__entry { width: 160px; text-align: center; font-size: 20px; }
 .radio__row { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin: 26px 0; }
 
-.toggle {
+/* ---------- mode dial (Plain/Cypher rotary switch) ---------- */
+.dial {
   font: inherit; font-family: var(--mono); cursor: pointer;
-  border-radius: 10px; padding: 12px 18px; min-width: 140px;
+  display: flex; align-items: center; gap: 14px;
+  border-radius: 10px; padding: 12px 18px;
   border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
   letter-spacing: 1px; font-weight: 600;
 }
-.toggle--plain { border-color: var(--green); color: #cfe0cf; }
-.toggle--cypher { border-color: var(--cyan); color: #c9fff8; background: #0d2422; }
-.toggle--sm { min-width: 0; padding: 8px 12px; font-size: 12px; }
-.toggle--on { border-color: var(--amber); color: #ffe9c2; background: #2a2110; }
-.toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+.dial:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.dial__label { font-size: 12px; color: var(--muted); transition: color 0.2s, text-shadow 0.2s; }
+.dial--plain .dial__label--plain { color: #cfe0cf; text-shadow: 0 0 8px rgba(54, 211, 107, 0.5); }
+.dial--cypher .dial__label--cypher { color: #c9fff8; text-shadow: 0 0 8px rgba(56, 214, 200, 0.5); }
+
+.dial__knob {
+  position: relative; flex-shrink: 0;
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 2px solid var(--line); background: radial-gradient(circle at 35% 30%, #232f23, #0a0e0a 70%);
+}
+.dial__pointer {
+  position: absolute; top: 4px; left: 50%;
+  width: 3px; height: 14px; border-radius: 2px;
+  background: var(--green); box-shadow: 0 0 6px var(--green);
+  transform: translateX(-50%) rotate(-45deg); transform-origin: 50% 15px;
+  transition: transform 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+}
+.dial--cypher .dial__pointer {
+  background: var(--cyan); box-shadow: 0 0 6px var(--cyan);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.dial--sm { padding: 8px 12px; gap: 8px; }
+.dial--sm .dial__label { font-size: 10px; }
+.dial--sm .dial__knob { width: 26px; height: 26px; }
+.dial--sm .dial__pointer { height: 9px; transform-origin: 50% 10px; top: 3px; }
+.dial--sm.dial--cypher .dial__pointer { transform: translateX(-50%) rotate(45deg); }
+.dial--sm.dial--plain .dial__pointer { transform: translateX(-50%) rotate(-45deg); }
 
 .signal { flex: 1; }
 .signal__label { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
