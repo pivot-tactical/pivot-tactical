@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ModeDial } from "../components/ModeDial";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
-import { AudioIO, playClick, playSyncTone } from "../audio";
+import { VolumeSlider } from "../components/VolumeSlider";
+import { AudioIO, loadVolume, playClick, playSyncTone, saveVolume } from "../audio";
 import type { LoginResponse, RadioMode, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
 
@@ -48,10 +49,21 @@ export function Radio({
   const [mode, setMode] = useState<RadioMode>(login.mode ?? "Plain");
   const [phase, setPhase] = useState<TxPhase>("IDLE");
   const [entry, setEntry] = useState(formatMHz(initialHz));
+  const [volume, setVolume] = useState(() => loadVolume("trainee"));
   const entryRef = useRef<HTMLInputElement>(null);
   const audio = useRef(new AudioIO());
   const region = regionFor(freqHz);
   const transmitting = phase !== "IDLE";
+
+  // Apply the saved headset volume to the player (and on every change).
+  useEffect(() => {
+    audio.current.setVolume(volume);
+  }, [volume]);
+
+  const changeVolume = useCallback((v: number) => {
+    setVolume(v);
+    saveVolume("trainee", v);
+  }, []);
 
   // Play incoming voice; enable audio on the first user gesture (autoplay rules).
   useEffect(() => {
@@ -201,6 +213,8 @@ export function Radio({
             </div>
           </div>
         </div>
+
+        <VolumeSlider value={volume} onChange={changeVolume} />
 
         <button
           className={`ptt ptt--${phase.toLowerCase()}`}

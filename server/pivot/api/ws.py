@@ -122,19 +122,24 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
 async def _instructor_session(ws: WebSocket, manager) -> None:
     queue = manager.subscribe()
     audio_out: asyncio.Queue = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
-    sink = _sink(audio_out)
     outbound = asyncio.create_task(_pump_outbound(ws, queue))
     audio_pump = asyncio.create_task(_pump_audio(ws, audio_out))
     sync_task: asyncio.Task | None = None
     active_tx: str | None = None  # the instructor radio currently keyed
 
-    # The instructor hears on every one of their radios.
-    bound: set[str] = set()
+    # The instructor hears on every one of their radios. Each radio gets its own
+    # sink that tags every PCM frame with the source radio_id, so the browser can
+    # mix them into one playback stream at independent headset volumes (§3.2.2).
+    sinks: dict[str, object] = {}
 
     def bind_radios() -> None:
         for r in manager.instructor_radios():
-            manager.register_audio_sink(r["radio_id"], sink)
-            bound.add(r["radio_id"])
+            rid = r["radio_id"]
+            if rid in sinks:
+                continue
+            sink = _tagged_sink(audio_out, rid)
+            sinks[rid] = sink
+            manager.register_audio_sink(rid, sink)
 
     bind_radios()
     await ws.send_json({"type": "welcome", "payload": {"role": "instructor"}})
@@ -181,7 +186,7 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
                     rid = payload.get("radio_id", "")
                     manager.remove_instructor_radio(rid)
                     manager.unregister_audio_sink(rid)
-                    bound.discard(rid)
+                    sinks.pop(rid, None)
                     await ws.send_json({"type": "instructor_radios",
                                         "payload": manager.instructor_radios()})
                 elif mtype == "instr_ptt_start":
@@ -213,7 +218,7 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
         _cancel(sync_task)
         # Only drop sinks still owned by *this* connection — a reconnected
         # instructor may already have re-bound these radios to a new sink.
-        for rid in bound:
+        for rid, sink in sinks.items():
             manager.unregister_audio_sink(rid, sink)
         await _shutdown([outbound, audio_pump], manager, queue)
 
@@ -228,6 +233,26 @@ def _sink(audio_out: asyncio.Queue):
     def put(data: bytes) -> None:
         try:
             audio_out.put_nowait(data)
+        except asyncio.QueueFull:
+            pass
+    return put
+
+
+def _tagged_sink(audio_out: asyncio.Queue, radio_id: str):
+    """An instructor sink that prefixes each PCM frame with its source radio.
+
+    The instructor's several radios share one playback stream, so each frame is
+    tagged ``[1-byte id length][radio_id ascii][PCM16LE…]`` and the browser
+    scales it to that radio's headset volume (mirrored in
+    ``frontend/src/audio.ts: parseTaggedAudio``). Trainee frames stay untagged
+    (one radio per socket). Like ``_sink``, it drops frames when backed up.
+    """
+    raw = radio_id.encode("ascii")
+    header = bytes([len(raw)]) + raw
+
+    def put(data: bytes) -> None:
+        try:
+            audio_out.put_nowait(header + data)
         except asyncio.QueueFull:
             pass
     return put

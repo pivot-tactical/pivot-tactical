@@ -438,9 +438,52 @@ def test_websocket_audio_frame_is_recorded(client):
         assert ended["payload"]["duration_ms"] > 0
 
 
+def test_instructor_audio_frames_are_tagged_with_radio_id(client):
+    # An instructor's radios share one socket, so each rendered frame is prefixed
+    # with its source radio_id ([1-byte len][id][PCM…]) — the browser uses the
+    # tag to apply that radio's headset volume to the mixed playback stream.
+    from pivot.audio.pcm import float32_to_pcm16
+
+    token = client.app.state.auth.issue_token()
+    radio = client.post("/api/admin/instructor-radios", json={"frequency": "40.000 MHz"}).json()
+    rid = radio["radio_id"]
+    client.post("/api/admin/session/start", json={"name": "TAG"})
+
+    with client.websocket_connect(f"/ws?token={token}") as instr:
+        for _ in range(4):  # welcome, band profile, instructor_radios, terminal_update
+            instr.receive_json()
+        # A trainee on the instructor radio's net transmits; the instructor (a
+        # listener on that net) receives the rendered, tagged frame.
+        with client.websocket_connect("/ws?name=TX&trainee_id=tag-tx") as tx:
+            tx.receive_json()  # welcome
+            tx.receive_json()  # band profile
+            tx.send_json({"type": "tune", "payload": {"frequency": "40.000 MHz"}})
+            _recv_until(tx, "tuned")
+            tx.send_json({"type": "ptt_start",
+                          "payload": {"frequency": "40.000 MHz", "tx_mode": "Plain"}})
+            _recv_until(tx, "ptt_started")
+            tx.send_bytes(float32_to_pcm16(
+                (0.2 * np.sin(2 * np.pi * 440 * np.arange(1600) / 16000)).astype(np.float32)
+            ))
+
+            data = _recv_bytes(instr)
+            length = data[0]
+            assert data[1:1 + length].decode("ascii") == rid
+            assert (len(data) - 1 - length) % 2 == 0  # remaining bytes are PCM16
+            tx.send_json({"type": "ptt_end", "payload": {}})
+
+
 def _recv_until(wsconn, mtype, limit=20):
     for _ in range(limit):
         msg = wsconn.receive_json()
         if msg["type"] == mtype:
             return msg
     raise AssertionError(f"did not receive {mtype!r} within {limit} messages")
+
+
+def _recv_bytes(wsconn, limit=50):
+    for _ in range(limit):
+        msg = wsconn.receive()
+        if msg.get("bytes") is not None:
+            return msg["bytes"]
+    raise AssertionError(f"did not receive a binary frame within {limit} messages")

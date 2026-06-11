@@ -62,6 +62,32 @@ function pcm16ToFloat(buf: ArrayBuffer): Float32Array {
   return f32;
 }
 
+// Instructor audio frames are tagged with their source radio so one mixed
+// playback stream can carry several radios at independent headset volumes:
+// [1-byte id length][radio_id ascii][PCM16LE…]. Trainee frames are untagged
+// (one radio per socket). Mirrors `_tagged_sink` in server/pivot/api/ws.py.
+export function parseTaggedAudio(buf: ArrayBuffer): { radioId: string; pcm: ArrayBuffer } {
+  const bytes = new Uint8Array(buf);
+  const len = bytes[0];
+  const radioId = new TextDecoder().decode(bytes.subarray(1, 1 + len));
+  // Slice (copy) so the PCM starts at offset 0 — an odd header length would
+  // otherwise break Int16Array's alignment requirement on a shared buffer.
+  return { radioId, pcm: buf.slice(1 + len) };
+}
+
+// Persisted per-radio headset volume (0–1). Keyed so a trainee keeps one
+// setting and the instructor keeps one per radio across refreshes.
+export function loadVolume(key: string): number {
+  const raw = localStorage.getItem(`pivot.vol.${key}`);
+  if (raw == null) return 1;
+  const v = parseFloat(raw);
+  return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1;
+}
+
+export function saveVolume(key: string, volume: number): void {
+  localStorage.setItem(`pivot.vol.${key}`, String(Math.max(0, Math.min(1, volume))));
+}
+
 /**
  * Streaming voice I/O over the WebSocket. One 16 kHz AudioContext handles both
  * mic capture (while keyed) and playback (always). Must be initialised from a
@@ -76,6 +102,19 @@ export class AudioIO {
     node: AudioWorkletNode;
     mute: GainNode;
   } | null = null;
+  // Per-radio output gain for the headset volume sliders. The instructor mixes
+  // several radios into this one player, so gain is applied per frame keyed by
+  // the source radio_id; a trainee has a single radio and uses the default.
+  private volumes = new Map<string, number>();
+  private defaultVolume = 1;
+
+  // Set the playback volume (0–1). Pass a radio_id to scope it to one of the
+  // instructor's radios; omit it for the single trainee radio.
+  setVolume(volume: number, radioId?: string): void {
+    const v = Math.max(0, Math.min(1, volume));
+    if (radioId) this.volumes.set(radioId, v);
+    else this.defaultVolume = v;
+  }
 
   async init(): Promise<void> {
     // Guard on player (not ctx): if a previous call created the ctx but then
@@ -123,12 +162,14 @@ export class AudioIO {
     this.mic = null;
   }
 
-  play(pcm: ArrayBuffer): void {
+  play(pcm: ArrayBuffer, radioId?: string): void {
     if (!this.player) return;
     // Browsers suspend the AudioContext when the tab goes to background. Resume
     // it so hash and voice frames don't vanish when the user alt-tabs back.
     if (this.ctx?.state === "suspended") this.ctx.resume();
+    const gain = radioId ? this.volumes.get(radioId) ?? this.defaultVolume : this.defaultVolume;
     const f32 = pcm16ToFloat(pcm);
+    if (gain !== 1) for (let i = 0; i < f32.length; i++) f32[i] *= gain;
     this.player.port.postMessage(f32, [f32.buffer]);
   }
 

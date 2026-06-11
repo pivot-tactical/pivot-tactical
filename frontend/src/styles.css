@@ -147,6 +147,12 @@ body {
 .signal__bar { height: 12px; background: #0c110c; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; margin-top: 6px; }
 .signal__fill { height: 100%; background: linear-gradient(90deg, var(--amber), var(--green)); transition: width 0.3s; }
 
+/* ---------- Volume ---------- */
+.volume { margin: 18px 0 8px; }
+.volume__label { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
+.volume__range { display: block; width: 100%; margin-top: 8px; accent-color: var(--green); cursor: pointer; }
+.instr-radio .volume { margin: 14px 0 0; }
+
 /* ---------- PTT ---------- */
 .ptt {
   width: 100%; margin-top: 8px; border-radius: 16px; cursor: pointer;

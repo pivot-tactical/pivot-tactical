@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, getToken } from "../api";
 import type { ReleaseInfo, UpdateStatus } from "../api";
-import { AudioIO, playClick, playSyncTone } from "../audio";
+import { AudioIO, loadVolume, parseTaggedAudio, playClick, playSyncTone, saveVolume } from "../audio";
 import { ConnectionBanner } from "../components/ConnectionBanner";
 import type { ConnState } from "../components/ConnectionBanner";
 import { ModeDial } from "../components/ModeDial";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
+import { VolumeSlider } from "../components/VolumeSlider";
 import type { EventRow, RadioState, Terminal, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
 
@@ -81,7 +82,12 @@ export function InstructorConsole({
     );
     sock.on("session_started", () => setSessionActive(true));
     sock.on("session_ended", () => setSessionActive(false));
-    sock.onAudio((buf) => audio.current.play(buf)); // hear trainees on instructor radios
+    // Each instructor radio's frames are tagged with its radio_id so the mixed
+    // playback stream can carry independent per-radio headset volumes.
+    sock.onAudio((buf) => {
+      const { radioId, pcm } = parseTaggedAudio(buf);
+      audio.current.play(pcm, radioId);
+    });
     sock.connect();
     socketRef.current = sock;
 
@@ -271,6 +277,7 @@ function RadiosTab({ radios, socket, audio, onChange, events }: {
             radio={r}
             index={i + 1}
             socket={socket}
+            audio={audio}
             phase={txId === r.radio_id ? phase : "IDLE"}
             onStart={startTx}
             onEnd={endTx}
@@ -287,11 +294,12 @@ function RadiosTab({ radios, socket, audio, onChange, events }: {
 // One instructor radio rendered like the trainee panel: large frequency display
 // + tuning, the Plain/Cypher dial, a signal indicator, and its own PTT keyed by
 // Shift + the card's number (shown on the control so there is no confusion).
-function InstrRadioCard({ radio, index, socket, phase, onStart, onEnd, onRemove }: {
-  radio: RadioState; index: number; socket: PivotSocket | null; phase: TxPhase;
+function InstrRadioCard({ radio, index, socket, audio, phase, onStart, onEnd, onRemove }: {
+  radio: RadioState; index: number; socket: PivotSocket | null; audio: AudioIO; phase: TxPhase;
   onStart: (r: RadioState) => void; onEnd: (r: RadioState) => void; onRemove: (id: string) => void;
 }) {
   const [entry, setEntry] = useState(fmtMHz(radio.frequency_hz));
+  const [volume, setVolume] = useState(() => loadVolume(`instr.${radio.radio_id}`));
   const entryRef = useRef<HTMLInputElement>(null);
   const transmitting = phase !== "IDLE";
   const signal = signalFor(radio.frequency_hz);
@@ -300,6 +308,13 @@ function InstrRadioCard({ radio, index, socket, phase, onStart, onEnd, onRemove 
   // Keep the entry box in step with server-confirmed tunes (step buttons,
   // external retunes) without clobbering what the instructor is typing mid-edit.
   useEffect(() => { setEntry(fmtMHz(radio.frequency_hz)); }, [radio.frequency_hz]);
+
+  // Apply this radio's saved headset volume to the shared player (and on change).
+  useEffect(() => { audio.setVolume(volume, radio.radio_id); }, [audio, radio.radio_id, volume]);
+  function changeVolume(v: number) {
+    setVolume(v);
+    saveVolume(`instr.${radio.radio_id}`, v);
+  }
 
   function tuneTo(hz: number) {
     const snapped = Math.max(1.6e6, Math.min(3e9, snapToStep(hz)));
@@ -352,6 +367,8 @@ function InstrRadioCard({ radio, index, socket, phase, onStart, onEnd, onRemove 
             </div>
           </div>
         </div>
+
+        <VolumeSlider value={volume} onChange={changeVolume} />
       </div>
 
       <button
