@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, getToken } from "../api";
 import type { ReleaseInfo, UpdateStatus } from "../api";
-import { AudioIO, loadVolume, parseTaggedAudio, playClick, playSyncTone, saveVolume } from "../audio";
+import { AudioIO, loadVolume, parseTaggedAudio, pcmLevel, playClick, playSyncTone, saveVolume } from "../audio";
 import { ConnectionBanner } from "../components/ConnectionBanner";
 import type { ConnState } from "../components/ConnectionBanner";
 import { ModeDial } from "../components/ModeDial";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
+import { METER_DECAY, SignalMeter } from "../components/SignalMeter";
 import { VolumeSlider } from "../components/VolumeSlider";
 import type { EventRow, NetScenario, RadioState, Terminal, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
@@ -53,6 +54,10 @@ export function InstructorConsole({
   const restartPollRef = useRef<number | undefined>(undefined);
   const socketRef = useRef<PivotSocket | null>(null);
   const audio = useRef(new AudioIO());
+  // Live receive level per instructor radio, topped up by each tagged PCM
+  // frame and decayed by each card's meter loop. A ref (not state): the meters
+  // write straight to the DOM at animation rate.
+  const rxLevels = useRef<Record<string, number>>({});
 
   // Poll the server until it answers again, then reload to pick up the (possibly
   // updated) frontend and a clean session. Started once the socket has dropped.
@@ -89,9 +94,11 @@ export function InstructorConsole({
     sock.on("session_started", () => setSessionActive(true));
     sock.on("session_ended", () => setSessionActive(false));
     // Each instructor radio's frames are tagged with its radio_id so the mixed
-    // playback stream can carry independent per-radio headset volumes.
+    // playback stream can carry independent per-radio headset volumes — and so
+    // each card's signal meter can track its own radio's receive level.
     sock.onAudio((buf) => {
       const { radioId, pcm } = parseTaggedAudio(buf);
+      rxLevels.current[radioId] = Math.max(rxLevels.current[radioId] ?? 0, pcmLevel(pcm));
       audio.current.play(pcm, radioId);
     });
     sock.connect();
@@ -167,7 +174,7 @@ export function InstructorConsole({
       </nav>
 
       <main className="console__body">
-        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} events={events} netScenarios={netScenarios} />}
+        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} events={events} netScenarios={netScenarios} rxLevels={rxLevels} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
         {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} socket={socketRef.current} onRestart={enterRestarting} sessionActive={sessionActive} />}
       </main>
@@ -189,20 +196,13 @@ function scenarioFor(netScenarios: NetScenario[], hz: number): NetScenario | und
   return netScenarios.find((s) => netKey(s.freq_hz) === netKey(hz));
 }
 
-// Continuous client-side signal approximation across the tunable range, matching
-// the trainee radio's band profile (§3.2.2): propagation improves smoothly with
-// frequency, so it is log-interpolated rather than bucketed per band.
-function signalFor(hz: number): number {
-  const clamped = Math.max(1.6e6, Math.min(3e9, hz));
-  const t =
-    (Math.log10(clamped) - Math.log10(1.6e6)) /
-    (Math.log10(3e9) - Math.log10(1.6e6));
-  return 0.15 + 0.82 * t;
-}
+// The per-radio receive levels live in a ref shared with the socket's audio
+// handler; the meters poll and decay it at animation rate without re-renders.
+type RxLevels = { current: Record<string, number> };
 
-function RadiosTab({ radios, socket, audio, onChange, events, netScenarios }: {
+function RadiosTab({ radios, socket, audio, onChange, events, netScenarios, rxLevels }: {
   radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
-  events: EventRow[]; netScenarios: NetScenario[];
+  events: EventRow[]; netScenarios: NetScenario[]; rxLevels: RxLevels;
 }) {
   const [phase, setPhase] = useState<TxPhase>("IDLE");
   // Which radio is currently keyed. The instructor connection routes one
@@ -293,6 +293,7 @@ function RadiosTab({ radios, socket, audio, onChange, events, netScenarios }: {
             audio={audio}
             phase={txId === r.radio_id ? phase : "IDLE"}
             scenario={scenarioFor(netScenarios, r.frequency_hz)}
+            rxLevels={rxLevels}
             onStart={startTx}
             onEnd={endTx}
             onRemove={removeRadio}
@@ -311,9 +312,9 @@ function RadiosTab({ radios, socket, audio, onChange, events, netScenarios }: {
 // Shift + the card's number (shown on the control so there is no confusion),
 // and the channel-effects controls — per-net interference and jamming applied
 // to whatever frequency this radio is tuned to (§3.1.5).
-function InstrRadioCard({ radio, index, socket, audio, phase, scenario, onStart, onEnd, onRemove }: {
+function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels, onStart, onEnd, onRemove }: {
   radio: RadioState; index: number; socket: PivotSocket | null; audio: AudioIO; phase: TxPhase;
-  scenario: NetScenario | undefined;
+  scenario: NetScenario | undefined; rxLevels: RxLevels;
   onStart: (r: RadioState) => void; onEnd: (r: RadioState) => void; onRemove: (id: string) => void;
 }) {
   const [entry, setEntry] = useState(fmtMHz(radio.frequency_hz));
@@ -324,11 +325,14 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, onStart,
 
   const interference = scenario?.interference ?? 0;
   const jammed = scenario?.jammed ?? false;
-  // The instructor's signal bar reflects what they are doing to the channel:
-  // induced interference drags it down, a cleanup lifts it above baseline.
-  const signal = jammed
-    ? 0.05
-    : Math.min(1, signalFor(radio.frequency_hz) * (1 - 0.75 * interference));
+
+  // This radio's live receive level (shared map, see RadiosTab): the meter
+  // shows what the channel actually sounds like — the ambient floor with its
+  // crashes and swells, the jam warble, and a transmitting station's voice.
+  const readRxLevel = useCallback(
+    () => (rxLevels.current[radio.radio_id] = (rxLevels.current[radio.radio_id] ?? 0) * METER_DECAY),
+    [rxLevels, radio.radio_id],
+  );
 
   // Local slider value for a smooth drag; the server's broadcast echoes the
   // applied level back through `scenario` (and on retune the box re-syncs to
@@ -398,12 +402,7 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, onStart,
             disabled={transmitting}
             title="Plain / Cypher (persists across retuning)"
           />
-          <div className="signal">
-            <span className="signal__label">SIGNAL · {radio.band_region}</span>
-            <div className="signal__bar">
-              <div className="signal__fill" style={{ width: `${Math.round(signal * 100)}%` }} />
-            </div>
-          </div>
+          <SignalMeter label={`SIGNAL · ${radio.band_region}`} read={readRxLevel} />
         </div>
 
         <div className={`neteffects ${jammed || intPct !== 0 ? "neteffects--active" : ""}`}>

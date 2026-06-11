@@ -145,7 +145,10 @@ body {
 .signal { flex: 1; }
 .signal__label { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
 .signal__bar { height: 12px; background: #0c110c; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; margin-top: 6px; }
-.signal__fill { height: 100%; background: linear-gradient(90deg, var(--amber), var(--green)); transition: width 0.3s; }
+/* The fill is driven per animation frame by the live receive meter, so the
+   transition only needs to bridge frames — any longer and it smears the
+   modulation the meter is there to show. */
+.signal__fill { height: 100%; background: linear-gradient(90deg, var(--amber), var(--green)); transition: width 40ms linear; }
 
 /* ---------- Volume ---------- */
 .volume { margin: 18px 0 8px; }

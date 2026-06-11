@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ModeDial } from "../components/ModeDial";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
+import { METER_DECAY, SignalMeter } from "../components/SignalMeter";
 import { VolumeSlider } from "../components/VolumeSlider";
-import { AudioIO, loadVolume, playClick, playSyncTone, saveVolume } from "../audio";
+import { AudioIO, loadVolume, pcmLevel, playClick, playSyncTone, saveVolume } from "../audio";
 import type { LoginResponse, RadioMode, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
 
 // Radio view (spec §3.2.2, §7.2.2): large frequency display + tuning, a
-// prominent Plain/Cypher toggle, a frequency-dependent signal indicator, the
-// PTT control with the IDLE → CRYPTO SYNC → SECURE TX / TX state machine, and a
-// corner seven-segment clock.
+// prominent Plain/Cypher toggle, a live signal meter driven by the received
+// audio, the PTT control with the IDLE → CRYPTO SYNC → SECURE TX / TX state
+// machine, and a corner seven-segment clock.
 
 const STEP_HZ = 12_500; // tuning step / channel raster (12.5 kHz)
 
@@ -17,18 +18,10 @@ function snapToStep(hz: number): number {
   return Math.round(hz / STEP_HZ) * STEP_HZ;
 }
 
-function regionFor(hz: number): { label: string; signal: number } {
+function regionFor(hz: number): string {
   // Standard ITU bands (ITU-R V.431): HF ≤30 MHz, VHF ≤300 MHz, UHF above —
   // the upper edge of each band belongs to the lower band, so 30 MHz is HF.
-  const label = hz <= 30e6 ? "HF" : hz <= 300e6 ? "VHF" : "UHF";
-  // The signal bar is a continuous client-side approximation of the band
-  // profile (§3.2.2): propagation improves smoothly with frequency, so it is
-  // log-interpolated across the tunable range rather than bucketed per band.
-  const clamped = Math.max(1.6e6, Math.min(3e9, hz));
-  const t =
-    (Math.log10(clamped) - Math.log10(1.6e6)) /
-    (Math.log10(3e9) - Math.log10(1.6e6));
-  return { label, signal: 0.15 + 0.82 * t };
+  return hz <= 30e6 ? "HF" : hz <= 300e6 ? "VHF" : "UHF";
 }
 
 function formatMHz(hz: number): string {
@@ -55,6 +48,12 @@ export function Radio({
   const region = regionFor(freqHz);
   const transmitting = phase !== "IDLE";
 
+  // Live receive level: topped up by each arriving PCM frame, decayed by the
+  // meter's animation loop, so the bar tracks the channel — hiss, crashes,
+  // and the jump + modulation when another station transmits.
+  const rxLevel = useRef(0);
+  const readRxLevel = useCallback(() => (rxLevel.current *= METER_DECAY), []);
+
   // Apply the saved headset volume to the player (and on every change).
   useEffect(() => {
     audio.current.setVolume(volume);
@@ -67,7 +66,10 @@ export function Radio({
 
   // Play incoming voice; enable audio on the first user gesture (autoplay rules).
   useEffect(() => {
-    socket.onAudio((buf) => audio.current.play(buf));
+    socket.onAudio((buf) => {
+      rxLevel.current = Math.max(rxLevel.current, pcmLevel(buf));
+      audio.current.play(buf);
+    });
     const enable = () => audio.current.init().catch(() => {});
     window.addEventListener("pointerdown", enable, { once: true });
     window.addEventListener("keydown", enable, { once: true });
@@ -167,7 +169,7 @@ export function Radio({
   return (
     <div className="radio">
       <header className="radio__top">
-        <div className="radio__call mono">{login.radio_id ? "ON NET" : ""} · {region.label}</div>
+        <div className="radio__call mono">{login.radio_id ? "ON NET" : ""} · {region}</div>
         <SevenSegmentClock timezone={timezone} />
       </header>
 
@@ -206,12 +208,7 @@ export function Radio({
             title="Plain / Cypher (persists across retuning)"
           />
 
-          <div className="signal">
-            <span className="signal__label">SIGNAL</span>
-            <div className="signal__bar">
-              <div className="signal__fill" style={{ width: `${Math.round(region.signal * 100)}%` }} />
-            </div>
-          </div>
+          <SignalMeter label="SIGNAL" read={readRxLevel} />
         </div>
 
         <VolumeSlider value={volume} onChange={changeVolume} />
