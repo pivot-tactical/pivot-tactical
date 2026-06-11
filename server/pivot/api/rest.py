@@ -28,6 +28,7 @@ from pivot.api.schemas import (
     TuneRequest,
 )
 from pivot.audio.render import AarCryptoView, PlaybackMode, render_event_wav_bytes
+from pivot.core.bands import snap_frequency
 from pivot.core.crypto import RadioMode
 from pivot.core.radios import RadioBusyError
 from pivot.db import repository as repo
@@ -328,6 +329,10 @@ def admin_update_settings(updates: dict = Body(...), manager=Depends(get_manager
         for key, value in updates.items():
             if key not in _SETTABLE_KEYS:
                 continue
+            # The start frequency must be a channel the radios can actually tune
+            # to, so snap it to the 12.5 kHz raster before persisting.
+            if key == "default_frequency_hz":
+                value = snap_frequency(float(value))
             cfg.set(key, value)
             applied[key] = value
     if "display_timezone" in applied:
