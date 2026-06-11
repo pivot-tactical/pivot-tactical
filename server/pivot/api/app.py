@@ -105,7 +105,7 @@ def frontend_dist_dir() -> Path | None:
     return None
 
 
-def create_app(settings: Settings | None = None, manager: SessionManager | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, manager: SessionManager | None = None, force_https: bool = False) -> FastAPI:
     """Build the app. A shared ``manager`` may be supplied (e.g. by the CLI
     entry point) so the caller and the server operate on the same live state."""
     cfg = settings or default_settings
@@ -173,6 +173,10 @@ def create_app(settings: Settings | None = None, manager: SessionManager | None 
         version=version_info.version,
         lifespan=lifespan,
     )
+
+    if force_https:
+        from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+        app.add_middleware(HTTPSRedirectMiddleware)
 
     # LAN-only deployment: same-origin frontend, but allow LAN origins for dev.
     app.add_middleware(

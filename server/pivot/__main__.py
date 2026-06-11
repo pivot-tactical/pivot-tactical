@@ -113,7 +113,7 @@ def _settings_from_args(args: argparse.Namespace) -> Settings:
 
 
 def run_server(settings: Settings, manager: SessionManager, tls: tuple[Path, Path] | None = None) -> None:
-    app = create_app(settings, manager=manager)
+    app = create_app(settings, manager=manager, force_https=tls is not None)
     tls_kwargs: dict = {}
     if tls is not None:
         certfile, keyfile = tls
