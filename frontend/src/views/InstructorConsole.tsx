@@ -7,7 +7,7 @@ import type { ConnState } from "../components/ConnectionBanner";
 import { ModeDial } from "../components/ModeDial";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
 import { VolumeSlider } from "../components/VolumeSlider";
-import type { EventRow, RadioState, Terminal, TxPhase } from "../types";
+import type { EventRow, NetScenario, RadioState, Terminal, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
 
 type Tab = "radios" | "monitor" | "scenario" | "settings";
@@ -44,6 +44,7 @@ export function InstructorConsole({
   const [tab, setTab] = useState<Tab>(mustChangePassword ? "settings" : "radios");
   const [radios, setRadios] = useState<RadioState[]>([]);
   const [terminals, setTerminals] = useState<Terminal[]>([]);
+  const [netScenarios, setNetScenarios] = useState<NetScenario[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionName, setSessionName] = useState("");
@@ -75,6 +76,11 @@ export function InstructorConsole({
       else setConn("offline");
     });
     sock.on("instructor_radios", (p) => setRadios(p));
+    // band_profile_update payloads are partial; only the keys present changed.
+    // The connect-time snapshot carries the full per-net override list.
+    sock.on("band_profile_update", (p) => {
+      if (p.net_scenarios) setNetScenarios(p.net_scenarios);
+    });
     sock.on("terminal_update", (p) => setTerminals((p.terminals || []).filter((t: Terminal) => !t.is_instructor)));
     sock.on("event_logged", (ev) => setEvents((prev) => [ev, ...prev].slice(0, 200)));
     sock.on("transcription_updated", (ev) =>
@@ -161,9 +167,9 @@ export function InstructorConsole({
       </nav>
 
       <main className="console__body">
-        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} events={events} />}
+        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} events={events} netScenarios={netScenarios} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
-        {tab === "scenario" && <ScenarioTab />}
+        {tab === "scenario" && <ScenarioTab netScenarios={netScenarios} />}
         {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} socket={socketRef.current} onRestart={enterRestarting} sessionActive={sessionActive} />}
       </main>
     </div>
@@ -177,6 +183,12 @@ const fmtMHz = (hz: number) => (hz / 1e6).toFixed(4);
 function snapToStep(hz: number): number {
   return Math.round(hz / STEP_HZ) * STEP_HZ;
 }
+// Channel index on the raster — two frequencies on the same channel share a net
+// (and therefore share one per-net scenario override).
+const netKey = (hz: number) => Math.round(hz / STEP_HZ);
+function scenarioFor(netScenarios: NetScenario[], hz: number): NetScenario | undefined {
+  return netScenarios.find((s) => netKey(s.freq_hz) === netKey(hz));
+}
 
 // Continuous client-side signal approximation across the tunable range, matching
 // the trainee radio's band profile (§3.2.2): propagation improves smoothly with
@@ -189,9 +201,9 @@ function signalFor(hz: number): number {
   return 0.15 + 0.82 * t;
 }
 
-function RadiosTab({ radios, socket, audio, onChange, events }: {
+function RadiosTab({ radios, socket, audio, onChange, events, netScenarios }: {
   radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
-  events: EventRow[];
+  events: EventRow[]; netScenarios: NetScenario[];
 }) {
   const [phase, setPhase] = useState<TxPhase>("IDLE");
   // Which radio is currently keyed. The instructor connection routes one
@@ -281,6 +293,7 @@ function RadiosTab({ radios, socket, audio, onChange, events }: {
             socket={socket}
             audio={audio}
             phase={txId === r.radio_id ? phase : "IDLE"}
+            scenario={scenarioFor(netScenarios, r.frequency_hz)}
             onStart={startTx}
             onEnd={endTx}
             onRemove={removeRadio}
@@ -294,18 +307,38 @@ function RadiosTab({ radios, socket, audio, onChange, events }: {
 }
 
 // One instructor radio rendered like the trainee panel: large frequency display
-// + tuning, the Plain/Cypher dial, a signal indicator, and its own PTT keyed by
-// Shift + the card's number (shown on the control so there is no confusion).
-function InstrRadioCard({ radio, index, socket, audio, phase, onStart, onEnd, onRemove }: {
+// + tuning, the Plain/Cypher dial, a signal indicator, its own PTT keyed by
+// Shift + the card's number (shown on the control so there is no confusion),
+// and the channel-effects controls — per-net interference and jamming applied
+// to whatever frequency this radio is tuned to (§3.1.5).
+function InstrRadioCard({ radio, index, socket, audio, phase, scenario, onStart, onEnd, onRemove }: {
   radio: RadioState; index: number; socket: PivotSocket | null; audio: AudioIO; phase: TxPhase;
+  scenario: NetScenario | undefined;
   onStart: (r: RadioState) => void; onEnd: (r: RadioState) => void; onRemove: (id: string) => void;
 }) {
   const [entry, setEntry] = useState(fmtMHz(radio.frequency_hz));
   const [volume, setVolume] = useState(() => loadVolume(`instr.${radio.radio_id}`));
   const entryRef = useRef<HTMLInputElement>(null);
   const transmitting = phase !== "IDLE";
-  const signal = signalFor(radio.frequency_hz);
   const shortcut = index <= 9 ? `SHIFT + ${index}` : null;
+
+  const interference = scenario?.interference ?? 0;
+  const jammed = scenario?.jammed ?? false;
+  // The instructor's signal bar reflects what they are doing to the channel.
+  const signal = jammed ? 0.05 : signalFor(radio.frequency_hz) * (1 - 0.75 * interference);
+
+  // Local slider value for a smooth drag; the server's broadcast echoes the
+  // applied level back through `scenario` (and on retune the box re-syncs to
+  // the new channel's setting).
+  const [intPct, setIntPct] = useState(Math.round(interference * 100));
+  useEffect(() => {
+    setIntPct(Math.round(interference * 100));
+  }, [interference, radio.frequency_hz]);
+
+  // Apply a per-net override to this radio's current channel ("god mode").
+  function setNet(patch: { interference?: number; jammed?: boolean }) {
+    api.scenario({ net_scenario: { frequency_hz: radio.frequency_hz, ...patch } }).catch(() => {});
+  }
 
   // Keep the entry box in step with server-confirmed tunes (step buttons,
   // external retunes) without clobbering what the instructor is typing mid-edit.
@@ -367,6 +400,31 @@ function InstrRadioCard({ radio, index, socket, audio, phase, onStart, onEnd, on
             <div className="signal__bar">
               <div className="signal__fill" style={{ width: `${Math.round(signal * 100)}%` }} />
             </div>
+          </div>
+        </div>
+
+        <div className={`neteffects ${jammed || intPct > 0 ? "neteffects--active" : ""}`}>
+          <span className="neteffects__label">
+            CHANNEL EFFECTS{jammed ? " · JAMMED" : intPct > 0 ? ` · INTERFERENCE ${intPct}%` : ""}
+          </span>
+          <div className="row gap">
+            <input
+              type="range" min={0} max={100} value={intPct}
+              aria-label="Interference level on this channel"
+              title="Interference induced on this channel (degrades the net for everyone tuned to it)"
+              onChange={(e) => {
+                const v = +e.target.value;
+                setIntPct(v);
+                setNet({ interference: v / 100 });
+              }}
+            />
+            <button
+              className={`btn ${jammed ? "btn--danger" : ""}`}
+              title="Jam this channel (a wall of jammer noise; trainees must change frequency)"
+              onClick={() => setNet({ jammed: !jammed })}
+            >
+              {jammed ? "JAMMING" : "Jam"}
+            </button>
           </div>
         </div>
 
@@ -446,7 +504,7 @@ function MonitorTab({ terminals }: { terminals: Terminal[] }) {
   );
 }
 
-function ScenarioTab() {
+function ScenarioTab({ netScenarios }: { netScenarios: NetScenario[] }) {
   const [atmo, setAtmo] = useState(100);
   const [crypto, setCrypto] = useState(true);
   const [jamLo, setJamLo] = useState("14.2");
@@ -454,11 +512,15 @@ function ScenarioTab() {
   const [jamOn, setJamOn] = useState(false);
   const mhz = (s: string) => (parseFloat(s) || 0) * 1e6;
 
+  function clearNet(s: NetScenario) {
+    api.scenario({ net_scenario: { frequency_hz: s.freq_hz, interference: 0, jammed: false } }).catch(() => {});
+  }
+
   return (
     <section className="card pad">
       <h3>Scenario Controls</h3>
       <div className="field">
-        <span>Atmospheric severity — {(atmo / 100).toFixed(2)}×</span>
+        <span>Atmospheric severity — {(atmo / 100).toFixed(2)}× (all frequencies)</span>
         <input type="range" min={25} max={300} value={atmo}
           onChange={(e) => { const v = +e.target.value; setAtmo(v); api.scenario({ atmospheric_multiplier: v / 100 }); }} />
       </div>
@@ -475,6 +537,28 @@ function ScenarioTab() {
           {jamOn ? "Stop Jam" : "Start Jam"}
         </button>
         <button className="btn" onClick={() => api.scenario({ noise_burst: [mhz(jamLo), mhz(jamHi)] })}>Noise Burst</button>
+      </div>
+
+      {/* Per-channel overrides set from the instructor radio cards. Shown here
+          so an effect left on doesn't outlive the radio that set it unnoticed. */}
+      <div className="mt">
+        <h4>Channel effects (per net)</h4>
+        {netScenarios.length === 0 && (
+          <p className="muted">
+            None active. Use the Channel Effects controls on an instructor radio
+            (Radios tab) to induce interference or jam its tuned channel.
+          </p>
+        )}
+        {netScenarios.map((s) => (
+          <div className="row gap mt" key={s.freq_hz}>
+            <span className="mono">{fmtMHz(s.freq_hz)} MHz</span>
+            {s.jammed && <span className="text--amber mono">JAMMED</span>}
+            {s.interference > 0 && (
+              <span className="muted mono">interference {Math.round(s.interference * 100)}%</span>
+            )}
+            <button className="btn btn--ghost" onClick={() => clearNet(s)}>Clear</button>
+          </div>
+        ))}
       </div>
     </section>
   );

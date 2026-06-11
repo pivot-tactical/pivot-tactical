@@ -8,7 +8,9 @@ function of:
 
 * the editable noise-vs-frequency **curve** (anchor points, interpolated),
 * a global **atmospheric multiplier** that scales the whole curve worse/better,
-* any instructor-injected **jamming** on a frequency or span.
+* any instructor-injected **jamming** on a frequency or span,
+* per-net **scenario overrides** (interference level / jammer) the instructor
+  sets on individual channels from their radio panels (§3.1.5).
 
 Frequencies are handled internally in **hertz** (float). Parsing/formatting
 helpers convert to and from the human-readable strings stored on events and
@@ -160,6 +162,9 @@ class BandConditions:
     bandpass_high_hz: float
     squelch_tail_ms: float          # tail length, longer on HF
     jammed: bool = False            # instructor jamming covers this frequency
+    # Instructor-induced interference on this net, 0.0 (none) .. 1.0 (severe).
+    # Degrades SNR and adds the interference layers to the noise texture.
+    interference: float = 0.0
 
     @property
     def snr_linear(self) -> float:
@@ -180,6 +185,7 @@ class BandConditions:
             "bandpass_high_hz": self.bandpass_high_hz,
             "squelch_tail_ms": self.squelch_tail_ms,
             "jammed": self.jammed,
+            "interference": self.interference,
         }
 
     @classmethod
@@ -198,6 +204,7 @@ class BandConditions:
             bandpass_high_hz=float(d["bandpass_high_hz"]),
             squelch_tail_ms=float(d["squelch_tail_ms"]),
             jammed=bool(d.get("jammed", False)),
+            interference=float(d.get("interference", 0.0)),
         )
 
 
@@ -238,6 +245,58 @@ class JammingSpan:
         return self.low_hz <= freq_hz <= self.high_hz
 
 
+def net_key_for(freq_hz: float) -> int:
+    """Quantise a frequency to its channel index on the 12.5 kHz raster.
+
+    Per-net scenario overrides are keyed on the channel, matching how radios on
+    the same quantised frequency form an emergent net.
+    """
+    return round(clamp_frequency(freq_hz) / CHANNEL_STEP_HZ)
+
+
+# How hard full interference (1.0) leans on the channel: enough headroom that a
+# clean VHF/UHF net (SNR ~25–30 dB) is driven down near the unusable floor.
+_INTERFERENCE_SNR_SPAN_DB = 30.0
+
+
+@dataclass
+class NetScenario:
+    """Instructor overrides for one net/channel (spec §3.1.5).
+
+    Set from the instructor radio panels ("god mode" per channel): a continuous
+    ``interference`` level degrades the net progressively; ``jammed`` makes it
+    a wall of jammer noise. A default-valued scenario is dropped from the
+    profile rather than stored.
+    """
+
+    freq_hz: float              # snapped channel frequency
+    interference: float = 0.0   # 0.0 (clean) .. 1.0 (severe)
+    jammed: bool = False
+
+    def __post_init__(self) -> None:
+        self.freq_hz = snap_frequency(self.freq_hz)
+        self.interference = max(0.0, min(1.0, self.interference))
+
+    @property
+    def is_default(self) -> bool:
+        return self.interference <= 0.0 and not self.jammed
+
+    def to_dict(self) -> dict:
+        return {
+            "freq_hz": self.freq_hz,
+            "interference": self.interference,
+            "jammed": self.jammed,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> NetScenario:
+        return cls(
+            freq_hz=float(d["freq_hz"]),
+            interference=float(d.get("interference", 0.0)),
+            jammed=bool(d.get("jammed", False)),
+        )
+
+
 @dataclass
 class BandProfile:
     """The single active band profile (spec §5.1 ``band_profile`` row).
@@ -252,6 +311,9 @@ class BandProfile:
     anchors: list[CurveAnchor] = field(default_factory=lambda: list(DEFAULT_ANCHORS))
     atmospheric_multiplier: float = 1.0
     jamming: list[JammingSpan] = field(default_factory=list)
+    # Per-net overrides keyed by channel index (see net_key_for). Only nets the
+    # instructor has actually touched are present.
+    net_scenarios: dict[int, NetScenario] = field(default_factory=dict)
     crypto_delay_ms: int = 1500
     crypto_enabled: bool = True
 
@@ -309,7 +371,19 @@ class BandProfile:
         low_hf = freq_hz < 10_000_000.0
         pink_weight = _pink_weight_for(freq_hz)
 
-        jammed = any(j.covers(freq_hz) for j in self.jamming)
+        # Per-net override on this channel, if the instructor set one.
+        net = self.net_scenarios.get(net_key_for(freq_hz))
+        interference = net.interference if net is not None else 0.0
+        if interference > 0.0:
+            # Induced interference buries the voice progressively and stirs the
+            # channel up (deeper, quicker fading) so trainees are pushed to
+            # change frequency well before the net is a total loss.
+            snr -= interference * _INTERFERENCE_SNR_SPAN_DB
+            fading_depth = max(fading_depth, 6.0 + interference * 14.0)
+
+        jammed = any(j.covers(freq_hz) for j in self.jamming) or (
+            net is not None and net.jammed
+        )
         if jammed:
             jam_intensity = max((j.intensity for j in self.jamming if j.covers(freq_hz)), default=1.0)
             # Jamming overrides the baseline with heavy noise on this frequency.
@@ -328,7 +402,37 @@ class BandProfile:
             bandpass_high_hz=3000.0 - (300.0 if low_hf else 0.0),
             squelch_tail_ms=_squelch_tail_for(freq_hz),
             jammed=jammed,
+            interference=interference,
         )
+
+    # -- per-net scenario overrides ----------------------------------------- #
+
+    def net_scenario_at(self, freq_hz: float) -> NetScenario | None:
+        return self.net_scenarios.get(net_key_for(freq_hz))
+
+    def set_net_scenario(
+        self,
+        freq_hz: float,
+        *,
+        interference: float | None = None,
+        jammed: bool | None = None,
+    ) -> NetScenario:
+        """Update (or create) the override for one channel.
+
+        Only the fields passed change; an override back at defaults is removed
+        so the profile carries just the nets the instructor is acting on.
+        """
+        key = net_key_for(freq_hz)
+        current = self.net_scenarios.get(key) or NetScenario(freq_hz=freq_hz)
+        if interference is not None:
+            current.interference = max(0.0, min(1.0, interference))
+        if jammed is not None:
+            current.jammed = jammed
+        if current.is_default:
+            self.net_scenarios.pop(key, None)
+        else:
+            self.net_scenarios[key] = current
+        return current
 
     # -- serialisation ----------------------------------------------------- #
 
@@ -342,6 +446,18 @@ class BandProfile:
             }
             for a in self.anchors
         ]
+
+    def net_scenarios_to_json(self) -> list[dict]:
+        return [s.to_dict() for s in sorted(self.net_scenarios.values(), key=lambda s: s.freq_hz)]
+
+    @staticmethod
+    def net_scenarios_from_json(data: list[dict]) -> dict[int, NetScenario]:
+        out: dict[int, NetScenario] = {}
+        for d in data:
+            scenario = NetScenario.from_dict(d)
+            if not scenario.is_default:
+                out[net_key_for(scenario.freq_hz)] = scenario
+        return out
 
     @classmethod
     def from_curve_json(cls, data: list[dict], **kwargs) -> BandProfile:

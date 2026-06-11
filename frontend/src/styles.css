@@ -275,6 +275,18 @@ body {
 .instr-radio .ptt { flex: 0 0 190px; align-self: stretch; margin-top: 0; padding: 18px; }
 .instr-radio .ptt__state { font-size: 22px; }
 
+/* Per-channel "god mode": interference slider + jam toggle on each instructor
+   radio, applied to whatever frequency the radio is tuned to. */
+.neteffects {
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.neteffects--active { border-color: var(--amber); }
+.neteffects__label { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
+.neteffects--active .neteffects__label { color: var(--amber); }
+.neteffects input[type="range"] { flex: 1; min-width: 80px; }
+.neteffects .btn { padding: 4px 12px; }
+
 /* Narrow viewports: stack the card vertically again so it doesn't get cramped. */
 @media (max-width: 560px) {
   .instr-radio { flex-direction: column; }

@@ -515,6 +515,27 @@ class SessionManager:
         """Instant noise burst on a frequency/span (§3.1.5)."""
         self.broadcast("scenario_event", {"noise_burst": [low_hz, high_hz]})
 
+    def set_net_scenario(
+        self,
+        frequency: str | float,
+        *,
+        interference: float | None = None,
+        jammed: bool | None = None,
+    ) -> dict:
+        """Per-net instructor override: interference level / jammer on one
+        channel (§3.1.5). Only the passed fields change; the full override list
+        is persisted and broadcast so every console stays in step."""
+        freq_hz = snap_frequency(parse_frequency(frequency))
+        scenario = self.band_profile.set_net_scenario(
+            freq_hz, interference=interference, jammed=jammed
+        )
+        self._save_band_profile()
+        self.broadcast(
+            "band_profile_update",
+            {"net_scenarios": self.band_profile.net_scenarios_to_json()},
+        )
+        return scenario.to_dict()
+
     def set_crypto_enabled(self, enabled: bool) -> None:
         self.band_profile.crypto_enabled = enabled
         self._save_band_profile()
@@ -524,6 +545,8 @@ class SessionManager:
         self.band_profile = BandProfile.from_curve_json(
             anchors_json,
             atmospheric_multiplier=self.band_profile.atmospheric_multiplier,
+            jamming=self.band_profile.jamming,
+            net_scenarios=self.band_profile.net_scenarios,
             crypto_delay_ms=self.band_profile.crypto_delay_ms,
             crypto_enabled=self.band_profile.crypto_enabled,
         )
@@ -562,6 +585,7 @@ class SessionManager:
             "crypto_enabled": self.band_profile.crypto_enabled,
             "crypto_delay_ms": self.band_profile.crypto_delay_ms,
             "jamming": [[j.low_hz, j.high_hz] for j in self.band_profile.jamming],
+            "net_scenarios": self.band_profile.net_scenarios_to_json(),
         }
 
     # -- internals --------------------------------------------------------- #
