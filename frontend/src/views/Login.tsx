@@ -124,11 +124,14 @@ export function Login({
             {micInsecure ? (
               <>
                 This connection isn't secure, so the browser won't allow microphone
-                access at all (no permission prompt will appear). If the address
-                bar shows <code>http://</code>, ask the instructor for the{" "}
-                <code>https://</code> address instead — the browser will warn that
-                it isn't verified (PIVOT uses a private, self-signed certificate);
-                choose <strong>Advanced → Proceed</strong> once, then reload this page.
+                access at all (no permission prompt will appear). Please use the
+                secure address instead:{" "}
+                <a href={window.location.href.replace(/^http:/, "https:")} style={{ fontWeight: "bold" }}>
+                  {window.location.href.replace(/^http:/, "https:")}
+                </a>
+                . The browser will warn that it isn't verified (PIVOT uses a private,
+                self-signed certificate); choose <strong>Advanced → Proceed</strong>{" "}
+                once, then reload this page.
               </>
             ) : (
               "Allow microphone access in your browser to transmit."
