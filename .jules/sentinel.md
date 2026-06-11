@@ -1,4 +1,4 @@
-## 2025-06-09 - [SSRF Bypass in URL Validation]
-**Vulnerability:** The GitHub URL validation in `server/pivot/api/schemas.py` checked if the parsed hostname ended with `.githubusercontent.com`. This is a classic SSRF bypass vector as it allows an attacker to use a malicious domain like `evil.githubusercontent.com`.
-**Learning:** Never use a `.endswith` string check for domain validation in URL parsers. Subdomains of allowed top level domains can be registered by anyone (or bypasses using `@` might trick simple string parsers).
-**Prevention:** Use a strict allowlist of exact domains (e.g., `hostname not in allowed_set`) rather than string suffix matching when validating URL safety boundaries.
+## 2025-03-09 - [ApplyUpdateRequest Path Traversal]
+**Vulnerability:** The `ApplyUpdateRequest` schema in `server/pivot/api/schemas.py` accepted `tag` and `asset_name` fields without validating for path traversal characters. These values are used to construct file paths for staging update downloads.
+**Learning:** Pydantic models must validate all file path components derived from user input to prevent SSRF or Path Traversal, even if the user is considered an admin (defense in depth).
+**Prevention:** Always use `@field_validator` on API schemas to sanitize input strings that will be interpolated into file or directory paths. Reject payloads containing `/`, `\`, and `..`.

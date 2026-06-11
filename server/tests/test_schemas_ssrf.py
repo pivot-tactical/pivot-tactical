@@ -54,3 +54,28 @@ def test_apply_update_request_invalid_urls():
             asset_url="https://github.com@evil.com/malicious.zip",
         )
     assert "URL must point to GitHub" in str(exc_info.value)
+
+def test_apply_update_request_path_traversal():
+    with pytest.raises(ValidationError) as exc_info:
+        ApplyUpdateRequest(
+            tag="../../etc",
+            asset_name="PIVOT.zip",
+            asset_url="https://github.com/pivot-tactical/pivot/releases/download/v1.0.0/PIVOT.zip",
+        )
+    assert "must be a valid filename without path separators" in str(exc_info.value)
+
+    with pytest.raises(ValidationError) as exc_info:
+        ApplyUpdateRequest(
+            tag="1.0.0",
+            asset_name="../../etc/passwd",
+            asset_url="https://github.com/pivot-tactical/pivot/releases/download/v1.0.0/PIVOT.zip",
+        )
+    assert "must be a valid filename without path separators" in str(exc_info.value)
+
+    with pytest.raises(ValidationError) as exc_info:
+        ApplyUpdateRequest(
+            tag="1.0.0",
+            asset_name="malicious\\..\\..\\path",
+            asset_url="https://github.com/pivot-tactical/pivot/releases/download/v1.0.0/PIVOT.zip",
+        )
+    assert "must be a valid filename without path separators" in str(exc_info.value)
