@@ -62,3 +62,6 @@ class ConfigStore:
 
     def tuning_step_hz(self) -> float:
         return float(self.get("tuning_step_hz", 100.0))
+
+    def default_frequency_hz(self) -> float:
+        return float(self.get("default_frequency_hz", 7_000_000.0))

@@ -146,10 +146,10 @@ export const api = {
   // --- instructor: radios ---
   instructorRadios: () =>
     jsonFetch<RadioState[]>("/api/admin/instructor-radios"),
-  addInstructorRadio: (frequency: string, label?: string) =>
+  addInstructorRadio: (frequency?: string, label?: string) =>
     jsonFetch<RadioState>("/api/admin/instructor-radios", {
       method: "POST",
-      body: JSON.stringify({ frequency, label: label ?? null }),
+      body: JSON.stringify({ frequency: frequency ?? null, label: label ?? null }),
     }),
   removeInstructorRadio: (radioId: string) =>
     jsonFetch(`/api/admin/instructor-radios/${radioId}`, { method: "DELETE" }),

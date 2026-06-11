@@ -42,6 +42,9 @@ from pivot.db.config_store import ConfigStore
 from pivot.db.database import Database
 from pivot.dsp.engine import DspEngine
 
+# Fallback power-on frequency used when no operator default is configured. The
+# effective default is the ``default_frequency_hz`` config key (instructor
+# Settings page); this constant only seeds that default.
 DEFAULT_FREQUENCY_HZ = 7_000_000.0  # a quiet HF spot to power on at
 
 
@@ -188,9 +191,9 @@ class SessionManager:
         On reconnect within a session the radio resumes on its persisted
         frequency and crypto mode — mode is never auto-reset (§3.4.4, §8.3).
         """
-        freq_hz = DEFAULT_FREQUENCY_HZ
         mode = RadioMode.PLAIN
         with self.db.session() as s:
+            freq_hz = ConfigStore(s).default_frequency_hz()
             repo.upsert_trainee(s, trainee_id, name)
             if self.current_session_id:
                 state = repo.get_radio_state(s, self.current_session_id, trainee_id)
@@ -451,9 +454,11 @@ class SessionManager:
     # -- instructor radios ------------------------------------------------- #
 
     def add_instructor_radio(self, label: str | None = None,
-                             frequency: str | float = DEFAULT_FREQUENCY_HZ) -> dict:
-        freq_hz = snap_frequency(parse_frequency(frequency))
+                             frequency: str | float | None = None) -> dict:
         with self.db.session() as s:
+            if frequency is None:
+                frequency = ConfigStore(s).default_frequency_hz()
+            freq_hz = snap_frequency(parse_frequency(frequency))
             existing = repo.list_instructor_radios(s)
             label = label or f"Radio {len(existing) + 1}"
             row = repo.add_instructor_radio(s, label, format_frequency(freq_hz))

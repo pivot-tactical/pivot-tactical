@@ -96,6 +96,9 @@ DEFAULT_CONFIG: dict[str, object] = {
     "crypto_delay_ms": 1500,
     "crypto_tone_preset": "ky57",
     "tuning_step_hz": 100.0,
+    # Frequency every radio powers on at when there is no persisted state — the
+    # trainee login default and the default for newly added instructor radios.
+    "default_frequency_hz": 7_000_000.0,
     # --- updates (§3.7.8) ---
     "github_repo": DEFAULT_GITHUB_REPO,
     "github_token": "",

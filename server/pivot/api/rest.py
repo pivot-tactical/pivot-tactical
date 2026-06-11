@@ -50,6 +50,7 @@ _SETTABLE_KEYS = {
     "crypto_delay_ms",
     "crypto_tone_preset",
     "tuning_step_hz",
+    "default_frequency_hz",
     "update_channel",
     "update_check_on_startup",
     "auto_update",
@@ -273,7 +274,7 @@ def admin_list_instructor_radios(manager=Depends(get_manager)) -> list[dict]:
 @router.post("/admin/instructor-radios", dependencies=[Depends(require_instructor)])
 def admin_add_instructor_radio(
     label: str | None = Body(default=None),
-    frequency: str = Body(default="7.000 MHz"),
+    frequency: str | None = Body(default=None),
     manager=Depends(get_manager),
 ) -> dict:
     return manager.add_instructor_radio(label, frequency)

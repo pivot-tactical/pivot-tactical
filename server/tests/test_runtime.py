@@ -47,7 +47,27 @@ def test_ended_session_does_not_resume_after_restart(database, settings):
 def test_login_creates_radio_on_default_freq(manager):
     info = manager.login("ALPHA", "t-1")
     assert info["mode"] == "Plain"
+    assert info["frequency_hz"] == 7_000_000.0  # default start frequency
     assert manager.registry.get("t-1") is not None
+
+
+def test_default_start_frequency_config_drives_login_and_instructor_radio(database, settings):
+    """The operator-configured default_frequency_hz is the power-on frequency
+    for both trainee logins and newly added instructor radios."""
+    from pivot.db.config_store import ConfigStore
+
+    with database.session() as s:
+        ConfigStore(s).set("default_frequency_hz", 14_250_000.0)
+
+    manager = SessionManager(database, settings)
+    info = manager.login("ALPHA", "t-1")
+    assert info["frequency_hz"] == 14_250_000.0
+
+    radio = manager.add_instructor_radio()  # no explicit frequency
+    assert radio["frequency_hz"] == 14_250_000.0
+    # An explicit frequency still wins over the configured default.
+    explicit = manager.add_instructor_radio("Radio X", "40.000 MHz")
+    assert explicit["frequency_hz"] == 40_000_000.0
 
 
 def test_plain_tx_to_listener_is_heard_and_recorded(manager):
