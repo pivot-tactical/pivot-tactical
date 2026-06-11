@@ -112,11 +112,18 @@ jobs:
           if [ -z "$before" ] || [ -z "$after" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
+          # Diff against the merge-base, not `before` directly: `before` can be
+          # main's current tip (set above), which may have moved on past this
+          # branch's fork point. Diffing two commits that aren't ancestors of
+          # each other shows every file that differs in *either* direction —
+          # including unrelated changes already on main — which would wrongly
+          # mark a docs/workflow-only PR as needing a build.
+          base=$(git merge-base "$before" "$after" 2>/dev/null || echo "$before")
           # Paths that affect the shipped application or how it is built.
           # NB: server/pivot/** is app code; server/tests/** is intentionally
           # excluded, as are .github/**, .claude/**, *.md, etc.
           allow='^(server/pivot/|server/requirements\.txt$|server/pyproject\.toml$|frontend/src/|frontend/public/|frontend/index\.html$|frontend/package(-lock)?\.json$|frontend/vite\.config\.ts$|frontend/tsconfig|packaging/)'
-          changed=$(git diff --name-only "$before" "$after" 2>/dev/null || true)
+          changed=$(git diff --name-only "$base" "$after" 2>/dev/null || true)
           echo "Changed files in this push:" >&2; echo "$changed" >&2
           if echo "$changed" | grep -qE "$allow"; then
             echo "code=true" >> "$GITHUB_OUTPUT"
