@@ -232,9 +232,39 @@ body {
 .tbl tr.row--sel { background: #11251a; }
 .tbl .input { padding: 4px 6px; }
 
-/* Radios tab fills the body so only the event log scrolls (no page-level double scrollbar) */
+/* Radios tab fills the body so the radio cards and the event log share the
+   height; the cards grid scrolls if it gets tall, the log stays visible. */
 .radios-layout { display: flex; flex-direction: column; gap: 16px; height: 100%; min-height: 0; }
-.logcard { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* Instructor radios rendered as trainee-style cards (one per radio) */
+.instr-radios {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  align-content: start;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 0 1 auto;
+  padding: 2px;
+}
+.instr-radio { padding: 18px; }
+.instr-radio__head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.instr-radio__num {
+  flex-shrink: 0; width: 26px; height: 26px; display: grid; place-items: center;
+  border: 1px solid var(--green); border-radius: 7px; background: #11251a;
+  color: var(--green); font-size: 13px; font-weight: 600;
+}
+.instr-radio__name { flex: 1; color: var(--muted); letter-spacing: 1px; font-size: 13px; }
+.instr-radio__remove { padding: 4px 10px; }
+.instr-radio .freq__display { font-size: 36px; }
+.instr-radio .freq__unit { font-size: 15px; margin-left: 6px; }
+.instr-radio .freq__controls { gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.instr-radio .freq__entry { width: 110px; font-size: 18px; }
+.instr-radio .radio__row { margin: 16px 0; }
+.instr-radio .ptt { margin-top: 0; padding: 22px; }
+.instr-radio .ptt__state { font-size: 22px; }
+
+.logcard { flex: 1 1 0; min-height: 180px; display: flex; flex-direction: column; }
 .log { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
 .logrow { display: grid; grid-template-columns: 32px 70px 110px 100px 24px 130px 1fr; align-items: center; gap: 10px; padding: 7px 6px; border-bottom: 1px solid var(--line); font-size: 13px; }
 .logtext { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

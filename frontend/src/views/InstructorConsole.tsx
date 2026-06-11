@@ -171,74 +171,86 @@ const fmtMHz = (hz: number) => (hz / 1e6).toFixed(4);
 function snapToStep(hz: number): number {
   return Math.round(hz / STEP_HZ) * STEP_HZ;
 }
-function snapMHzInput(mhzStr: string, fallback = 30): number {
-  const hz = (parseFloat(mhzStr) || fallback) * 1e6;
-  return snapToStep(hz);
-}
 
-// Confirm a typed frequency for an instructor radio row, then blur the box —
-// otherwise focus stays in it and the spacebar PTT just types spaces into it
-// instead of keying up.
-function confirmRadioFreq(el: HTMLInputElement, r: RadioState, socket: PivotSocket | null) {
-  const snapped = snapMHzInput(el.value, r.frequency_hz / 1e6);
-  el.value = fmtMHz(snapped);
-  socket?.instrTune(r.radio_id, `${fmtMHz(snapped)} MHz`);
-  el.blur();
+// Continuous client-side signal approximation across the tunable range, matching
+// the trainee radio's band profile (§3.2.2): propagation improves smoothly with
+// frequency, so it is log-interpolated rather than bucketed per band.
+function signalFor(hz: number): number {
+  const clamped = Math.max(1.6e6, Math.min(3e9, hz));
+  const t =
+    (Math.log10(clamped) - Math.log10(1.6e6)) /
+    (Math.log10(3e9) - Math.log10(1.6e6));
+  return 0.15 + 0.82 * t;
 }
 
 function RadiosTab({ radios, socket, audio, onChange, events }: {
   radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
   events: EventRow[];
 }) {
-  const [selected, setSelected] = useState<string | null>(null);
   const [phase, setPhase] = useState<TxPhase>("IDLE");
-  const [newFreq, setNewFreq] = useState("7.000");
-  const active = radios.find((r) => r.radio_id === selected) || radios[0];
+  // Which radio is currently keyed. The instructor connection routes one
+  // transmission at a time, so a single phase + the keyed radio is enough to
+  // drive every card's PTT state independently.
+  const [txId, setTxId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!socket) return;
     const offs = [
       socket.on("ptt_started", (p) => { setPhase(p.sync_applies ? "CRYPTO_SYNC" : "TX"); if (p.sync_applies) playSyncTone(); }),
       socket.on("secure_tx", () => setPhase("SECURE_TX")),
-      socket.on("ptt_ended", () => setPhase("IDLE")),
-      socket.on("ptt_aborted", () => setPhase("IDLE")),
+      socket.on("ptt_ended", () => { setPhase("IDLE"); setTxId(null); }),
+      socket.on("ptt_aborted", () => { setPhase("IDLE"); setTxId(null); }),
       socket.on("tuned", (r) => onChange(updateRadio(radios, r))),
       socket.on("mode_changed", (r) => onChange(updateRadio(radios, r))),
     ];
     return () => offs.forEach((o) => o && o());
   }, [socket, radios, onChange]);
 
-  const startTx = useCallback(async () => {
-    if (!socket || !active || phase !== "IDLE") return;
+  const startTx = useCallback(async (r: RadioState) => {
+    if (!socket || phase !== "IDLE" || txId !== null) return;
     playClick();
+    setTxId(r.radio_id);
     try {
       await audio.startCapture((pcm) => socket.sendAudio(pcm));
     } catch {
       /* mic blocked: control proceeds, no audio reaches the net */
     }
-    socket.instrPttStart(active.radio_id, active.frequency, active.mode);
-  }, [socket, active, phase, audio]);
+    socket.instrPttStart(r.radio_id, r.frequency, r.mode);
+  }, [socket, phase, txId, audio]);
 
-  const endTx = useCallback(() => {
-    if (!socket || !active) return;
+  const endTx = useCallback((r: RadioState) => {
+    if (!socket || txId !== r.radio_id) return;
     playClick(700);
     audio.stopCapture();
-    if (phase === "CRYPTO_SYNC") socket.instrPttAbort(active.radio_id);
-    else socket.instrPttEnd(active.radio_id);
+    if (phase === "CRYPTO_SYNC") socket.instrPttAbort(r.radio_id);
+    else socket.instrPttEnd(r.radio_id);
     setPhase("IDLE");
-  }, [socket, active, phase, audio]);
+    setTxId(null);
+  }, [socket, txId, phase, audio]);
 
+  // Per-radio PTT hotkey: Shift + the radio's number (§3.4.5). Each card shows
+  // its own combo so there is no ambiguity about which radio keys up. Held by
+  // the digit's keydown/keyup; e.code stays "Digit#" regardless of Shift.
   useEffect(() => {
-    const down = (e: KeyboardEvent) => { if (e.code === "Space" && !e.repeat && !typing(e)) { e.preventDefault(); startTx(); } };
-    const up = (e: KeyboardEvent) => { if (e.code === "Space" && !typing(e)) { e.preventDefault(); endTx(); } };
+    const down = (e: KeyboardEvent) => {
+      if (!e.shiftKey || e.repeat || typing(e)) return;
+      const m = e.code.match(/^Digit([1-9])$/);
+      if (!m) return;
+      const r = radios[parseInt(m[1], 10) - 1];
+      if (r) { e.preventDefault(); startTx(r); }
+    };
+    const up = (e: KeyboardEvent) => {
+      const m = e.code.match(/^Digit([1-9])$/);
+      if (!m) return;
+      const r = radios[parseInt(m[1], 10) - 1];
+      if (r) { e.preventDefault(); endTx(r); }
+    };
     window.addEventListener("keydown", down); window.addEventListener("keyup", up);
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
-  }, [startTx, endTx]);
+  }, [radios, startTx, endTx]);
 
   async function addRadio() {
-    const snapped = snapMHzInput(newFreq, 30);
-    setNewFreq(fmtMHz(snapped));
-    const r = await api.addInstructorRadio(`${fmtMHz(snapped)} MHz`);
+    const r = await api.addInstructorRadio("30.000 MHz");
     onChange([...radios, r]);
   }
   async function removeRadio(id: string) {
@@ -248,65 +260,110 @@ function RadiosTab({ radios, socket, audio, onChange, events }: {
 
   return (
     <div className="radios-layout">
-    <div className="grid2">
-      <section className="card pad">
-        <div className="row between">
-          <h3>Instructor Radios</h3>
-          <div className="row">
-            <input className="input mono w120" value={newFreq} onChange={(e) => setNewFreq(e.target.value)} />
-            <button className="btn btn--primary" onClick={addRadio}>Add MHz</button>
+      <div className="row between">
+        <h3>Instructor Radios</h3>
+        <button className="btn btn--primary" onClick={addRadio}>+ Add Radio</button>
+      </div>
+      <div className="instr-radios">
+        {radios.map((r, i) => (
+          <InstrRadioCard
+            key={r.radio_id}
+            radio={r}
+            index={i + 1}
+            socket={socket}
+            phase={txId === r.radio_id ? phase : "IDLE"}
+            onStart={startTx}
+            onEnd={endTx}
+            onRemove={removeRadio}
+          />
+        ))}
+      </div>
+      {radios.length === 0 && <p className="muted">No instructor radios yet. Add one to begin.</p>}
+      <LiveLogTab events={events} />
+    </div>
+  );
+}
+
+// One instructor radio rendered like the trainee panel: large frequency display
+// + tuning, the Plain/Cypher dial, a signal indicator, and its own PTT keyed by
+// Shift + the card's number (shown on the control so there is no confusion).
+function InstrRadioCard({ radio, index, socket, phase, onStart, onEnd, onRemove }: {
+  radio: RadioState; index: number; socket: PivotSocket | null; phase: TxPhase;
+  onStart: (r: RadioState) => void; onEnd: (r: RadioState) => void; onRemove: (id: string) => void;
+}) {
+  const [entry, setEntry] = useState(fmtMHz(radio.frequency_hz));
+  const entryRef = useRef<HTMLInputElement>(null);
+  const transmitting = phase !== "IDLE";
+  const signal = signalFor(radio.frequency_hz);
+  const shortcut = index <= 9 ? `SHIFT + ${index}` : null;
+
+  // Keep the entry box in step with server-confirmed tunes (step buttons,
+  // external retunes) without clobbering what the instructor is typing mid-edit.
+  useEffect(() => { setEntry(fmtMHz(radio.frequency_hz)); }, [radio.frequency_hz]);
+
+  function tuneTo(hz: number) {
+    const snapped = Math.max(1.6e6, Math.min(3e9, snapToStep(hz)));
+    socket?.instrTune(radio.radio_id, `${fmtMHz(snapped)} MHz`);
+  }
+  // Confirm a typed frequency and hand focus back so the Shift+# PTT keys up
+  // instead of typing into the box.
+  function confirmEntry() {
+    const v = parseFloat(entry);
+    if (!isNaN(v)) tuneTo(v * 1e6);
+    entryRef.current?.blur();
+  }
+
+  return (
+    <section className="card radio__panel instr-radio">
+      <div className="instr-radio__head">
+        <span className="instr-radio__num mono" aria-hidden>{index}</span>
+        <span className="instr-radio__name mono">{radio.name}</span>
+        <button className="btn btn--ghost instr-radio__remove" title="Remove radio"
+          onClick={() => onRemove(radio.radio_id)} disabled={transmitting}>✕</button>
+      </div>
+
+      <div className="freq">
+        <div className="freq__display mono">{fmtMHz(radio.frequency_hz)}<span className="freq__unit">MHz</span></div>
+        <div className="freq__controls">
+          <button className="btn btn--step" aria-label="Decrease frequency"
+            onClick={() => tuneTo(radio.frequency_hz - STEP_HZ)} disabled={transmitting}>▼</button>
+          <input ref={entryRef} className="input mono freq__entry" aria-label="Frequency in MHz"
+            value={entry} disabled={transmitting}
+            onChange={(e) => setEntry(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") confirmEntry(); }} />
+          <button className="btn btn--step" aria-label="Increase frequency"
+            onClick={() => tuneTo(radio.frequency_hz + STEP_HZ)} disabled={transmitting}>▲</button>
+          <button className="btn btn--primary" onClick={confirmEntry} disabled={transmitting}>Tune</button>
+        </div>
+      </div>
+
+      <div className="radio__row">
+        <ModeDial
+          mode={radio.mode}
+          onToggle={() => socket?.instrMode(radio.radio_id, radio.mode === "Cypher" ? "Plain" : "Cypher")}
+          disabled={transmitting}
+          title="Plain / Cypher (persists across retuning)"
+        />
+        <div className="signal">
+          <span className="signal__label">SIGNAL · {radio.band_region}</span>
+          <div className="signal__bar">
+            <div className="signal__fill" style={{ width: `${Math.round(signal * 100)}%` }} />
           </div>
         </div>
-        <table className="tbl">
-          <thead><tr><th></th><th>Radio</th><th>Frequency</th><th>Region</th><th>Mode</th><th></th></tr></thead>
-          <tbody>
-            {radios.map((r) => (
-              <tr key={r.radio_id} className={active?.radio_id === r.radio_id ? "row--sel" : ""}>
-                <td><input type="radio" checked={active?.radio_id === r.radio_id} onChange={() => setSelected(r.radio_id)} /></td>
-                <td className="mono">{r.name}</td>
-                <td className="mono">
-                  <span className="row">
-                    <input className="input mono w110" defaultValue={fmtMHz(r.frequency_hz)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") confirmRadioFreq(e.currentTarget, r, socket);
-                      }} />
-                    <button className="btn btn--ghost"
-                      onClick={(e) => {
-                        const input = e.currentTarget.previousElementSibling as HTMLInputElement;
-                        confirmRadioFreq(input, r, socket);
-                      }}>
-                      Tune
-                    </button>
-                  </span>
-                </td>
-                <td>{r.band_region}</td>
-                <td>
-                  <ModeDial
-                    mode={r.mode}
-                    size="sm"
-                    onToggle={() => socket?.instrMode(r.radio_id, r.mode === "Cypher" ? "Plain" : "Cypher")}
-                  />
-                </td>
-                <td><button className="btn btn--ghost" onClick={() => removeRadio(r.radio_id)}>✕</button></td>
-              </tr>
-            ))}
-            {radios.length === 0 && <tr><td colSpan={6} className="muted">No instructor radios. Add one above.</td></tr>}
-          </tbody>
-        </table>
-      </section>
+      </div>
 
-      <section className="card pad center">
-        <h3>Transmit</h3>
-        <div className="muted mono">{active ? `${active.name} · ${active.frequency} · ${active.mode}` : "Select a radio"}</div>
-        <button className={`ptt ptt--${phase.toLowerCase()}`} disabled={!active}
-          onMouseDown={startTx} onMouseUp={endTx} onMouseLeave={() => phase !== "IDLE" && endTx()}>
-          <span className="ptt__state">{phaseLabel(phase)}</span>
-          <span className="ptt__hint">HOLD / SPACE</span>
-        </button>
-      </section>
-    </div>
-    <LiveLogTab events={events} />
-    </div>
+      <button
+        className={`ptt ptt--${phase.toLowerCase()}`}
+        onMouseDown={() => onStart(radio)}
+        onMouseUp={() => onEnd(radio)}
+        onMouseLeave={() => transmitting && onEnd(radio)}
+        onTouchStart={(e) => { e.preventDefault(); onStart(radio); }}
+        onTouchEnd={(e) => { e.preventDefault(); onEnd(radio); }}
+      >
+        <span className="ptt__state">{phaseLabel(phase)}</span>
+        <span className="ptt__hint">{shortcut ? `HOLD · ${shortcut}` : "HOLD"}</span>
+      </button>
+    </section>
   );
 }
 
