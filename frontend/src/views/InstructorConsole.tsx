@@ -314,40 +314,42 @@ function InstrRadioCard({ radio, index, socket, phase, onStart, onEnd, onRemove 
   }
 
   return (
-    <section className="card radio__panel instr-radio">
-      <div className="instr-radio__head">
-        <span className="instr-radio__num mono" aria-hidden>{index}</span>
-        <span className="instr-radio__name mono">{radio.name}</span>
-        <button className="btn btn--ghost instr-radio__remove" title="Remove radio"
-          onClick={() => onRemove(radio.radio_id)} disabled={transmitting}>✕</button>
-      </div>
-
-      <div className="freq">
-        <div className="freq__display mono">{fmtMHz(radio.frequency_hz)}<span className="freq__unit">MHz</span></div>
-        <div className="freq__controls">
-          <button className="btn btn--step" aria-label="Decrease frequency"
-            onClick={() => tuneTo(radio.frequency_hz - STEP_HZ)} disabled={transmitting}>▼</button>
-          <input ref={entryRef} className="input mono freq__entry" aria-label="Frequency in MHz"
-            value={entry} disabled={transmitting}
-            onChange={(e) => setEntry(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") confirmEntry(); }} />
-          <button className="btn btn--step" aria-label="Increase frequency"
-            onClick={() => tuneTo(radio.frequency_hz + STEP_HZ)} disabled={transmitting}>▲</button>
-          <button className="btn btn--primary" onClick={confirmEntry} disabled={transmitting}>Tune</button>
+    <section className="card instr-radio">
+      <div className="instr-radio__info">
+        <div className="instr-radio__head">
+          <span className="instr-radio__num mono" aria-hidden>{index}</span>
+          <span className="instr-radio__name mono">{radio.name}</span>
+          <button className="btn btn--ghost instr-radio__remove" title="Remove radio"
+            onClick={() => onRemove(radio.radio_id)} disabled={transmitting}>✕</button>
         </div>
-      </div>
 
-      <div className="radio__row">
-        <ModeDial
-          mode={radio.mode}
-          onToggle={() => socket?.instrMode(radio.radio_id, radio.mode === "Cypher" ? "Plain" : "Cypher")}
-          disabled={transmitting}
-          title="Plain / Cypher (persists across retuning)"
-        />
-        <div className="signal">
-          <span className="signal__label">SIGNAL · {radio.band_region}</span>
-          <div className="signal__bar">
-            <div className="signal__fill" style={{ width: `${Math.round(signal * 100)}%` }} />
+        <div className="freq">
+          <div className="freq__display mono">{fmtMHz(radio.frequency_hz)}<span className="freq__unit">MHz</span></div>
+          <div className="freq__controls">
+            <button className="btn btn--step" aria-label="Decrease frequency"
+              onClick={() => tuneTo(radio.frequency_hz - STEP_HZ)} disabled={transmitting}>▼</button>
+            <input ref={entryRef} className="input mono freq__entry" aria-label="Frequency in MHz"
+              value={entry} disabled={transmitting}
+              onChange={(e) => setEntry(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") confirmEntry(); }} />
+            <button className="btn btn--step" aria-label="Increase frequency"
+              onClick={() => tuneTo(radio.frequency_hz + STEP_HZ)} disabled={transmitting}>▲</button>
+            <button className="btn btn--primary" onClick={confirmEntry} disabled={transmitting}>Tune</button>
+          </div>
+        </div>
+
+        <div className="radio__row">
+          <ModeDial
+            mode={radio.mode}
+            onToggle={() => socket?.instrMode(radio.radio_id, radio.mode === "Cypher" ? "Plain" : "Cypher")}
+            disabled={transmitting}
+            title="Plain / Cypher (persists across retuning)"
+          />
+          <div className="signal">
+            <span className="signal__label">SIGNAL · {radio.band_region}</span>
+            <div className="signal__bar">
+              <div className="signal__fill" style={{ width: `${Math.round(signal * 100)}%` }} />
+            </div>
           </div>
         </div>
       </div>
