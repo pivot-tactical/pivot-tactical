@@ -92,7 +92,7 @@ def test_tune_unknown_radio_404(client):
 def test_band_profile_endpoint(client):
     r = client.get("/api/band-profile")
     assert r.status_code == 200
-    assert "curve" in r.json() and "atmospheric_multiplier" in r.json()
+    assert "curve" in r.json() and "net_scenarios" in r.json()
 
 
 def test_admin_terminals_and_session(client):
@@ -106,11 +106,41 @@ def test_admin_terminals_and_session(client):
 
 
 def test_admin_scenario(client):
-    r = client.post("/api/admin/scenario", json={"atmospheric_multiplier": 2.0,
-                                                  "jamming_on": [[14_200_000, 14_300_000]]})
+    r = client.post("/api/admin/scenario", json={"jamming_on": [[14_200_000, 14_300_000]]})
     assert r.status_code == 200
-    assert r.json()["atmospheric_multiplier"] == 2.0
     assert r.json()["jamming"] == [[14_200_000, 14_300_000]]
+
+
+def test_admin_scenario_per_net(client):
+    """Per-net interference/jam set from an instructor radio panel (§3.1.5)."""
+    r = client.post("/api/admin/scenario", json={
+        "net_scenario": {"frequency_hz": 14_250_000, "interference": 0.5, "jammed": True},
+    })
+    assert r.status_code == 200
+    assert r.json()["net_scenarios"] == [
+        {"freq_hz": 14_250_000.0, "interference": 0.5, "jammed": True}
+    ]
+    # The override is visible to trainee clients via the public band profile.
+    assert client.get("/api/band-profile").json()["net_scenarios"][0]["jammed"] is True
+    # Returning the net to defaults clears the override.
+    r = client.post("/api/admin/scenario", json={
+        "net_scenario": {"frequency_hz": 14_250_000, "interference": 0.0, "jammed": False},
+    })
+    assert r.json()["net_scenarios"] == []
+    # Negative offsets (channel cleanup below baseline) are valid overrides.
+    r = client.post("/api/admin/scenario", json={
+        "net_scenario": {"frequency_hz": 14_250_000, "interference": -0.6},
+    })
+    assert r.json()["net_scenarios"] == [
+        {"freq_hz": 14_250_000.0, "interference": -0.6, "jammed": False}
+    ]
+
+
+def test_admin_scenario_per_net_rejects_bad_level(client):
+    r = client.post("/api/admin/scenario", json={
+        "net_scenario": {"frequency_hz": 14_250_000, "interference": 1.5},
+    })
+    assert r.status_code == 422
 
 
 def test_admin_requires_instructor_token(raw_client):

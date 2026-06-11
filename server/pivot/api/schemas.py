@@ -111,14 +111,25 @@ class RestartRequest(BaseModel):
     force: bool = False
 
 
+class NetScenarioRequest(BaseModel):
+    """Per-net override set from an instructor radio panel (§3.1.5). Only the
+    fields present change; an override back at defaults is cleared.
+    ``interference`` is 0 at the channel's natural baseline, positive to
+    degrade the net, negative to clean it up below baseline."""
+
+    frequency_hz: float
+    interference: float | None = Field(default=None, ge=-1.0, le=1.0)
+    jammed: bool | None = None
+
+
 class ScenarioRequest(BaseModel):
     """Instructor scenario controls (§3.1.5). All fields optional; set what you
     want to change in one call."""
 
-    atmospheric_multiplier: float | None = None
     crypto_enabled: bool | None = None
     jamming_on: list[list[float]] | None = None   # [[low_hz, high_hz], ...]
     noise_burst: list[float] | None = None         # [low_hz, high_hz]
+    net_scenario: NetScenarioRequest | None = None  # per-net interference/jam
     curve: list[dict] | None = None                # noise-vs-frequency anchors
     display_timezone: str | None = None
     kick_trainee_id: str | None = None

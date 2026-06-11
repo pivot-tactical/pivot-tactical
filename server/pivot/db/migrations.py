@@ -20,12 +20,33 @@ from collections.abc import Callable
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
+
+
+def _migrate_v2_net_scenarios(conn) -> None:
+    """v2: per-net instructor scenario overrides replace the global
+    atmospheric multiplier on the band profile (§3.1.5)."""
+    cols = {row[1] for row in conn.execute(text("PRAGMA table_info(band_profile)"))}
+    if "net_scenarios_json" not in cols:
+        conn.execute(
+            text(
+                "ALTER TABLE band_profile "
+                "ADD COLUMN net_scenarios_json TEXT NOT NULL DEFAULT '[]'"
+            )
+        )
+    if "atmospheric_multiplier" in cols:
+        try:
+            conn.execute(text("ALTER TABLE band_profile DROP COLUMN atmospheric_multiplier"))
+        except Exception:  # pre-3.35 SQLite: the unused column stays, harmlessly
+            pass
+
 
 # (target_version, migrate_fn). migrate_fn receives a live connection and should
 # perform idempotent DDL/DML to move the schema from target_version-1 to
 # target_version. Append new steps here; never edit released ones.
-MIGRATIONS: list[tuple[int, Callable[[object], None]]] = []
+MIGRATIONS: list[tuple[int, Callable[[object], None]]] = [
+    (2, _migrate_v2_net_scenarios),
+]
 
 
 def _read_schema_version(conn) -> int:

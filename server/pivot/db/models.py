@@ -73,9 +73,11 @@ class BandProfileRow(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     curve_json: Mapped[str] = mapped_column(Text)  # anchor points -> noise/fading
-    atmospheric_multiplier: Mapped[float] = mapped_column(Float, default=1.0)
     crypto_delay_ms: Mapped[int] = mapped_column(Integer, default=1500)
     crypto_enabled: Mapped[int] = mapped_column(Integer, default=1)  # 0/1 override
+    # Per-net instructor overrides (interference/jam per channel, §3.1.5), so a
+    # jammed net survives a server restart like the rest of the scenario.
+    net_scenarios_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]")
 
 
 # --------------------------------------------------------------------------- #

@@ -145,7 +145,10 @@ body {
 .signal { flex: 1; }
 .signal__label { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
 .signal__bar { height: 12px; background: #0c110c; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; margin-top: 6px; }
-.signal__fill { height: 100%; background: linear-gradient(90deg, var(--amber), var(--green)); transition: width 0.3s; }
+/* The fill is driven per animation frame by the live receive meter, so the
+   transition only needs to bridge frames — any longer and it smears the
+   modulation the meter is there to show. */
+.signal__fill { height: 100%; background: linear-gradient(90deg, var(--amber), var(--green)); transition: width 40ms linear; }
 
 /* ---------- Volume ---------- */
 .volume { margin: 18px 0 8px; }
@@ -274,6 +277,18 @@ body {
 .instr-radio .radio__row { margin: 0; }
 .instr-radio .ptt { flex: 0 0 190px; align-self: stretch; margin-top: 0; padding: 18px; }
 .instr-radio .ptt__state { font-size: 22px; }
+
+/* Per-channel "god mode": interference slider + jam toggle on each instructor
+   radio, applied to whatever frequency the radio is tuned to. */
+.neteffects {
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.neteffects--active { border-color: var(--amber); }
+.neteffects__label { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
+.neteffects--active .neteffects__label { color: var(--amber); }
+.neteffects input[type="range"] { flex: 1; min-width: 80px; }
+.neteffects .btn { padding: 4px 12px; }
 
 /* Narrow viewports: stack the card vertically again so it doesn't get cramped. */
 @media (max-width: 560px) {

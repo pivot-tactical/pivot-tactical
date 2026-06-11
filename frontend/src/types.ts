@@ -29,6 +29,14 @@ export interface Terminal extends RadioState {
   last_activity: string;
 }
 
+// Per-net instructor override (§3.1.5): interference level / jammer on one
+// channel, controlled from the instructor radio panels.
+export interface NetScenario {
+  freq_hz: number;
+  interference: number; // 0 (clean) .. 1 (severe)
+  jammed: boolean;
+}
+
 export interface SessionSummary {
   id: string;
   name: string;

@@ -99,21 +99,6 @@ def test_uhf_cleaner_than_low_hf():
     assert norm_corr(uhf, voice) > norm_corr(low_hf, voice)
 
 
-def test_atmospheric_multiplier_degrades_render():
-    voice = speech_like()
-    good = render_reception(
-        Reception.CLEAR, voice, BandProfile().conditions_at(7e6), SR, rng=np.random.default_rng(3)
-    )
-    bad = render_reception(
-        Reception.CLEAR,
-        voice,
-        BandProfile(atmospheric_multiplier=2.5).conditions_at(7e6),
-        SR,
-        rng=np.random.default_rng(3),
-    )
-    assert norm_corr(good, voice) > norm_corr(bad, voice)
-
-
 # --- encrypted hash -------------------------------------------------------- #
 
 

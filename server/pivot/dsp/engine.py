@@ -8,28 +8,61 @@ live router and the AAR Dirty re-render (§4.5).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
-from pivot.core.bands import BandConditions
+from pivot.core.bands import BandConditions, net_key_for
 from pivot.core.crypto import Reception
 from pivot.dsp.fading import apply_fading
 from pivot.dsp.filters import bandpass, normalise_rms, soft_clip
 from pivot.dsp.hash_gen import encrypted_hash
-from pivot.dsp.noise import add_noise_for_snr, band_noise, idle_noise_amplitude, qrm_tones
+from pivot.dsp.noise import NoiseTexture, add_noise_for_snr, idle_noise_amplitude
 from pivot.dsp.tone import ptt_click, squelch_tail
+
+# Per-net noise textures kept alive at once; oldest-touched are evicted so a
+# long session of tuning around never grows the engine unboundedly.
+_MAX_TEXTURES = 64
 
 
 @dataclass
 class DspEngine:
-    """Stateless renderer (apart from sample rate). Pass an ``rng`` for
-    deterministic output under test; omit for fresh randomness per render."""
+    """Renderer with per-net noise texture state (spec §4.1.1).
+
+    The renders themselves are pure given a texture; the only state is the
+    per-net :class:`NoiseTexture` map that keeps the layered channel noise
+    continuous from one 20 ms frame to the next. Pass an ``rng`` for
+    deterministic output under test — that path uses a fresh, seeded texture
+    instead of the shared per-net one.
+    """
 
     sample_rate: int = 16_000
+    _textures: dict[int, NoiseTexture] = field(default_factory=dict, repr=False)
+    _texture_use: dict[int, int] = field(default_factory=dict, repr=False)
+    _use_counter: int = 0
 
     def _rng(self, rng: np.random.Generator | None) -> np.random.Generator:
         return rng if rng is not None else np.random.default_rng()
+
+    def _texture(
+        self, conditions: BandConditions, rng: np.random.Generator | None
+    ) -> NoiseTexture:
+        """The net's persistent texture, or a fresh seeded one when ``rng`` is
+        given (deterministic tests and whole-buffer AAR re-renders)."""
+        if rng is not None:
+            return NoiseTexture(self.sample_rate, rng)
+        key = net_key_for(conditions.freq_hz)
+        texture = self._textures.get(key)
+        if texture is None:
+            texture = NoiseTexture(self.sample_rate)
+            self._textures[key] = texture
+            if len(self._textures) > _MAX_TEXTURES:
+                oldest = min(self._textures, key=lambda k: self._texture_use.get(k, 0))
+                self._textures.pop(oldest, None)
+                self._texture_use.pop(oldest, None)
+        self._use_counter += 1
+        self._texture_use[key] = self._use_counter
+        return texture
 
     # -- band chain shared by clear & hash --------------------------------- #
 
@@ -38,8 +71,9 @@ class DspEngine:
         carrier: np.ndarray,
         conditions: BandConditions,
         rng: np.random.Generator,
+        texture: NoiseTexture | None = None,
     ) -> np.ndarray:
-        """Bandpass → fading → frequency-shaped noise (to the band SNR) → QRM."""
+        """Bandpass → fading → layered P.372 noise (to the band SNR)."""
         sr = self.sample_rate
         x = bandpass(carrier, conditions.bandpass_low_hz, conditions.bandpass_high_hz, sr)
         x = apply_fading(
@@ -50,9 +84,8 @@ class DspEngine:
             conditions.selective_fading,
             rng,
         )
-        noise = band_noise(x.size, sr, conditions.pink_weight, rng)
-        if conditions.qrm:
-            noise = normalise_rms(noise + 0.6 * qrm_tones(x.size, sr, rng))
+        texture = texture if texture is not None else self._texture(conditions, rng)
+        noise = texture.render(x.size, conditions)
         out = add_noise_for_snr(x, noise, conditions.snr_db)
         return out
 
@@ -60,23 +93,24 @@ class DspEngine:
         """The continuous ambient noise floor of an idle (un-keyed) channel.
 
         This is the open-squelch "hash" a listener hears between transmissions.
-        It reuses the band's frequency-shaped noise + HF QRM (the same colour as
-        the in-transmission chain) but with no voice carrier, scaled by an
-        SNR-derived level so noisy/jammed bands hiss louder than clean ones. It
-        is generated server-side per frequency, so every listener on a net hears
-        the identical floor and the recordings carry the matching conditions.
+        It reuses the band's layered noise texture (the same components as the
+        in-transmission chain) with no voice carrier, scaled by an SNR-derived
+        level so noisy/jammed/interfered bands hiss louder than clean ones. The
+        frame is *not* re-normalised: the texture's static crashes and
+        interference swells ride above the floor, so an idle channel audibly
+        lives and changes. It is generated server-side per frequency, so every
+        listener on a net hears the identical floor and the recordings carry
+        the matching conditions.
         """
-        rng = self._rng(rng)
         if n_samples <= 0:
             return np.zeros(0, dtype=np.float32)
         sr = self.sample_rate
-        noise = band_noise(n_samples, sr, conditions.pink_weight, rng)
-        if conditions.qrm:
-            noise = normalise_rms(noise + 0.6 * qrm_tones(n_samples, sr, rng))
+        texture = self._texture(conditions, rng)
+        noise = texture.render(n_samples, conditions)
         # Sit the hiss in the voice passband so it matches where speech lands.
         noise = bandpass(noise, conditions.bandpass_low_hz, conditions.bandpass_high_hz, sr)
         level = idle_noise_amplitude(conditions.snr_db, conditions.jammed)
-        return soft_clip((normalise_rms(noise) * level).astype(np.float32))
+        return soft_clip((noise * level).astype(np.float32))
 
     # -- individual renders ------------------------------------------------ #
 

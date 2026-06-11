@@ -250,14 +250,18 @@ def admin_end_session(manager=Depends(get_manager)) -> dict:
 @router.post("/admin/scenario", dependencies=[Depends(require_instructor)])
 def admin_scenario(req: ScenarioRequest, manager=Depends(get_manager)) -> dict:
     """Apply one or more scenario changes (§3.1.5)."""
-    if req.atmospheric_multiplier is not None:
-        manager.set_atmospheric(req.atmospheric_multiplier)
     if req.crypto_enabled is not None:
         manager.set_crypto_enabled(req.crypto_enabled)
     if req.jamming_on is not None:
         manager.set_jamming([(lo, hi) for lo, hi in req.jamming_on])
     if req.noise_burst is not None and len(req.noise_burst) == 2:
         manager.inject_noise_burst(req.noise_burst[0], req.noise_burst[1])
+    if req.net_scenario is not None:
+        manager.set_net_scenario(
+            req.net_scenario.frequency_hz,
+            interference=req.net_scenario.interference,
+            jammed=req.net_scenario.jammed,
+        )
     if req.curve is not None:
         manager.update_curve(req.curve)
     if req.display_timezone is not None:

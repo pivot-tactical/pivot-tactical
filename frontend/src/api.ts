@@ -180,6 +180,10 @@ export const api = {
     }>("/api/admin/terminals"),
   scenario: (payload: Record<string, unknown>) =>
     jsonFetch("/api/admin/scenario", { method: "POST", body: JSON.stringify(payload) }),
+  bandProfile: () =>
+    jsonFetch<{ crypto_enabled: boolean; net_scenarios: { freq_hz: number; interference: number; jammed: boolean }[] }>(
+      "/api/band-profile"
+    ),
   getConfig: () => jsonFetch<Record<string, unknown>>("/api/admin/config"),
   updateSettings: (updates: Record<string, unknown>) =>
     jsonFetch<{ applied: Record<string, unknown> }>("/api/admin/settings", {

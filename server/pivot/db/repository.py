@@ -40,9 +40,11 @@ def load_band_profile(session: Session) -> BandProfile:
         return BandProfile()
     return BandProfile.from_curve_json(
         json.loads(row.curve_json),
-        atmospheric_multiplier=row.atmospheric_multiplier,
         crypto_delay_ms=row.crypto_delay_ms,
         crypto_enabled=bool(row.crypto_enabled),
+        net_scenarios=BandProfile.net_scenarios_from_json(
+            json.loads(row.net_scenarios_json or "[]")
+        ),
     )
 
 
@@ -50,9 +52,9 @@ def save_band_profile(session: Session, profile: BandProfile) -> None:
     row = session.get(BandProfileRow, 1)
     payload = dict(
         curve_json=json.dumps(profile.curve_to_json()),
-        atmospheric_multiplier=profile.atmospheric_multiplier,
         crypto_delay_ms=profile.crypto_delay_ms,
         crypto_enabled=1 if profile.crypto_enabled else 0,
+        net_scenarios_json=json.dumps(profile.net_scenarios_to_json()),
     )
     if row is None:
         session.add(BandProfileRow(id=1, **payload))

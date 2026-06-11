@@ -75,6 +75,23 @@ export function parseTaggedAudio(buf: ArrayBuffer): { radioId: string; pcm: Arra
   return { radioId, pcm: buf.slice(1 + len) };
 }
 
+// Perceptual receive level (0–1) of one PCM frame, for the live signal meters.
+// Computed on the raw frame (before the headset volume gain) so the meter shows
+// what is on the channel, not how loud the operator's earpiece is. The sqrt
+// softening lets the faint clean-channel hiss register near the bottom while a
+// keyed voice drives the bar toward full scale.
+export function pcmLevel(pcm: ArrayBuffer): number {
+  const i16 = new Int16Array(pcm);
+  if (i16.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < i16.length; i++) {
+    const s = i16[i] / 0x8000;
+    sum += s * s;
+  }
+  const rms = Math.sqrt(sum / i16.length);
+  return Math.min(1, Math.sqrt(rms) * 1.25);
+}
+
 // Persisted per-radio headset volume (0–1). Keyed so a trainee keeps one
 // setting and the instructor keeps one per radio across refreshes.
 export function loadVolume(key: string): number {

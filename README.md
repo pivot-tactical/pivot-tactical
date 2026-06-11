@@ -120,8 +120,8 @@ outside it and are never touched.
   collision — so the server renders audio for each listener and delivers it over
   WebRTC straight to the browser.
 * **Continuous band model.** One processing chain whose noise and fading vary
-  continuously with frequency (worst at low HF, near-clean at UHF), plus a global
-  atmospheric control and instructor jamming.
+  continuously with frequency (worst at low HF, near-clean at UHF), plus per-net
+  instructor noise control (interference or cleanup per channel) and jamming.
 * **Per-radio crypto.** Plain/Cypher is a property of each radio, persists across
   retuning, and never auto-resets. A cypher-capable set decodes plain too; only a
   plain receiver hearing a cypher transmission gets the undecodable hash.
