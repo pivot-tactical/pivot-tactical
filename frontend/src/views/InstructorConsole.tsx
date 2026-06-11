@@ -246,7 +246,7 @@ function RadiosTab({ radios, socket, audio, onChange, events }: {
   }
 
   return (
-    <>
+    <div className="radios-layout">
     <div className="grid2">
       <section className="card pad">
         <div className="row between">
@@ -304,7 +304,7 @@ function RadiosTab({ radios, socket, audio, onChange, events }: {
       </section>
     </div>
     <LiveLogTab events={events} />
-    </>
+    </div>
   );
 }
 
@@ -316,7 +316,7 @@ function LiveLogTab({ events }: { events: EventRow[] }) {
     audio.play().catch(() => {});
   }
   return (
-    <section className="card pad">
+    <section className="card pad logcard">
       <h3>Running Event Log</h3>
       {events.length === 0 && <p className="muted">Transmissions will appear here as they happen.</p>}
       <div className="log">
