@@ -42,7 +42,7 @@ export function Radio({
   login: LoginResponse;
   timezone: string;
 }) {
-  const initialHz = login.frequency_hz ?? 145_500_000;
+  const initialHz = login.frequency_hz ?? 7_000_000;
   const [freqHz, setFreqHz] = useState(initialHz);
   const [mode, setMode] = useState<RadioMode>(login.mode ?? "Plain");
   const [phase, setPhase] = useState<TxPhase>("IDLE");

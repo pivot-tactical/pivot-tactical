@@ -42,7 +42,7 @@ from pivot.db.config_store import ConfigStore
 from pivot.db.database import Database
 from pivot.dsp.engine import DspEngine
 
-DEFAULT_FREQUENCY_HZ = 145_500_000.0  # a quiet VHF spot to power on at
+DEFAULT_FREQUENCY_HZ = 7_000_000.0  # a quiet HF spot to power on at
 
 
 def _on_loop(loop: asyncio.AbstractEventLoop) -> bool:

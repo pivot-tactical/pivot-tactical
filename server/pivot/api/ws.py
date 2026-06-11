@@ -173,7 +173,7 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
                                         "payload": manager.set_mode(rid, RadioMode(payload["mode"]))})
                 elif mtype == "instr_add_radio":
                     manager.add_instructor_radio(payload.get("label"),
-                                                 payload.get("frequency", "145.500 MHz"))
+                                                 payload.get("frequency", "7.000 MHz"))
                     bind_radios()
                     await ws.send_json({"type": "instructor_radios",
                                         "payload": manager.instructor_radios()})

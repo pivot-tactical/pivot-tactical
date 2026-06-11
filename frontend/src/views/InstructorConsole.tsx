@@ -173,7 +173,7 @@ function RadiosTab({ radios, socket, audio, onChange, events }: {
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [phase, setPhase] = useState<TxPhase>("IDLE");
-  const [newFreq, setNewFreq] = useState("30.000");
+  const [newFreq, setNewFreq] = useState("7.000");
   const active = radios.find((r) => r.radio_id === selected) || radios[0];
 
   useEffect(() => {
