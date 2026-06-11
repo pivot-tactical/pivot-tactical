@@ -273,7 +273,7 @@ def admin_list_instructor_radios(manager=Depends(get_manager)) -> list[dict]:
 @router.post("/admin/instructor-radios", dependencies=[Depends(require_instructor)])
 def admin_add_instructor_radio(
     label: str | None = Body(default=None),
-    frequency: str = Body(default="145.500 MHz"),
+    frequency: str = Body(default="7.000 MHz"),
     manager=Depends(get_manager),
 ) -> dict:
     return manager.add_instructor_radio(label, frequency)
