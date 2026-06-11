@@ -4,6 +4,7 @@ import type { ReleaseInfo, UpdateStatus } from "../api";
 import { AudioIO, playClick, playSyncTone } from "../audio";
 import { ConnectionBanner } from "../components/ConnectionBanner";
 import type { ConnState } from "../components/ConnectionBanner";
+import { ModeDial } from "../components/ModeDial";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
 import type { EventRow, RadioState, Terminal, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
@@ -280,10 +281,11 @@ function RadiosTab({ radios, socket, audio, onChange, events }: {
                 </td>
                 <td>{r.band_region}</td>
                 <td>
-                  <button className={`toggle toggle--sm ${r.mode === "Cypher" ? "toggle--cypher" : "toggle--plain"}`}
-                    onClick={() => socket?.instrMode(r.radio_id, r.mode === "Cypher" ? "Plain" : "Cypher")}>
-                    {r.mode === "Cypher" ? "🔒" : "◌"} {r.mode}
-                  </button>
+                  <ModeDial
+                    mode={r.mode}
+                    size="sm"
+                    onToggle={() => socket?.instrMode(r.radio_id, r.mode === "Cypher" ? "Plain" : "Cypher")}
+                  />
                 </td>
                 <td><button className="btn btn--ghost" onClick={() => removeRadio(r.radio_id)}>✕</button></td>
               </tr>

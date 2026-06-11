@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ModeDial } from "../components/ModeDial";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
 import { AudioIO, playClick, playSyncTone } from "../audio";
 import type { LoginResponse, RadioMode, TxPhase } from "../types";
@@ -186,14 +187,12 @@ export function Radio({
         </div>
 
         <div className="radio__row">
-          <button
-            className={`toggle ${mode === "Cypher" ? "toggle--cypher" : "toggle--plain"}`}
-            onClick={toggleMode}
+          <ModeDial
+            mode={mode}
+            onToggle={toggleMode}
             disabled={transmitting}
             title="Plain / Cypher (persists across retuning)"
-          >
-            {mode === "Cypher" ? "🔒 CYPHER" : "◌ PLAIN"}
-          </button>
+          />
 
           <div className="signal">
             <span className="signal__label">SIGNAL</span>
