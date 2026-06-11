@@ -112,11 +112,18 @@ jobs:
           if [ -z "$before" ] || [ -z "$after" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
+          # Diff against the merge-base, not `before` directly: `before` can be
+          # main's current tip (set above), which may have moved on past this
+          # branch's fork point. Diffing two commits that aren't ancestors of
+          # each other shows every file that differs in *either* direction —
+          # including unrelated changes already on main — which would wrongly
+          # mark a docs/workflow-only PR as needing a build.
+          base=$(git merge-base "$before" "$after" 2>/dev/null || echo "$before")
           # Paths that affect the shipped application or how it is built.
           # NB: server/pivot/** is app code; server/tests/** is intentionally
           # excluded, as are .github/**, .claude/**, *.md, etc.
           allow='^(server/pivot/|server/requirements\.txt$|server/pyproject\.toml$|frontend/src/|frontend/public/|frontend/index\.html$|frontend/package(-lock)?\.json$|frontend/vite\.config\.ts$|frontend/tsconfig|packaging/)'
-          changed=$(git diff --name-only "$before" "$after" 2>/dev/null || true)
+          changed=$(git diff --name-only "$base" "$after" 2>/dev/null || true)
           echo "Changed files in this push:" >&2; echo "$changed" >&2
           if echo "$changed" | grep -qE "$allow"; then
             echo "code=true" >> "$GITHUB_OUTPUT"
@@ -139,6 +146,8 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # claim the v{base}-dev.{N} tag below
     outputs:
       version: ${{ steps.compute.outputs.version }}
     steps:
@@ -154,13 +163,10 @@ jobs:
             const base = m[1];
             // Per-base dev counter: N restarts at 1 when the base version bumps,
             // so the first prerelease after a stable v1.0.0 is v1.0.1-dev.1.
-            // We take max(existing N for this base) + 1 — not a count — so it
-            // stays correct after the "keep newest 10" prune drops low numbers
+            // We start from max(existing N for this base) + 1 — not a count — so
+            // it stays correct after the "keep newest 10" prune drops low numbers
             // and never reuses a number. A different base version (e.g. lingering
             // 1.0.0-dev.* releases) has a different prefix and is ignored.
-            // NB: two prereleases racing on the SAME base+commit-distance can
-            // compute the same number; the later publish updates that tag in
-            // place (harmless for throwaway dev builds).
             //
             // `base` is read from THIS branch's own version.py, not inferred
             // from the global release list — only the branch author knows
@@ -179,7 +185,29 @@ jobs:
               const n = parseInt(r.tag_name.slice(prefix.length), 10);
               if (Number.isInteger(n) && n > maxN) maxN = n;
             }
-            const version = `${base}-dev.${maxN + 1}`;
+            // Two PRs racing here can compute the same starting N. Claim it by
+            // creating the tag ref directly (pointing at this PR's head commit) —
+            // git refs can only be created once, so the loser's createRef fails
+            // with 422 (ref already exists) and retries at N+1 until it lands on
+            // a number nobody else has claimed. This guarantees v{base}-dev.{N}
+            // never ends up pointing at two different commits. The later publish
+            // step attaches its release to this already-existing tag.
+            const sha = context.payload.pull_request.head.sha;
+            let n = maxN + 1;
+            for (;;) {
+              try {
+                await github.rest.git.createRef({
+                  ...context.repo,
+                  ref: `refs/tags/${prefix}${n}`,
+                  sha,
+                });
+                break;
+              } catch (e) {
+                if (e.status === 422) { n += 1; continue; }
+                throw e;
+              }
+            }
+            const version = `${base}-dev.${n}`;
             core.setOutput('version', version);
             core.info(`Next prerelease: v${version}`);
 
