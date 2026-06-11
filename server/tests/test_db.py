@@ -42,11 +42,10 @@ def test_config_store_all_overlays_defaults(database):
 
 def test_band_profile_persistence(database):
     with database.session() as s:
-        profile = BandProfile(atmospheric_multiplier=1.7, jamming=[JammingSpan(14e6, 14.1e6)])
+        profile = BandProfile(jamming=[JammingSpan(14e6, 14.1e6)])
         repo.save_band_profile(s, profile)
     with database.session() as s:
         loaded = repo.load_band_profile(s)
-        assert loaded.atmospheric_multiplier == pytest.approx(1.7)
         # Jamming is live state, not persisted on the row; curve + globals are.
         # Compare at 7 MHz, outside the jam span, where both must agree.
         assert loaded.conditions_at(7e6).snr_db == pytest.approx(

@@ -107,13 +107,6 @@ def test_hf_flags_engaged_only_in_hf():
     assert profile.conditions_at(145e6).qrm is False
 
 
-def test_atmospheric_multiplier_worsens_conditions():
-    base = BandProfile().conditions_at(14e6)
-    worse = BandProfile(atmospheric_multiplier=2.0).conditions_at(14e6)
-    assert worse.snr_db < base.snr_db
-    assert worse.fading_depth_db > base.fading_depth_db
-
-
 def test_jamming_overrides_baseline():
     profile = BandProfile(jamming=[JammingSpan(14_200_000, 14_300_000)])
     jammed = profile.conditions_at(14_250_000)
@@ -130,9 +123,9 @@ def test_pink_weight_strongest_at_low_hf():
 
 
 def test_curve_json_roundtrip():
-    profile = BandProfile(atmospheric_multiplier=1.3)
+    profile = BandProfile()
     data = profile.curve_to_json()
-    restored = BandProfile.from_curve_json(data, atmospheric_multiplier=1.3)
+    restored = BandProfile.from_curve_json(data)
     for f in (2e6, 14e6, 145e6, 440e6):
         assert restored.conditions_at(f).snr_db == pytest.approx(
             profile.conditions_at(f).snr_db

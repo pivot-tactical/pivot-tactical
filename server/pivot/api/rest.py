@@ -250,8 +250,6 @@ def admin_end_session(manager=Depends(get_manager)) -> dict:
 @router.post("/admin/scenario", dependencies=[Depends(require_instructor)])
 def admin_scenario(req: ScenarioRequest, manager=Depends(get_manager)) -> dict:
     """Apply one or more scenario changes (§3.1.5)."""
-    if req.atmospheric_multiplier is not None:
-        manager.set_atmospheric(req.atmospheric_multiplier)
     if req.crypto_enabled is not None:
         manager.set_crypto_enabled(req.crypto_enabled)
     if req.jamming_on is not None:

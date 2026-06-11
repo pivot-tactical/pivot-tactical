@@ -291,9 +291,7 @@ def test_aar_rerender_clean_and_dirty(manager):
     assert not np.array_equal(clean, dirty[: clean.size])  # DSP changed it
 
 
-def test_scenario_atmospheric_and_jamming(manager):
-    manager.set_atmospheric(2.0)
-    assert manager.band_profile.atmospheric_multiplier == 2.0
+def test_scenario_jamming(manager):
     manager.toggle_jamming(14_200_000, 14_300_000, on=True)
     assert manager.band_profile.conditions_at(14_250_000).jammed is True
     manager.toggle_jamming(14_200_000, 14_300_000, on=False)

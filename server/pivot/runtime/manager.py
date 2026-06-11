@@ -490,11 +490,6 @@ class SessionManager:
 
     # -- scenario controls (§3.1.5) ---------------------------------------- #
 
-    def set_atmospheric(self, multiplier: float) -> None:
-        self.band_profile.atmospheric_multiplier = max(0.0, multiplier)
-        self._save_band_profile()
-        self.broadcast("band_profile_update", {"atmospheric_multiplier": multiplier})
-
     def set_jamming(self, spans: list[tuple[float, float]] | None) -> None:
         self.band_profile.jamming = [JammingSpan(lo, hi) for lo, hi in (spans or [])]
         self.broadcast(
@@ -544,7 +539,6 @@ class SessionManager:
     def update_curve(self, anchors_json: list[dict]) -> None:
         self.band_profile = BandProfile.from_curve_json(
             anchors_json,
-            atmospheric_multiplier=self.band_profile.atmospheric_multiplier,
             jamming=self.band_profile.jamming,
             net_scenarios=self.band_profile.net_scenarios,
             crypto_delay_ms=self.band_profile.crypto_delay_ms,
@@ -581,7 +575,6 @@ class SessionManager:
     def band_profile_snapshot(self) -> dict:
         return {
             "curve": self.band_profile.curve_to_json(),
-            "atmospheric_multiplier": self.band_profile.atmospheric_multiplier,
             "crypto_enabled": self.band_profile.crypto_enabled,
             "crypto_delay_ms": self.band_profile.crypto_delay_ms,
             "jamming": [[j.low_hz, j.high_hz] for j in self.band_profile.jamming],

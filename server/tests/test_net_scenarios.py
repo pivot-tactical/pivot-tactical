@@ -44,6 +44,33 @@ def test_interference_scales_with_level():
     assert severe < mild
 
 
+def test_negative_interference_cleans_the_channel():
+    """A negative offset lifts the net above its natural baseline — the
+    instructor's on-the-fly cleanup for a channel that is too noisy."""
+    profile = BandProfile()
+    low_hf = 2_000_000.0
+    clean_base = profile.conditions_at(low_hf)
+    profile.set_net_scenario(low_hf, interference=-1.0)
+    lifted = profile.conditions_at(low_hf)
+    assert lifted.snr_db > clean_base.snr_db
+    assert lifted.fading_depth_db < clean_base.fading_depth_db
+    # The neighbouring channel keeps its natural (noisy) baseline.
+    neighbour = profile.conditions_at(low_hf + 12_500.0)
+    assert neighbour.snr_db == pytest.approx(
+        BandProfile().conditions_at(low_hf + 12_500.0).snr_db
+    )
+
+
+def test_cleanup_is_a_real_override_not_a_default():
+    profile = BandProfile()
+    profile.set_net_scenario(NET_A, interference=-0.5)
+    s = profile.net_scenario_at(NET_A)
+    assert s is not None and not s.is_default
+    # And it round-trips through persistence like any other override.
+    restored = BandProfile.net_scenarios_from_json(profile.net_scenarios_to_json())
+    assert restored[net_key_for(NET_A)].interference == pytest.approx(-0.5)
+
+
 def test_net_jam_flags_only_its_net():
     profile = BandProfile()
     profile.set_net_scenario(NET_A, jammed=True)
@@ -192,3 +219,4 @@ def test_net_scenario_clamps_and_snaps():
     assert s.freq_hz == NET_A
     assert s.interference == 1.0
     assert not s.is_default
+    assert NetScenario(freq_hz=NET_A, interference=-2.0).interference == -1.0

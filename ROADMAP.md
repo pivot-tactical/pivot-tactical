@@ -23,7 +23,7 @@ Maps **PIVOT Spec v1.6** to the codebase. Legend:
 | 3.1.2a | Multiple instructor radios | ✅ | `runtime/manager.py`, `api/rest.py`, `api/ws.py` (instr_*) |
 | 3.1.3 | Instructor transmit (select + PTT, labelled INSTRUCTOR) | ✅ / 🟡 | `api/ws.py` instr_ptt_* (timing done; media via router) |
 | 3.1.4 | Live terminal monitor | ✅ | `runtime/manager.py::monitor_snapshot`, broadcast over `/ws` |
-| 3.1.5 | Scenario controls (noise burst, jamming, atmospheric, curve, kick) | ✅ | `runtime/manager.py`, `api/rest.py::admin_scenario` |
+| 3.1.5 | Scenario controls (noise burst, jamming, per-net noise, curve, kick) | ✅ | `runtime/manager.py`, `api/rest.py::admin_scenario` |
 | 3.1.6 | Transcription config (model/compute/lang/threshold/skip) | ✅ | `config.py`, `api/rest.py::admin_update_settings`, `transcription/` |
 | 3.2.1 | Login (callsign, no password, persists, dup flagging) | ✅ | `api/rest.py`, `frontend/src/views/Login.tsx` |
 | 3.2.2 | Radio panel (tune, mode toggle, signal, PTT, clock, state machine) | ✅ | `frontend/src/views/Radio.tsx` |
@@ -48,7 +48,7 @@ Maps **PIVOT Spec v1.6** to the codebase. Legend:
 |------|------|--------|-------|
 | 4.1 | Continuous frequency-dependent profile + anchors | ✅ | `core/bands.py`, `dsp/` |
 | 4.1.1 | Bandpass, noise, fading, clicks/squelch, HF QRM/selective | ✅ | `dsp/filters.py`, `noise.py`, `fading.py`, `tone.py` |
-| 4.2 | Global atmospheric multiplier + jamming | ✅ | `core/bands.py`, `runtime/manager.py` |
+| 4.2 | Per-net noise offset (interference/cleanup) + jamming | ✅ | `core/bands.py`, `runtime/manager.py` |
 | 4.3 | Crypto sync tone (presets, local only) | ✅ | `dsp/tone.py`, frontend `audio.ts` |
 | 4.4 | Encrypted hash generator | ✅ | `dsp/hash_gen.py` |
 | 4.5 | Playback re-render | ✅ | `audio/render.py`, `dsp/engine.py` |

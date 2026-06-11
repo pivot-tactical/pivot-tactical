@@ -83,7 +83,6 @@ class Database:
                     BandProfileRow(
                         id=1,
                         curve_json=json.dumps(default.curve_to_json()),
-                        atmospheric_multiplier=default.atmospheric_multiplier,
                         crypto_delay_ms=default.crypto_delay_ms,
                         crypto_enabled=1 if default.crypto_enabled else 0,
                     )

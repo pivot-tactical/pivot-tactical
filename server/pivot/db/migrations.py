@@ -24,7 +24,8 @@ CURRENT_SCHEMA_VERSION = 2
 
 
 def _migrate_v2_net_scenarios(conn) -> None:
-    """v2: per-net instructor scenario overrides on the band profile (§3.1.5)."""
+    """v2: per-net instructor scenario overrides replace the global
+    atmospheric multiplier on the band profile (§3.1.5)."""
     cols = {row[1] for row in conn.execute(text("PRAGMA table_info(band_profile)"))}
     if "net_scenarios_json" not in cols:
         conn.execute(
@@ -33,6 +34,11 @@ def _migrate_v2_net_scenarios(conn) -> None:
                 "ADD COLUMN net_scenarios_json TEXT NOT NULL DEFAULT '[]'"
             )
         )
+    if "atmospheric_multiplier" in cols:
+        try:
+            conn.execute(text("ALTER TABLE band_profile DROP COLUMN atmospheric_multiplier"))
+        except Exception:  # pre-3.35 SQLite: the unused column stays, harmlessly
+            pass
 
 
 # (target_version, migrate_fn). migrate_fn receives a live connection and should

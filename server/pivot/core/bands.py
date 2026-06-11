@@ -7,10 +7,9 @@ depth decrease smoothly. The character of the audio at any frequency is a
 function of:
 
 * the editable noise-vs-frequency **curve** (anchor points, interpolated),
-* a global **atmospheric multiplier** that scales the whole curve worse/better,
 * any instructor-injected **jamming** on a frequency or span,
-* per-net **scenario overrides** (interference level / jammer) the instructor
-  sets on individual channels from their radio panels (§3.1.5).
+* per-net **scenario overrides** (noise offset / jammer) the instructor sets on
+  individual channels from their radio panels (§3.1.5).
 
 Frequencies are handled internally in **hertz** (float). Parsing/formatting
 helpers convert to and from the human-readable strings stored on events and
@@ -22,7 +21,7 @@ from __future__ import annotations
 import bisect
 import math
 import re
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import Enum
 
 # Overall tunable range: low HF through UHF (spec §3.1.2 table).
@@ -162,8 +161,10 @@ class BandConditions:
     bandpass_high_hz: float
     squelch_tail_ms: float          # tail length, longer on HF
     jammed: bool = False            # instructor jamming covers this frequency
-    # Instructor-induced interference on this net, 0.0 (none) .. 1.0 (severe).
-    # Degrades SNR and adds the interference layers to the noise texture.
+    # Instructor noise offset on this net: 0.0 = the frequency's natural
+    # baseline, up to +1.0 (severe induced interference, adds the interference
+    # layers to the noise texture) or down to −1.0 (channel cleaned up below
+    # its baseline).
     interference: float = 0.0
 
     @property
@@ -254,32 +255,36 @@ def net_key_for(freq_hz: float) -> int:
     return round(clamp_frequency(freq_hz) / CHANNEL_STEP_HZ)
 
 
-# How hard full interference (1.0) leans on the channel: enough headroom that a
-# clean VHF/UHF net (SNR ~25–30 dB) is driven down near the unusable floor.
+# How hard full interference (+1.0) leans on the channel: enough headroom that
+# a clean VHF/UHF net (SNR ~25–30 dB) is driven down near the unusable floor.
 _INTERFERENCE_SNR_SPAN_DB = 30.0
+# How much a full cleanup (−1.0) lifts a channel above its natural baseline —
+# enough to make even the noisiest low-HF net comfortably readable.
+_CLEANUP_SNR_BOOST_DB = 18.0
 
 
 @dataclass
 class NetScenario:
     """Instructor overrides for one net/channel (spec §3.1.5).
 
-    Set from the instructor radio panels ("god mode" per channel): a continuous
-    ``interference`` level degrades the net progressively; ``jammed`` makes it
-    a wall of jammer noise. A default-valued scenario is dropped from the
-    profile rather than stored.
+    Set from the instructor radio panels ("god mode" per channel): the
+    ``interference`` offset is 0 at the frequency's natural baseline, positive
+    to degrade the net progressively, negative to temporarily clean it up
+    below its baseline; ``jammed`` makes it a wall of jammer noise. A
+    default-valued scenario is dropped from the profile rather than stored.
     """
 
     freq_hz: float              # snapped channel frequency
-    interference: float = 0.0   # 0.0 (clean) .. 1.0 (severe)
+    interference: float = 0.0   # −1.0 (cleaned) .. 0.0 (baseline) .. 1.0 (severe)
     jammed: bool = False
 
     def __post_init__(self) -> None:
         self.freq_hz = snap_frequency(self.freq_hz)
-        self.interference = max(0.0, min(1.0, self.interference))
+        self.interference = max(-1.0, min(1.0, self.interference))
 
     @property
     def is_default(self) -> bool:
-        return self.interference <= 0.0 and not self.jammed
+        return self.interference == 0.0 and not self.jammed
 
     def to_dict(self) -> dict:
         return {
@@ -301,15 +306,14 @@ class NetScenario:
 class BandProfile:
     """The single active band profile (spec §5.1 ``band_profile`` row).
 
-    Holds the editable curve anchors, the global atmospheric multiplier, and any
-    active jamming spans, and resolves them into :class:`BandConditions` for a
-    given frequency. The atmospheric multiplier scales the *severity*: values
-    > 1 worsen conditions (lower SNR, deeper fading) to simulate a bad HF day;
-    values < 1 improve them.
+    Holds the editable curve anchors, any active jamming spans, and the per-net
+    scenario overrides, and resolves them into :class:`BandConditions` for a
+    given frequency. There is no all-frequencies severity control: conditions
+    follow the curve's natural slope, and the instructor shapes individual
+    channels via :class:`NetScenario`.
     """
 
     anchors: list[CurveAnchor] = field(default_factory=lambda: list(DEFAULT_ANCHORS))
-    atmospheric_multiplier: float = 1.0
     jamming: list[JammingSpan] = field(default_factory=list)
     # Per-net overrides keyed by channel index (see net_key_for). Only nets the
     # instructor has actually touched are present.
@@ -357,12 +361,8 @@ class BandProfile:
         region = region_for(freq_hz)
         base = self._interp(freq_hz)
 
-        # Atmospheric multiplier worsens (>1) or improves (<1) the curve. It
-        # subtracts from SNR proportionally and scales fading depth up.
-        mult = max(0.0, self.atmospheric_multiplier)
-        # Reference SNR span ~ 6..34 dB; worsening removes up to the headroom.
-        snr = base.snr_db - (mult - 1.0) * 8.0
-        fading_depth = base.fading_depth_db * mult
+        snr = base.snr_db
+        fading_depth = base.fading_depth_db
 
         is_hf = region is BandRegion.HF
         # The narrower, muddier voice bandpass at the very low end is keyed on
@@ -371,7 +371,8 @@ class BandProfile:
         low_hf = freq_hz < 10_000_000.0
         pink_weight = _pink_weight_for(freq_hz)
 
-        # Per-net override on this channel, if the instructor set one.
+        # Per-net override on this channel, if the instructor set one. Zero is
+        # the frequency's natural baseline.
         net = self.net_scenarios.get(net_key_for(freq_hz))
         interference = net.interference if net is not None else 0.0
         if interference > 0.0:
@@ -380,6 +381,13 @@ class BandProfile:
             # change frequency well before the net is a total loss.
             snr -= interference * _INTERFERENCE_SNR_SPAN_DB
             fading_depth = max(fading_depth, 6.0 + interference * 14.0)
+        elif interference < 0.0:
+            # Cleanup: the instructor temporarily lifts this channel above its
+            # baseline — quieter floor, calmer fading — without touching the
+            # rest of the band.
+            cleanup = -interference
+            snr += cleanup * _CLEANUP_SNR_BOOST_DB
+            fading_depth *= 1.0 - cleanup
 
         jammed = any(j.covers(freq_hz) for j in self.jamming) or (
             net is not None and net.jammed
@@ -425,7 +433,7 @@ class BandProfile:
         key = net_key_for(freq_hz)
         current = self.net_scenarios.get(key) or NetScenario(freq_hz=freq_hz)
         if interference is not None:
-            current.interference = max(0.0, min(1.0, interference))
+            current.interference = max(-1.0, min(1.0, interference))
         if jammed is not None:
             current.jammed = jammed
         if current.is_default:
@@ -471,9 +479,6 @@ class BandProfile:
             for d in data
         ]
         return cls(anchors=anchors, **kwargs)
-
-    def with_atmospheric(self, multiplier: float) -> BandProfile:
-        return replace(self, atmospheric_multiplier=multiplier)
 
 
 def _pink_weight_for(freq_hz: float) -> float:
