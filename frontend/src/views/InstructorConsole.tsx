@@ -256,7 +256,9 @@ function RadiosTab({ radios, socket, audio, onChange, events }: {
   }, [radios, startTx, endTx]);
 
   async function addRadio() {
-    const r = await api.addInstructorRadio("30.000 MHz");
+    // Omit the frequency so the server applies the operator-configured
+    // default start frequency (Settings → Default start frequency).
+    const r = await api.addInstructorRadio();
     onChange([...radios, r]);
   }
   async function removeRadio(id: string) {
@@ -628,10 +630,13 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
   async function save() {
     const keys = ["whisper_model", "whisper_compute_type", "transcription_confidence_threshold",
       "transcription_skip_under_seconds", "display_timezone", "crypto_delay_ms",
-      "update_channel", "auto_update", "update_check_on_startup"];
+      "default_frequency_hz", "update_channel", "auto_update", "update_check_on_startup"];
     const updates: Record<string, unknown> = {};
     keys.forEach((k) => (updates[k] = cfg[k]));
-    await api.updateSettings(updates);
+    const { applied } = await api.updateSettings(updates);
+    // Reflect any server-side normalisation (e.g. the start frequency snapped
+    // to the channel raster) back into the form.
+    setCfg((c) => ({ ...c, ...applied }));
     onTimezone(String(cfg.display_timezone || "UTC"));
     setSaved(true); setTimeout(() => setSaved(false), 1500);
   }
@@ -681,6 +686,20 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
         <Field label="Crypto sync delay (ms)">
           <input className="input" type="number" step="100" min="0"
             value={cfg.crypto_delay_ms ?? 1500} onChange={(e) => set("crypto_delay_ms", parseInt(e.target.value))} />
+        </Field>
+        <Field label="Default start frequency (MHz)">
+          <input className="input mono" type="number" step="0.0125" min="0"
+            value={((cfg.default_frequency_hz ?? 7_000_000) as number) / 1e6}
+            onChange={(e) => {
+              const mhz = parseFloat(e.target.value);
+              set("default_frequency_hz", isNaN(mhz) ? cfg.default_frequency_hz : mhz * 1e6);
+            }}
+            // Radios only tune to the 12.5 kHz raster, so snap on blur to show
+            // the value that will actually be applied.
+            onBlur={() => {
+              const hz = (cfg.default_frequency_hz ?? 7_000_000) as number;
+              set("default_frequency_hz", snapToStep(hz));
+            }} />
         </Field>
         <Field label="Display timezone">
           <select className="input mono" value={cfg.display_timezone || "UTC"} onChange={(e) => set("display_timezone", e.target.value)}>

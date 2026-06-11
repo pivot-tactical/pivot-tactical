@@ -28,6 +28,7 @@ from pivot.api.schemas import (
     TuneRequest,
 )
 from pivot.audio.render import AarCryptoView, PlaybackMode, render_event_wav_bytes
+from pivot.core.bands import snap_frequency
 from pivot.core.crypto import RadioMode
 from pivot.core.radios import RadioBusyError
 from pivot.db import repository as repo
@@ -50,6 +51,7 @@ _SETTABLE_KEYS = {
     "crypto_delay_ms",
     "crypto_tone_preset",
     "tuning_step_hz",
+    "default_frequency_hz",
     "update_channel",
     "update_check_on_startup",
     "auto_update",
@@ -273,7 +275,7 @@ def admin_list_instructor_radios(manager=Depends(get_manager)) -> list[dict]:
 @router.post("/admin/instructor-radios", dependencies=[Depends(require_instructor)])
 def admin_add_instructor_radio(
     label: str | None = Body(default=None),
-    frequency: str = Body(default="7.000 MHz"),
+    frequency: str | None = Body(default=None),
     manager=Depends(get_manager),
 ) -> dict:
     return manager.add_instructor_radio(label, frequency)
@@ -327,6 +329,10 @@ def admin_update_settings(updates: dict = Body(...), manager=Depends(get_manager
         for key, value in updates.items():
             if key not in _SETTABLE_KEYS:
                 continue
+            # The start frequency must be a channel the radios can actually tune
+            # to, so snap it to the 12.5 kHz raster before persisting.
+            if key == "default_frequency_hz":
+                value = snap_frequency(float(value))
             cfg.set(key, value)
             applied[key] = value
     if "display_timezone" in applied:
