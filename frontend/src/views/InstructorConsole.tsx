@@ -250,7 +250,7 @@ function RadiosTab({ radios, socket, audio, onChange, events }: {
   }, [radios, startTx, endTx]);
 
   async function addRadio() {
-    const r = await api.addInstructorRadio("30.000 MHz");
+    const r = await api.addInstructorRadio("7.000 MHz");
     onChange([...radios, r]);
   }
   async function removeRadio(id: string) {
