@@ -568,6 +568,47 @@ def test_instructor_audio_frames_are_tagged_with_radio_id(client):
             tx.send_json({"type": "ptt_end", "payload": {}})
 
 
+def test_instructor_keys_multiple_radios_at_once(client):
+    # The instructor can hold several radios keyed and speak once: each binary
+    # mic frame is routed to every keyed radio, so each net carries the same
+    # source transmission (rendered under its own channel conditions) and each
+    # radio logs its own event with its own recording.
+    from pivot.audio.pcm import float32_to_pcm16
+
+    token = client.app.state.auth.issue_token()
+    r1 = client.post("/api/admin/instructor-radios", json={"frequency": "40.000 MHz"}).json()
+    r2 = client.post("/api/admin/instructor-radios", json={"frequency": "7.000 MHz"}).json()
+    client.post("/api/admin/session/start", json={"name": "MULTI-KEY"})
+    manager = client.app.state.manager
+    # A listener on each net so both transmissions classify as 'Heard'.
+    manager.login("L-VHF", "listener-vhf")
+    manager.tune("listener-vhf", "40.000 MHz")
+    manager.login("L-HF", "listener-hf")
+    manager.tune("listener-hf", "7.000 MHz")
+
+    with client.websocket_connect(f"/ws?token={token}") as instr:
+        for _ in range(4):  # welcome, band profile, instructor_radios, terminal_update
+            instr.receive_json()
+
+        for rid in (r1["radio_id"], r2["radio_id"]):
+            instr.send_json({"type": "instr_ptt_start",
+                             "payload": {"radio_id": rid, "tx_mode": "Plain"}})
+            started = _recv_until(instr, "ptt_started")
+            assert started["payload"]["radio_id"] == rid
+
+        # One mic frame while both radios are keyed.
+        instr.send_bytes(float32_to_pcm16(
+            (0.2 * np.sin(2 * np.pi * 440 * np.arange(1600) / 16000)).astype(np.float32)
+        ))
+
+        for rid in (r1["radio_id"], r2["radio_id"]):
+            instr.send_json({"type": "instr_ptt_end", "payload": {"radio_id": rid}})
+            ended = _recv_until(instr, "ptt_ended")
+            assert ended["payload"]["radio_id"] == rid
+            assert ended["payload"]["audibility"] == "Heard"
+            assert ended["payload"]["duration_ms"] > 0  # the frame reached both
+
+
 def test_radio_added_over_rest_is_heard_on_live_instructor_socket(client):
     # The console adds and removes radios over REST while the instructor WS is
     # already connected. The new radio must start receiving on the live socket
