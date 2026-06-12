@@ -271,6 +271,49 @@ def test_instructor_radio_lifecycle(manager):
     assert manager.instructor_radios() == []
 
 
+def test_remove_instructor_radio_renumbers_default_labels(manager):
+    """Removing a radio re-fits default "Radio N" labels to list position, so
+    the console's card numbers (1, 2, 3…) and the names stay in agreement.
+    Custom labels are left alone."""
+    r1 = manager.add_instructor_radio()
+    manager.add_instructor_radio()
+    manager.add_instructor_radio("EAGLE EYE")
+    assert [r["name"] for r in manager.instructor_radios()] == [
+        "INSTRUCTOR (Radio 1)", "INSTRUCTOR (Radio 2)", "INSTRUCTOR (EAGLE EYE)"]
+
+    manager.remove_instructor_radio(r1["radio_id"])
+    assert [r["name"] for r in manager.instructor_radios()] == [
+        "INSTRUCTOR (Radio 1)", "INSTRUCTOR (EAGLE EYE)"]
+    # The next default label continues from the list position, no duplicates.
+    added = manager.add_instructor_radio()
+    assert added["name"] == "INSTRUCTOR (Radio 3)"
+
+    # The renumbering reached the DB too, so it survives a restart.
+    resumed = SessionManager(manager.db, manager.settings)
+    assert [r["name"] for r in resumed.instructor_radios()] == [
+        "INSTRUCTOR (Radio 1)", "INSTRUCTOR (EAGLE EYE)", "INSTRUCTOR (Radio 3)"]
+
+
+def test_instructor_radio_watcher_fires_and_removal_detaches_sink(manager):
+    """Radios can be added/removed over REST, outside the instructor WS loop:
+    the change watcher lets the live socket bind a sink for a new radio, and a
+    removal detaches the radio's sink so it doesn't linger registered."""
+    fired = []
+    unwatch = manager.watch_instructor_radios(lambda: fired.append(True))
+
+    r = manager.add_instructor_radio()
+    assert fired, "watcher must fire on add"
+
+    manager.register_audio_sink(r["radio_id"], lambda data: None)
+    manager.remove_instructor_radio(r["radio_id"])
+    assert r["radio_id"] not in manager._audio_sinks
+
+    unwatch()
+    fired.clear()
+    manager.add_instructor_radio()
+    assert fired == []
+
+
 def test_aar_rerender_clean_and_dirty(manager):
     manager.start_session("EX")
     manager.login("ALPHA", "t-1")

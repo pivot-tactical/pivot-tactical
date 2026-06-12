@@ -13,6 +13,8 @@ router's job (§6.3); this class owns the control decisions and the recording ta
 from __future__ import annotations
 
 import asyncio
+import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -46,6 +48,10 @@ from pivot.dsp.engine import DspEngine
 # effective default is the ``default_frequency_hz`` config key (instructor
 # Settings page); this constant only seeds that default.
 DEFAULT_FREQUENCY_HZ = 7_000_000.0  # a quiet HF spot to power on at
+
+# Auto-assigned instructor radio labels ("Radio 1", "Radio 2", …). Only labels
+# matching this pattern are renumbered after a removal; custom labels are kept.
+_DEFAULT_RADIO_LABEL = re.compile(r"^Radio \d+$")
 
 
 def _on_loop(loop: asyncio.AbstractEventLoop) -> bool:
@@ -109,6 +115,10 @@ class SessionManager:
         # delivers rendered PCM bytes to that radio's WebSocket, §6.3).
         self.engine = DspEngine(sample_rate=RECORDING_SAMPLE_RATE)
         self._audio_sinks: dict[str, object] = {}
+        # Callbacks fired whenever the instructor radio set changes (any path:
+        # WS message or REST). The instructor WS session uses one to keep a
+        # tagged audio sink bound per radio (§3.2.2).
+        self._instructor_radio_watchers: list[Callable[[], None]] = []
         # The server's asyncio loop, set by the app on startup. Lets background
         # threads (e.g. the transcription worker) broadcast safely into the
         # server loop via call_soon_threadsafe.
@@ -473,20 +483,67 @@ class SessionManager:
             )
         )
         self._touch_monitor()
+        self._instructor_radios_changed()
         return self._radio_dict(self.registry.get(radio_id))
 
     def remove_instructor_radio(self, radio_id: str) -> bool:
         if not radio_id.startswith("instr-"):
             return False
         db_id = int(radio_id.split("-", 1)[1])
+        self.registry.remove(radio_id)
+        # Detach the radio's audio sink here, not in the WS handler: a removal
+        # over REST never passes through the socket's message loop, and a sink
+        # left behind would keep "receiving" for a radio that no longer exists.
+        self.unregister_audio_sink(radio_id)
         with self.db.session() as s:
             repo.remove_instructor_radio(s, db_id)
-        self.registry.remove(radio_id)
+            self._renumber_instructor_radios(s)
         self._touch_monitor()
+        self._instructor_radios_changed()
         return True
 
     def instructor_radios(self) -> list[dict]:
         return [self._radio_dict(r) for r in self.registry.all() if r.is_instructor]
+
+    def watch_instructor_radios(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Register ``callback()`` to fire whenever an instructor radio is
+        added or removed, regardless of which API path did it. Returns an
+        unwatch function. Callbacks must be cheap and non-blocking — they may
+        run on a REST worker thread."""
+        self._instructor_radio_watchers.append(callback)
+
+        def unwatch() -> None:
+            try:
+                self._instructor_radio_watchers.remove(callback)
+            except ValueError:
+                pass
+
+        return unwatch
+
+    def _instructor_radios_changed(self) -> None:
+        for cb in list(self._instructor_radio_watchers):
+            try:
+                cb()
+            except Exception:  # a broken watcher must not block the change
+                pass
+        # Keep every open instructor console in step (labels renumber on
+        # removal, and another tab/REST client may have made the change).
+        self.broadcast("instructor_radios", self.instructor_radios())
+
+    def _renumber_instructor_radios(self, s) -> None:
+        """Re-fit default "Radio N" labels to each radio's list position so the
+        card numbering in the instructor console (1, 2, 3, …) and the radio's
+        displayed name agree after a removal. Custom labels are untouched."""
+        for idx, row in enumerate(repo.list_instructor_radios(s), start=1):
+            if not _DEFAULT_RADIO_LABEL.match(row.label):
+                continue
+            new_label = f"Radio {idx}"
+            if row.label == new_label:
+                continue
+            row.label = new_label
+            radio = self.registry.get(f"instr-{row.id}")
+            if radio is not None:
+                radio.label = new_label
 
     # -- scenario controls (§3.1.5) ---------------------------------------- #
 
