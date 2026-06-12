@@ -158,3 +158,23 @@ def test_snap_frequency_to_12_5khz_raster():
         assert snapped % 12_500 == 0
         assert abs(snapped - f) <= 6_250
     assert snap_frequency(100) == MIN_FREQ_HZ
+
+
+def test_without_noise_lifts_every_channel_degradation():
+    """An instructor radio's receive-noise toggle renders over these conditions:
+    no noise/fading/interference/jam, but the radio character (passband,
+    squelch) of the frequency is kept."""
+    profile = BandProfile()
+    profile.set_net_scenario(14_250_000.0, interference=1.0, jammed=True)
+    cond = profile.conditions_at(14_250_000.0)
+    quiet = cond.without_noise()
+
+    assert quiet.snr_db >= 60.0
+    assert quiet.fading_depth_db == 0.0
+    assert not quiet.selective_fading and not quiet.qrm
+    assert not quiet.jammed and quiet.interference == 0.0
+    # Same channel, same voice character.
+    assert quiet.freq_hz == cond.freq_hz
+    assert quiet.bandpass_low_hz == cond.bandpass_low_hz
+    assert quiet.bandpass_high_hz == cond.bandpass_high_hz
+    assert quiet.squelch_tail_ms == cond.squelch_tail_ms

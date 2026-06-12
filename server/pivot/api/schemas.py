@@ -53,6 +53,7 @@ class RadioResponse(BaseModel):
     band_region: str
     mode: str
     status: str
+    rx_noise: bool = True
 
 
 class SessionResponse(BaseModel):

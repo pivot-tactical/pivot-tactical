@@ -372,23 +372,40 @@ class SessionManager:
 
         freq = radio.frequency_hz
         render_map = self.registry.render_map_for_net(freq)
-        needed = distinct_renders(render_map)
-        if not needed:
-            return
         conditions = self.band_profile.conditions_at(freq)
-        rendered = render_net_frame({radio_id: pcm}, conditions, needed, self.engine)
-        for reception, listeners in group_renders(render_map).items():
-            frame = rendered.get(reception)
-            if frame is None:
+        # An instructor radio with its noise toggle off hears the same reception
+        # (the crypto rules are unchanged) rendered over a noiseless channel, so
+        # it gets its own render pass apart from the listeners hearing the real
+        # conditions.
+        for sub_map, cond in self.split_rx_noise(render_map, conditions):
+            needed = distinct_renders(sub_map)
+            if not needed:
                 continue
-            data = float32_to_pcm16(frame)
-            for listener_id in listeners:
-                sink = self._audio_sinks.get(listener_id)
-                if sink is not None:
-                    try:
-                        sink(data)
-                    except Exception:  # a slow/closed sink must not break routing
-                        pass
+            rendered = render_net_frame({radio_id: pcm}, cond, needed, self.engine)
+            for reception, listeners in group_renders(sub_map).items():
+                frame = rendered.get(reception)
+                if frame is None:
+                    continue
+                data = float32_to_pcm16(frame)
+                for listener_id in listeners:
+                    sink = self._audio_sinks.get(listener_id)
+                    if sink is not None:
+                        self._emit_to_sink(sink, data)
+
+    def split_rx_noise(self, render_map: dict, conditions):
+        """Partition a net's render map into render passes: listeners hearing
+        the channel as it is, and radios whose noise toggle is off hearing it
+        noiseless. Most frames have no toggled radio and stay one pass. Shared
+        with the WebRTC router's render loop."""
+        quiet = {rid: rec for rid, rec in render_map.items() if self._rx_noise_off(rid)}
+        if not quiet:
+            return [(render_map, conditions)]
+        loud = {rid: rec for rid, rec in render_map.items() if rid not in quiet}
+        return [(loud, conditions), (quiet, conditions.without_noise())]
+
+    def _rx_noise_off(self, radio_id: str) -> bool:
+        radio = self.registry.get(radio_id)
+        return radio is not None and not radio.rx_noise
 
     def render_idle_noise_tick(self, frame_samples: int, primed: set[str]) -> None:
         """Emit one ambient noise-floor frame to every idle listener (§3.2.2).
@@ -411,8 +428,10 @@ class SessionManager:
         freq_of: dict[int, float] = {}
         for rid in list(self._audio_sinks.keys()):
             radio = self.registry.get(rid)
-            if radio is None or radio.transmitting:
-                primed.discard(rid)  # not an idle listener right now
+            if radio is None or radio.transmitting or not radio.rx_noise:
+                # Not an idle listener right now (keyed, gone, or its noise
+                # toggle is off — a noiseless receive has no ambient hash).
+                primed.discard(rid)
                 continue
             key = self.registry.net_key(radio.frequency_hz)
             groups.setdefault(key, []).append(rid)
@@ -504,6 +523,19 @@ class SessionManager:
 
     def instructor_radios(self) -> list[dict]:
         return [self._radio_dict(r) for r in self.registry.all() if r.is_instructor]
+
+    def set_rx_noise(self, radio_id: str, enabled: bool) -> dict:
+        """Toggle the channel noise on one instructor radio's *receive* only
+        (§3.1.5): off, the instructor monitors that net noiseless while every
+        other station keeps hearing the channel as set. Personal to the radio —
+        the net itself is shaped via the per-net scenario, not this."""
+        radio = self.registry.get(radio_id)
+        if radio is None or not radio.is_instructor:
+            raise KeyError(f"not an instructor radio: {radio_id}")
+        radio.rx_noise = enabled
+        # Keep every open instructor console in step, like tune/mode changes.
+        self.broadcast("instructor_radios", self.instructor_radios())
+        return self._radio_dict(radio)
 
     def watch_instructor_radios(self, callback: Callable[[], None]) -> Callable[[], None]:
         """Register ``callback()`` to fire whenever an instructor radio is
@@ -809,4 +841,5 @@ class SessionManager:
             "band_region": region_for(radio.frequency_hz).label,
             "mode": radio.mode.value,
             "status": radio.status,
+            "rx_noise": radio.rx_noise,
         }

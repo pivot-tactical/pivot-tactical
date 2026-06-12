@@ -41,6 +41,12 @@ class Radio:
     frequency_hz: float
     is_instructor: bool = False
     mode: RadioMode = RadioMode.PLAIN
+    # Per-radio receive-noise toggle (instructor radios only, §3.1.5): when
+    # False this radio's *received* audio is rendered over a noiseless channel
+    # so the instructor can monitor unhindered. The net itself — and what every
+    # other station on it hears — is untouched (that is the per-net scenario's
+    # job).
+    rx_noise: bool = True
     # Transmit lifecycle: a cypher keying first enters crypto sync (not on air),
     # then goes on-air when the sync delay elapses (§3.2.3, §3.4.2).
     syncing: bool = False

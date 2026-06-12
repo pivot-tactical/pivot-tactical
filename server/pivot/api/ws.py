@@ -182,6 +182,11 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
                     rid = radio_id_of(payload)
                     await ws.send_json({"type": "mode_changed",
                                         "payload": manager.set_mode(rid, RadioMode(payload["mode"]))})
+                elif mtype == "instr_rx_noise":
+                    # Per-radio receive-noise toggle (§3.1.5). The state push
+                    # rides on the manager's instructor_radios broadcast, so
+                    # every open console stays in step.
+                    manager.set_rx_noise(radio_id_of(payload), bool(payload.get("enabled", True)))
                 elif mtype == "instr_add_radio":
                     # Sink binding and the instructor_radios push both ride on
                     # the manager's change watcher/broadcast (shared with REST).

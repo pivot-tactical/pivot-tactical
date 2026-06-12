@@ -328,6 +328,10 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
 
   const interference = scenario?.interference ?? 0;
   const jammed = scenario?.jammed ?? false;
+  // This radio's receive-noise toggle (off = monitor the net noiseless). A
+  // personal control like volume — the channel itself, and what every other
+  // station hears, is shaped by the CHANNEL NOISE controls above instead.
+  const rxNoiseOn = radio.rx_noise !== false;
 
   // This radio's live receive level (shared map, see RadiosTab): the meter
   // shows what the channel actually sounds like — the ambient floor with its
@@ -437,7 +441,16 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
           </div>
         </div>
 
-        <VolumeSlider value={volume} onChange={changeVolume} />
+        <div className="rxctl">
+          <VolumeSlider value={volume} onChange={changeVolume} />
+          <button
+            className={`btn ${rxNoiseOn ? "" : "btn--warn"}`}
+            title="Channel noise on this radio's receive only — turn it off to monitor this net unhindered. Every other station still hears the channel noise (shape the net itself with the CHANNEL NOISE controls)."
+            onClick={() => socket?.instrRxNoise(radio.radio_id, !rxNoiseOn)}
+          >
+            {rxNoiseOn ? "RX Noise: On" : "RX NOISE OFF"}
+          </button>
+        </div>
       </div>
 
       <button
