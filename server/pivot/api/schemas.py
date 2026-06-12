@@ -76,6 +76,15 @@ class ApplyUpdateRequest(BaseModel):
     sig_url: str = ""
     asset_name: str
 
+    @field_validator("tag", "asset_name")
+    @classmethod
+    def validate_filename(cls, v: str) -> str:
+        if not v:
+            return v
+        if "/" in v or "\\" in v or ".." in v:
+            raise ValueError("must be a valid filename without path separators")
+        return v
+
     @field_validator("asset_url", "sha256_url", "sig_url")
     @classmethod
     def validate_github_url(cls, v: str) -> str:
