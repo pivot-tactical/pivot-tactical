@@ -155,6 +155,11 @@ body {
 .volume__label { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
 .volume__range { display: block; width: 100%; margin-top: 8px; accent-color: var(--green); cursor: pointer; }
 .instr-radio .volume { margin: 14px 0 0; }
+/* Volume + the radio's receive-noise toggle, side by side on instructor cards. */
+.rxctl { display: flex; align-items: flex-end; gap: 10px; }
+.rxctl .volume { flex: 1; }
+.rxctl .btn { padding: 4px 12px; white-space: nowrap; margin-bottom: 2px; }
+.btn--warn { border-color: var(--amber); color: var(--amber); background: #241c0c; }
 
 /* ---------- PTT ---------- */
 .ptt {

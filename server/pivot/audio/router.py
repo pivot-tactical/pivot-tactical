@@ -171,16 +171,19 @@ class AudioRouter:
 
             freq = radio.frequency_hz
             render_map = self.manager.registry.render_map_for_net(freq)
-            needed = distinct_renders(render_map)
-            if not needed:
-                continue
             conditions = self.manager.band_profile.conditions_at(freq)
             active = {
                 t.radio_id: clean
                 for t in self.manager.registry.active_transmitters_on_net(freq)
             }
-            rendered = render_net_frame(active, conditions, needed, self.engine)
-            self._dispatch(render_map, rendered)
+            # Instructor radios with their noise toggle off get a separate
+            # noiseless render pass (same crypto rules, no channel noise).
+            for sub_map, cond in self.manager.split_rx_noise(render_map, conditions):
+                needed = distinct_renders(sub_map)
+                if not needed:
+                    continue
+                rendered = render_net_frame(active, cond, needed, self.engine)
+                self._dispatch(sub_map, rendered)
             radio = self.manager.registry.get(radio_id)
 
     def _dispatch(self, render_map, rendered) -> None:  # pragma: no cover - media

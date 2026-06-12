@@ -21,7 +21,7 @@ from __future__ import annotations
 import bisect
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 # Overall tunable range: low HF through UHF (spec §3.1.2 table).
@@ -136,6 +136,11 @@ def snap_frequency(freq_hz: float, step_hz: float = CHANNEL_STEP_HZ) -> float:
 # --------------------------------------------------------------------------- #
 
 
+# SNR for a noise-toggled-off receive: high enough that the mixed-in texture is
+# inaudible under the voice, without disturbing the rest of the chain.
+_NOISE_OFF_SNR_DB = 60.0
+
+
 @dataclass(frozen=True)
 class BandConditions:
     """Fully-resolved audio parameters at one frequency and one instant.
@@ -170,6 +175,25 @@ class BandConditions:
     @property
     def snr_linear(self) -> float:
         return 10.0 ** (self.snr_db / 20.0)
+
+    def without_noise(self) -> BandConditions:
+        """These conditions with every channel degradation lifted (§3.1.5).
+
+        Used to render the receive stream of an instructor radio whose noise
+        toggle is off: the voice passband and squelch character stay (it still
+        sounds like a radio), but the band noise, fading, interference and
+        jamming are gone. Crypto effects (hash, collision jam) are not noise
+        and are applied by reception type, so they still come through.
+        """
+        return replace(
+            self,
+            snr_db=_NOISE_OFF_SNR_DB,
+            fading_depth_db=0.0,
+            selective_fading=False,
+            qrm=False,
+            jammed=False,
+            interference=0.0,
+        )
 
     def to_dict(self) -> dict:
         """Serialise for the event's ``dsp_profile_json`` (spec §3.5.3, §4.5)."""

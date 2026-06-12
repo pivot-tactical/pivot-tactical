@@ -149,6 +149,23 @@ def test_shared_sink_gets_one_frame_per_tick(manager):
     assert len(shared.frames) == 1  # one frame for the shared sink, not two
 
 
+def test_rx_noise_off_radio_gets_no_idle_hash(manager):
+    """An instructor radio with its receive-noise toggle off hears nothing
+    between transmissions; flipping it back on resumes the ambient floor."""
+    manager.start_session("EX")
+    r = manager.add_instructor_radio("Radio 1", "14.250 MHz")
+    sink = _Sink()
+    manager.register_audio_sink(r["radio_id"], sink)
+    manager.set_rx_noise(r["radio_id"], False)
+    primed: set[str] = set()
+    manager.render_idle_noise_tick(FRAME, primed)
+    manager.render_idle_noise_tick(FRAME, primed)
+    assert sink.frames == []
+    manager.set_rx_noise(r["radio_id"], True)
+    manager.render_idle_noise_tick(FRAME, primed)
+    assert sink.frames  # the hash returns once the toggle is back on
+
+
 def test_no_sinks_is_a_noop(manager):
     manager.start_session("EX")
     primed: set[str] = set()

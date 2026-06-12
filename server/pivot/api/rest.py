@@ -305,6 +305,17 @@ def admin_tune_instructor_radio(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@router.post("/admin/instructor-radios/{radio_id}/rx-noise", dependencies=[Depends(require_instructor)])
+def admin_rx_noise_instructor_radio(
+    radio_id: str, enabled: bool = Body(..., embed=True), manager=Depends(get_manager)
+) -> dict:
+    """Toggle channel noise on this instructor radio's receive only (§3.1.5)."""
+    try:
+        return manager.set_rx_noise(radio_id, enabled)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="unknown radio") from exc
+
+
 @router.post("/admin/instructor-radios/{radio_id}/mode", dependencies=[Depends(require_instructor)])
 def admin_mode_instructor_radio(
     radio_id: str, mode: RadioMode = Body(..., embed=True), manager=Depends(get_manager)

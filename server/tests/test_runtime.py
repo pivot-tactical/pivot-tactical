@@ -314,6 +314,51 @@ def test_instructor_radio_watcher_fires_and_removal_detaches_sink(manager):
     assert fired == []
 
 
+def test_rx_noise_toggle_is_instructor_only(manager):
+    r = manager.add_instructor_radio("Radio 1", "14.250 MHz")
+    assert r["rx_noise"] is True
+    assert manager.set_rx_noise(r["radio_id"], False)["rx_noise"] is False
+    assert manager.instructor_radios()[0]["rx_noise"] is False
+
+    manager.login("ALPHA", "t-1")
+    with pytest.raises(KeyError):
+        manager.set_rx_noise("t-1", False)
+
+
+def test_rx_noise_off_hears_through_jamming_others_unaffected(manager):
+    """An instructor radio with its receive-noise toggle off hears the voice
+    clean even on a jammed channel, while a trainee on the same net still gets
+    the wall of jammer noise — the toggle changes only that radio's receive."""
+    from pivot.audio.pcm import pcm16_to_float32
+
+    manager.start_session("EX")
+    manager.login("TX", "tx")
+    manager.login("RX", "rx")
+    manager.tune("tx", "14.250 MHz")
+    manager.tune("rx", "14.250 MHz")
+    instr = manager.add_instructor_radio("Radio 1", "14.250 MHz")
+    manager.set_net_scenario("14.250 MHz", jammed=True)
+    manager.set_rx_noise(instr["radio_id"], False)
+
+    rx_frames, instr_frames = [], []
+    manager.register_audio_sink("rx", rx_frames.append)
+    manager.register_audio_sink(instr["radio_id"], instr_frames.append)
+
+    manager.ptt_start("tx")
+    voice = tone(seconds=0.02)  # one 20 ms frame
+    manager.route_tx_frame("tx", voice)
+    assert rx_frames and instr_frames
+
+    def similarity(data: bytes) -> float:
+        return abs(float(np.corrcoef(pcm16_to_float32(data), voice)[0, 1]))
+
+    # The toggled radio's frame is essentially the voice; the trainee's copy is
+    # buried in jammer noise (and the two renders are genuinely distinct).
+    assert instr_frames[0] != rx_frames[0]
+    assert similarity(instr_frames[0]) > 0.9
+    assert similarity(rx_frames[0]) < 0.7
+
+
 def test_aar_rerender_clean_and_dirty(manager):
     manager.start_session("EX")
     manager.login("ALPHA", "t-1")

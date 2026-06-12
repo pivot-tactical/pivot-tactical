@@ -120,4 +120,9 @@ export class PivotSocket {
   instrMode(radioId: string, mode: string) {
     this.send("instr_mode", { radio_id: radioId, mode });
   }
+  // Per-radio receive-noise toggle: off, this radio monitors its net without
+  // the channel noise; every other station still hears the channel as set.
+  instrRxNoise(radioId: string, enabled: boolean) {
+    this.send("instr_rx_noise", { radio_id: radioId, enabled });
+  }
 }

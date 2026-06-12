@@ -459,6 +459,30 @@ def test_instructor_websocket_rejects_unauthenticated_control(client):
         assert _recv_until(wsconn, "error")["payload"]["detail"].startswith("unknown")
 
 
+def test_rx_noise_toggle_over_rest_and_ws(client):
+    """The per-radio receive-noise toggle (§3.1.5) flips over REST and over the
+    instructor socket, and the instructor_radios push carries the state."""
+    token = client.app.state.auth.issue_token()
+    radio = client.post("/api/admin/instructor-radios", json={"frequency": "40.000 MHz"}).json()
+    rid = radio["radio_id"]
+    assert radio["rx_noise"] is True
+
+    r = client.post(f"/api/admin/instructor-radios/{rid}/rx-noise", json={"enabled": False})
+    assert r.status_code == 200 and r.json()["rx_noise"] is False
+    assert client.get("/api/admin/instructor-radios").json()[0]["rx_noise"] is False
+    # Unknown radios 404 (and trainee radios are never instructor radios).
+    assert client.post("/api/admin/instructor-radios/instr-999/rx-noise",
+                       json={"enabled": True}).status_code == 404
+
+    with client.websocket_connect(f"/ws?token={token}") as wsconn:
+        snapshot = _recv_until(wsconn, "instructor_radios")
+        assert snapshot["payload"][0]["rx_noise"] is False
+        wsconn.send_json({"type": "instr_rx_noise",
+                          "payload": {"radio_id": rid, "enabled": True}})
+        update = _recv_until(wsconn, "instructor_radios")
+        assert update["payload"][0]["rx_noise"] is True
+
+
 def test_websocket_audio_frame_is_recorded(client):
     # A binary PCM frame sent while keyed is tapped for the recording, so the
     # event ends with non-zero duration and a WAV on disk.

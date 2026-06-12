@@ -23,6 +23,10 @@ export interface RadioState {
   band_region: string;
   mode: RadioMode;
   status: string;
+  // Receive-noise toggle (instructor radios, §3.1.5): false = this radio's
+  // received audio is rendered without channel noise; the net itself — and
+  // every other station on it — is unaffected. Absent on monitor snapshots.
+  rx_noise?: boolean;
 }
 
 export interface Terminal extends RadioState {
