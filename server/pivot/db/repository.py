@@ -187,6 +187,22 @@ def reconcile_orphan_transcriptions(session: Session, recordings_dir) -> int:
     return changed
 
 
+def list_recent_events(session: Session, limit: int = 200) -> list[EventRow]:
+    """Newest-first events across all sessions, capped at ``limit``.
+
+    Seeds the instructor console's running log on connect so entries recorded
+    before a server restart or update are still listed (the live
+    ``event_logged`` feed only carries new transmissions).
+    """
+    return list(
+        session.scalars(
+            select(EventRow)
+            .order_by(EventRow.timestamp_start.desc())
+            .limit(limit)
+        )
+    )
+
+
 def list_events(session: Session, session_id: str) -> list[EventRow]:
     return list(
         session.scalars(
