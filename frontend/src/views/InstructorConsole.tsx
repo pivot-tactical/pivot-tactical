@@ -111,6 +111,16 @@ export function InstructorConsole({
     window.addEventListener("keydown", enable, { once: true });
 
     api.instructorRadios().then(setRadios).catch(() => {});
+    // Seed the running log from the DB so entries recorded before a refresh,
+    // a server restart or an update are still listed (with their clips
+    // playable and transcripts visible). Live broadcasts may land before this
+    // resolves, so merge by event_id with the live entries kept on top.
+    api.recentEvents().then((history) =>
+      setEvents((prev) => {
+        const seen = new Set(prev.map((e) => e.event_id));
+        return [...prev, ...history.filter((e) => !seen.has(e.event_id))].slice(0, 200);
+      })
+    ).catch(() => {});
     api.terminals().then((t) => {
       setSessionActive(t.session_active);
       // Restore the running scenario's name after a refresh or a server restart

@@ -173,6 +173,20 @@ def delete_session(session_id: str, manager=Depends(get_manager)) -> dict:
     return {"deleted": session_id}
 
 
+@router.get("/events/recent", dependencies=[Depends(require_instructor)])
+def recent_events(
+    limit: int = Query(200, ge=1, le=1000), manager=Depends(get_manager)
+) -> list[dict]:
+    """Newest-first events across all sessions (§3.5.3).
+
+    The instructor console seeds its running log from this on load, so the
+    history — clips and transcripts included — survives a refresh, a server
+    restart and an update (the WS ``event_logged`` feed only carries new ones).
+    """
+    with manager.db.session() as s:
+        return [e.to_dict() for e in repo.list_recent_events(s, limit)]
+
+
 @router.get("/events/{event_id}/audio", dependencies=[Depends(require_instructor)])
 def event_audio(
     event_id: str,

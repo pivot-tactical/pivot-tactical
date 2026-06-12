@@ -237,6 +237,9 @@ export const api = {
 
   // --- instructor: AAR / history ---
   sessions: () => jsonFetch<SessionSummary[]>("/api/sessions"),
+  // Newest-first events across all sessions — seeds the console's running log
+  // so history survives a refresh, a server restart and an update.
+  recentEvents: (limit = 200) => jsonFetch<EventRow[]>(`/api/events/recent?limit=${limit}`),
   events: (sessionId: string) => jsonFetch<EventRow[]>(`/api/sessions/${sessionId}/events`),
   eventAudioUrl: (eventId: string, mode: "clean" | "dirty", view: "plain" | "cypher") =>
     `/api/events/${eventId}/audio?${tokenQuery(`mode=${mode}&view=${view}`)}`,

@@ -328,6 +328,35 @@ def test_sessions_events_and_export(client, settings):
     assert r.status_code == 200 and "trainee_name" in r.text
 
 
+def test_recent_events_survive_restart(client, settings):
+    """The console seeds its log from /api/events/recent, which reads the DB —
+    recordings and transcripts must survive a server restart or update."""
+    manager = client.app.state.manager
+    manager.start_session("EX-PERSIST")
+    manager.login("ALPHA", "t-1")
+    manager.tune("t-1", "14.250 MHz")
+    manager.ptt_start("t-1")
+    t = np.sin(2 * np.pi * 440 * np.arange(8000) / 16000).astype(np.float32)
+    event = manager.ptt_end("t-1", audio=t)
+    manager.end_session()
+
+    r = client.get("/api/events/recent")
+    assert r.status_code == 200
+    assert [e["event_id"] for e in r.json()] == [event["event_id"]]
+
+    # "Restart": a fresh app over the same data dir still lists the event —
+    # even though its session has ended — and still streams its clip.
+    app2 = create_app(settings)
+    app2.dependency_overrides[require_instructor] = lambda: None
+    with TestClient(app2) as client2:
+        r = client2.get("/api/events/recent")
+        assert r.status_code == 200
+        assert [e["event_id"] for e in r.json()] == [event["event_id"]]
+
+        r = client2.get(f"/api/events/{event['event_id']}/audio?mode=clean")
+        assert r.status_code == 200 and r.content[:4] == b"RIFF"
+
+
 def test_websocket_login_tune_and_ptt(client):
     client.post("/api/admin/session/start", json={"name": "WS-EX"})
     with client.websocket_connect("/ws?name=CHARLIE&trainee_id=ws-1") as wsconn:
