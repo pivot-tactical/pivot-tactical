@@ -534,9 +534,12 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
 
 function LiveLogTab({ entries }: { entries: LogEntry[] }) {
   const [audio] = useState(() => new Audio());
-  function play(ev: EventRow) {
+  // Two independent playbacks of the one stored recording: "clean" is the raw
+  // pre-DSP capture (no noise); "dirty" re-renders it through the original DSP
+  // profile so the instructor hears it as it was received over the air.
+  function play(ev: EventRow, mode: "clean" | "dirty") {
     audio.pause();
-    audio.src = api.eventAudioUrl(ev.event_id, "clean", "cypher");
+    audio.src = api.eventAudioUrl(ev.event_id, mode, "cypher");
     audio.play().catch(() => {});
   }
   return (
@@ -560,7 +563,10 @@ function LiveLogTab({ entries }: { entries: LogEntry[] }) {
           const low = ev.transcription_confidence != null && ev.transcription_confidence < 0.8;
           return (
             <div className="logrow" key={ev.event_id}>
-              <button className="event__play" onClick={() => play(ev)} title="Play clip">▶</button>
+              <span className="event__play-group">
+                <button className="event__play" onClick={() => play(ev, "clean")} title="Play without noise">▶</button>
+                <button className="event__play" onClick={() => play(ev, "dirty")} title="Play with noise (as heard)">📻</button>
+              </span>
               <span className="mono muted">{ev.timestamp_start.slice(11, 19)}</span>
               <span className="mono">{ev.trainee_name}</span>
               <span className="mono">{ev.frequency}</span>
