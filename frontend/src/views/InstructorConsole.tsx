@@ -304,7 +304,6 @@ function RadiosTab({ radios, socket, audio, onChange, events, netScenarios, rxLe
         ))}
       </div>
       {radios.length === 0 && <p className="muted">No instructor radios yet. Add one to begin.</p>}
-      <ChannelEffectsList netScenarios={netScenarios} />
       <LiveLogTab events={events} />
     </div>
   );
@@ -522,34 +521,6 @@ function MonitorTab({ terminals }: { terminals: Terminal[] }) {
           {terminals.length === 0 && <tr><td colSpan={6} className="muted">No trainees connected.</td></tr>}
         </tbody>
       </table>
-    </section>
-  );
-}
-
-// Per-channel overrides currently in force, set from the radio cards. Shown
-// under the radios so an effect left on a channel no radio is still tuned to
-// doesn't linger unnoticed — and can be cleared from here.
-function ChannelEffectsList({ netScenarios }: { netScenarios: NetScenario[] }) {
-  if (netScenarios.length === 0) return null;
-  function clearNet(s: NetScenario) {
-    api.scenario({ net_scenario: { frequency_hz: s.freq_hz, interference: 0, jammed: false } }).catch(() => {});
-  }
-  return (
-    <section className="card pad">
-      <h3>Active Channel Effects</h3>
-      {netScenarios.map((s) => (
-        <div className="row gap mt" key={s.freq_hz}>
-          <span className="mono">{fmtMHz(s.freq_hz)} MHz</span>
-          {s.jammed && <span className="text--amber mono">JAMMED</span>}
-          {s.interference > 0 && (
-            <span className="muted mono">interference {Math.round(s.interference * 100)}%</span>
-          )}
-          {s.interference < 0 && (
-            <span className="muted mono">cleaned {Math.round(-s.interference * 100)}%</span>
-          )}
-          <button className="btn btn--ghost" onClick={() => clearNet(s)}>Clear</button>
-        </div>
-      ))}
     </section>
   );
 }
