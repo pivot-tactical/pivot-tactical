@@ -64,5 +64,19 @@ export interface EventRow {
   transcription_status: string;
 }
 
+// A divider row in the Running Event Log marking when a training session
+// started or stopped (spans the full width, unlike an EventRow).
+export interface SessionLogMarker {
+  session_id: string;
+  session_name: string;
+  type: "started" | "ended";
+  timestamp: string;
+}
+
+export type LogEntry =
+  | { kind: "event"; event: EventRow }
+  | { kind: "session"; marker: SessionLogMarker };
+
+
 // The trainee radio state machine shown over the PTT control (§3.2.2, §7.2.2).
 export type TxPhase = "IDLE" | "CRYPTO_SYNC" | "SECURE_TX" | "TX";

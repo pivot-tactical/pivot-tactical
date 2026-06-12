@@ -8,7 +8,7 @@ import { ModeDial } from "../components/ModeDial";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
 import { METER_DECAY, SignalMeter } from "../components/SignalMeter";
 import { VolumeSlider } from "../components/VolumeSlider";
-import type { EventRow, NetScenario, RadioState, Terminal, TxPhase } from "../types";
+import type { EventRow, LogEntry, NetScenario, RadioState, SessionLogMarker, Terminal, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
 
 type Tab = "radios" | "monitor" | "settings";
@@ -20,6 +20,11 @@ const FALLBACK_TIMEZONES = [
   "Asia/Kolkata", "Asia/Bangkok", "Asia/Shanghai", "Asia/Tokyo", "Australia/Sydney",
   "Pacific/Auckland",
 ];
+
+// Sort key for merging history events and session markers into one timeline.
+function timestampOf(e: LogEntry): string {
+  return e.kind === "event" ? e.event.timestamp_start : e.marker.timestamp;
+}
 
 function getTimezoneOptions(): string[] {
   try {
@@ -46,7 +51,7 @@ export function InstructorConsole({
   const [radios, setRadios] = useState<RadioState[]>([]);
   const [terminals, setTerminals] = useState<Terminal[]>([]);
   const [netScenarios, setNetScenarios] = useState<NetScenario[]>([]);
-  const [events, setEvents] = useState<EventRow[]>([]);
+  const [entries, setEntries] = useState<LogEntry[]>([]);
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionName, setSessionName] = useState("");
   const [conn, setConn] = useState<ConnState>("online");
@@ -87,12 +92,38 @@ export function InstructorConsole({
       if (p.net_scenarios) setNetScenarios(p.net_scenarios);
     });
     sock.on("terminal_update", (p) => setTerminals((p.terminals || []).filter((t: Terminal) => !t.is_instructor)));
-    sock.on("event_logged", (ev) => setEvents((prev) => [ev, ...prev].slice(0, 200)));
-    sock.on("transcription_updated", (ev) =>
-      setEvents((prev) => prev.map((e) => (e.event_id === ev.event_id ? { ...e, ...ev } : e)))
+    sock.on("event_logged", (ev) =>
+      setEntries((prev) => [{ kind: "event", event: ev } as LogEntry, ...prev].slice(0, 200))
     );
-    sock.on("session_started", () => setSessionActive(true));
-    sock.on("session_ended", () => setSessionActive(false));
+    sock.on("transcription_updated", (ev) =>
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.kind === "event" && e.event.event_id === ev.event_id
+            ? { kind: "event", event: { ...e.event, ...ev } }
+            : e
+        )
+      )
+    );
+    // Session start/stop get their own divider rows in the log, timestamped so
+    // the boundary between exercises is visible after the fact.
+    sock.on("session_started", (p) => {
+      setSessionActive(true);
+      setEntries((prev) =>
+        [
+          { kind: "session", marker: { session_id: p.id, session_name: p.name, type: "started", timestamp: p.started_at } } as LogEntry,
+          ...prev,
+        ].slice(0, 200)
+      );
+    });
+    sock.on("session_ended", (p) => {
+      setSessionActive(false);
+      setEntries((prev) =>
+        [
+          { kind: "session", marker: { session_id: p.id, session_name: p.name, type: "ended", timestamp: p.ended_at } } as LogEntry,
+          ...prev,
+        ].slice(0, 200)
+      );
+    });
     // Each instructor radio's frames are tagged with its radio_id so the mixed
     // playback stream can carry independent per-radio headset volumes — and so
     // each card's signal meter can track its own radio's receive level.
@@ -111,16 +142,40 @@ export function InstructorConsole({
     window.addEventListener("keydown", enable, { once: true });
 
     api.instructorRadios().then(setRadios).catch(() => {});
-    // Seed the running log from the DB so entries recorded before a refresh,
-    // a server restart or an update are still listed (with their clips
-    // playable and transcripts visible). Live broadcasts may land before this
-    // resolves, so merge by event_id with the live entries kept on top.
-    api.recentEvents().then((history) =>
-      setEvents((prev) => {
-        const seen = new Set(prev.map((e) => e.event_id));
-        return [...prev, ...history.filter((e) => !seen.has(e.event_id))].slice(0, 200);
-      })
-    ).catch(() => {});
+    // Seed the running log from the DB so entries (and session start/stop
+    // dividers) recorded before a refresh, a server restart or an update are
+    // still listed — with clips playable and transcripts visible. Live
+    // broadcasts may land before this resolves, so merge by key with the live
+    // entries kept in place.
+    Promise.all([api.recentEvents(), api.sessions()]).then(([history, sessions]) => {
+      const historyEntries: LogEntry[] = history.map((event) => ({ kind: "event", event }));
+      const markers: LogEntry[] = [];
+      for (const s of sessions) {
+        markers.push({ kind: "session", marker: { session_id: s.id, session_name: s.name, type: "started", timestamp: s.started_at } });
+        if (s.ended_at) {
+          markers.push({ kind: "session", marker: { session_id: s.id, session_name: s.name, type: "ended", timestamp: s.ended_at } });
+        }
+      }
+      setEntries((prev) => {
+        const seenEvents = new Set(prev.filter((e) => e.kind === "event").map((e) => (e as { kind: "event"; event: EventRow }).event.event_id));
+        const seenMarkers = new Set(
+          prev.filter((e) => e.kind === "session").map((e) => {
+            const m = (e as { kind: "session"; marker: SessionLogMarker }).marker;
+            return `${m.session_id}-${m.type}`;
+          })
+        );
+        const merged = [
+          ...prev,
+          ...historyEntries.filter((e) => !seenEvents.has((e as { kind: "event"; event: EventRow }).event.event_id)),
+          ...markers.filter((e) => {
+            const m = (e as { kind: "session"; marker: SessionLogMarker }).marker;
+            return !seenMarkers.has(`${m.session_id}-${m.type}`);
+          }),
+        ];
+        merged.sort((a, b) => timestampOf(b).localeCompare(timestampOf(a)));
+        return merged.slice(0, 200);
+      });
+    }).catch(() => {});
     api.terminals().then((t) => {
       setSessionActive(t.session_active);
       // Restore the running scenario's name after a refresh or a server restart
@@ -184,7 +239,7 @@ export function InstructorConsole({
       </nav>
 
       <main className="console__body">
-        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} events={events} netScenarios={netScenarios} rxLevels={rxLevels} />}
+        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} entries={entries} netScenarios={netScenarios} rxLevels={rxLevels} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
         {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} socket={socketRef.current} onRestart={enterRestarting} sessionActive={sessionActive} />}
       </main>
@@ -210,9 +265,9 @@ function scenarioFor(netScenarios: NetScenario[], hz: number): NetScenario | und
 // handler; the meters poll and decay it at animation rate without re-renders.
 type RxLevels = { current: Record<string, number> };
 
-function RadiosTab({ radios, socket, audio, onChange, events, netScenarios, rxLevels }: {
+function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxLevels }: {
   radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
-  events: EventRow[]; netScenarios: NetScenario[]; rxLevels: RxLevels;
+  entries: LogEntry[]; netScenarios: NetScenario[]; rxLevels: RxLevels;
 }) {
   const [phase, setPhase] = useState<TxPhase>("IDLE");
   // Which radio is currently keyed. The instructor connection routes one
@@ -314,7 +369,7 @@ function RadiosTab({ radios, socket, audio, onChange, events, netScenarios, rxLe
         ))}
       </div>
       {radios.length === 0 && <p className="muted">No instructor radios yet. Add one to begin.</p>}
-      <LiveLogTab events={events} />
+      <LiveLogTab entries={entries} />
     </div>
   );
 }
@@ -477,7 +532,7 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
   );
 }
 
-function LiveLogTab({ events }: { events: EventRow[] }) {
+function LiveLogTab({ entries }: { entries: LogEntry[] }) {
   const [audio] = useState(() => new Audio());
   function play(ev: EventRow) {
     audio.pause();
@@ -487,9 +542,21 @@ function LiveLogTab({ events }: { events: EventRow[] }) {
   return (
     <section className="card pad logcard">
       <h3>Running Event Log</h3>
-      {events.length === 0 && <p className="muted">Transmissions will appear here as they happen.</p>}
+      {entries.length === 0 && <p className="muted">Transmissions will appear here as they happen.</p>}
       <div className="log">
-        {events.map((ev) => {
+        {entries.map((entry) => {
+          if (entry.kind === "session") {
+            const m = entry.marker;
+            return (
+              <div className="logrow logrow--session" key={`session-${m.session_id}-${m.type}`}>
+                <span className="mono muted">{m.timestamp.slice(11, 19)}</span>
+                <span className="logrow__session-label">
+                  Session “{m.session_name}” {m.type === "started" ? "started" : "stopped"}
+                </span>
+              </div>
+            );
+          }
+          const ev = entry.event;
           const low = ev.transcription_confidence != null && ev.transcription_confidence < 0.8;
           return (
             <div className="logrow" key={ev.event_id}>
