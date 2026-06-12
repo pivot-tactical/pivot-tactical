@@ -515,6 +515,39 @@ def test_instructor_audio_frames_are_tagged_with_radio_id(client):
             tx.send_json({"type": "ptt_end", "payload": {}})
 
 
+def test_radio_added_over_rest_is_heard_on_live_instructor_socket(client):
+    # The console adds and removes radios over REST while the instructor WS is
+    # already connected. The new radio must start receiving on the live socket
+    # (no reconnect), and removing the original radio must not silence it.
+    from pivot.audio.pcm import float32_to_pcm16
+
+    token = client.app.state.auth.issue_token()
+    first = client.post("/api/admin/instructor-radios", json={"frequency": "40.000 MHz"}).json()
+    client.post("/api/admin/session/start", json={"name": "REST-ADD"})
+
+    with client.websocket_connect(f"/ws?token={token}") as instr:
+        for _ in range(4):  # welcome, band profile, instructor_radios, terminal_update
+            instr.receive_json()
+
+        second = client.post("/api/admin/instructor-radios", json={"frequency": "41.000 MHz"}).json()
+        client.delete(f"/api/admin/instructor-radios/{first['radio_id']}")
+
+        with client.websocket_connect("/ws?name=TX&trainee_id=rest-tx") as tx:
+            tx.receive_json()  # welcome
+            tx.receive_json()  # band profile
+            tx.send_json({"type": "ptt_start",
+                          "payload": {"frequency": "41.000 MHz", "tx_mode": "Plain"}})
+            _recv_until(tx, "ptt_started")
+            tx.send_bytes(float32_to_pcm16(
+                (0.2 * np.sin(2 * np.pi * 440 * np.arange(1600) / 16000)).astype(np.float32)
+            ))
+
+            data = _recv_bytes(instr)
+            length = data[0]
+            assert data[1:1 + length].decode("ascii") == second["radio_id"]
+            tx.send_json({"type": "ptt_end", "payload": {}})
+
+
 def _recv_until(wsconn, mtype, limit=20):
     for _ in range(limit):
         msg = wsconn.receive_json()

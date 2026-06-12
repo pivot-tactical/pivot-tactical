@@ -274,6 +274,9 @@ function RadiosTab({ radios, socket, audio, onChange, events, netScenarios, rxLe
   }
   async function removeRadio(id: string) {
     await api.removeInstructorRadio(id);
+    delete rxLevels.current[id];
+    // Local filter for snappiness; the server's instructor_radios broadcast
+    // follows with the surviving radios renumbered (Radio 1…N in order).
     onChange(radios.filter((r) => r.radio_id !== id));
   }
 

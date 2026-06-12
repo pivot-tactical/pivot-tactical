@@ -130,18 +130,24 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
     # The instructor hears on every one of their radios. Each radio gets its own
     # sink that tags every PCM frame with the source radio_id, so the browser can
     # mix them into one playback stream at independent headset volumes (§3.2.2).
+    # Radios are added/removed over REST as well as over this socket, so the
+    # sink set is kept in step via the manager's change watcher rather than
+    # only from this loop's own messages.
     sinks: dict[str, object] = {}
 
-    def bind_radios() -> None:
-        for r in manager.instructor_radios():
-            rid = r["radio_id"]
-            if rid in sinks:
-                continue
-            sink = _tagged_sink(audio_out, rid)
-            sinks[rid] = sink
-            manager.register_audio_sink(rid, sink)
+    def sync_radio_sinks() -> None:
+        live = {r["radio_id"] for r in manager.instructor_radios()}
+        for rid in list(sinks):
+            if rid not in live:
+                manager.unregister_audio_sink(rid, sinks.pop(rid))
+        for rid in live:
+            if rid not in sinks:
+                sink = _tagged_sink(audio_out, rid)
+                sinks[rid] = sink
+                manager.register_audio_sink(rid, sink)
 
-    bind_radios()
+    sync_radio_sinks()
+    unwatch = manager.watch_instructor_radios(sync_radio_sinks)
     await ws.send_json({"type": "welcome", "payload": {"role": "instructor"}})
     await ws.send_json({"type": "band_profile_update", "payload": manager.band_profile_snapshot()})
     await ws.send_json({"type": "instructor_radios", "payload": manager.instructor_radios()})
@@ -177,18 +183,12 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
                     await ws.send_json({"type": "mode_changed",
                                         "payload": manager.set_mode(rid, RadioMode(payload["mode"]))})
                 elif mtype == "instr_add_radio":
+                    # Sink binding and the instructor_radios push both ride on
+                    # the manager's change watcher/broadcast (shared with REST).
                     manager.add_instructor_radio(payload.get("label"),
                                                  payload.get("frequency"))
-                    bind_radios()
-                    await ws.send_json({"type": "instructor_radios",
-                                        "payload": manager.instructor_radios()})
                 elif mtype == "instr_remove_radio":
-                    rid = payload.get("radio_id", "")
-                    manager.remove_instructor_radio(rid)
-                    manager.unregister_audio_sink(rid)
-                    sinks.pop(rid, None)
-                    await ws.send_json({"type": "instructor_radios",
-                                        "payload": manager.instructor_radios()})
+                    manager.remove_instructor_radio(payload.get("radio_id", ""))
                 elif mtype == "instr_ptt_start":
                     rid = radio_id_of(payload)
                     result = manager.ptt_start(rid, frequency=payload.get("frequency"),
@@ -216,6 +216,7 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
         pass
     finally:
         _cancel(sync_task)
+        unwatch()
         # Only drop sinks still owned by *this* connection — a reconnected
         # instructor may already have re-bound these radios to a new sink.
         for rid, sink in sinks.items():
