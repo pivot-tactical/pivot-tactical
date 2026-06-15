@@ -9,7 +9,7 @@ One person runs the **headless server** and acts as the **instructor**,
 controlling the exercise from a **web browser** (protected by a password).
 Trainees connect from any device with a browser over the local network — nothing
 to install on either side. Radios tune freely across the whole HF/VHF/UHF range;
-nets are *emergent* (anyone on the same frequency is on the same net, exactly
+nets are _emergent_ (anyone on the same frequency is on the same net, exactly
 like real radios), and tuning upward audibly cleans up from noisy low HF to
 near-clean UHF.
 
@@ -39,7 +39,7 @@ the newest build (the version is in the release notes and shown in-app).
 ### Linux (x86_64)
 
 Runs on common glibc-based distributions — Ubuntu 22.04+, Debian 12+, Fedora 36+,
-Linux Mint 21+, Pop!_OS and similar.
+Linux Mint 21+, Pop!\_OS and similar.
 
 1. Download the latest
    [`PIVOT-Tactical-linux-x86_64.tar.gz`](../../releases/latest/download/PIVOT-Tactical-linux-x86_64.tar.gz).
@@ -50,19 +50,16 @@ Linux Mint 21+, Pop!_OS and similar.
    ./PIVOT-Tactical/PIVOT-Tactical
    ```
 
-   On a headless server (no desktop), start the server only with
-   `./PIVOT-Tactical/PIVOT-Tactical --headless`.
-
 ### Then
 
-* The server prints the **LAN address** (e.g. `https://192.168.1.20:8080`).
+- The server prints the **LAN address** (e.g. `https://192.168.1.20:8080`).
   Everyone — instructor and trainees — opens that address in a browser. The
   browser will warn that the connection isn't private — that's expected for a
   self-hosted address (PIVOT signs its own certificate, since there's no public
   CA for a LAN-only tool); choose **Advanced → Proceed** once. This is also what
   lets the browser grant microphone access — over a plain `http://` LAN address,
   Firefox (and, really, any browser) won't even prompt for it.
-* Trainees enter a callsign. The instructor chooses **Log in as instructor** and
+- Trainees enter a callsign. The instructor chooses **Log in as instructor** and
   enters the password (default `instructor` on first run — change it in Settings).
 
 Your database, recordings and settings live in a data folder **next to** the
@@ -100,14 +97,14 @@ hash. Export a session as text, CSV, or a ZIP with all audio.
 PIVOT updates itself from this repository's GitHub Releases — an explicit,
 out-of-band action that is **never** run during an exercise:
 
-* **Check for updates** lists newer and older releases with their notes; update
+- **Check for updates** lists newer and older releases with their notes; update
   to the latest, update to a chosen release, or **downgrade** to an older one.
-* **Roll back to previous** instantly swaps back to the last version you ran — no
+- **Roll back to previous** instantly swaps back to the last version you ran — no
   download, no internet — for fast recovery from a bad update.
-* **Offline import** lets fully air-gapped sites apply a release package copied in
+- **Offline import** lets fully air-gapped sites apply a release package copied in
   on removable media. Every package is verified by SHA-256 before it is applied.
-* **Channels.** Settings → Updates offers *Stable only* (default) or *Include
-  prereleases*. Normal users stay on stable; testers can opt into the automatic
+- **Channels.** Settings → Updates offers _Stable only_ (default) or _Include
+  prereleases_. Normal users stay on stable; testers can opt into the automatic
   `-dev.N` prerelease builds produced for each change (and turn on auto-update).
 
 Updates only ever replace the program folder; your database and recordings live
@@ -115,14 +112,14 @@ outside it and are never touched.
 
 ## How it works
 
-* **Per-listener audio.** A single transmission can sound different to different
+- **Per-listener audio.** A single transmission can sound different to different
   receivers on the same frequency — clear voice, an encrypted hash, or a garbled
   collision — so the server renders audio for each listener and delivers it over
   WebRTC straight to the browser.
-* **Continuous band model.** One processing chain whose noise and fading vary
+- **Continuous band model.** One processing chain whose noise and fading vary
   continuously with frequency (worst at low HF, near-clean at UHF), plus per-net
   instructor noise control (interference or cleanup per channel) and jamming.
-* **Per-radio crypto.** Plain/Cypher is a property of each radio, persists across
+- **Per-radio crypto.** Plain/Cypher is a property of each radio, persists across
   retuning, and never auto-resets. A cypher-capable set decodes plain too; only a
   plain receiver hearing a cypher transmission gets the undecodable hash.
 
@@ -134,10 +131,10 @@ PIVOT is released under the **Apache License 2.0** (see [`LICENSE`](LICENSE)). A
 core project requirement is that the project licence does not contravene any
 upstream dependency licence; the dependency licences ship with every download.
 
-* [`NOTICE`](NOTICE) — attribution for Apache-2.0 and bundled components.
-* [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md) — full dependency licence
+- [`NOTICE`](NOTICE) — attribution for Apache-2.0 and bundled components.
+- [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md) — full dependency licence
   inventory and the allow/deny policy (enforced in CI).
-* [`REBUILD-LGPL.md`](REBUILD-LGPL.md) — how to substitute or rebuild the LGPL
+- [`REBUILD-LGPL.md`](REBUILD-LGPL.md) — how to substitute or rebuild the LGPL
   component, satisfying the relink obligation.
 
 The server is headless (no Qt/PySide6). The only weak-copyleft component is
