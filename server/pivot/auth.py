@@ -18,8 +18,6 @@ invalidates every outstanding token at once. No third-party crypto dependency is
 used (stdlib ``hashlib``/``hmac``).
 """
 
-from __future__ import annotations
-
 import base64
 import hashlib
 import hmac
