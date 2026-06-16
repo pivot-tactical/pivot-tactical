@@ -8,8 +8,6 @@ Timestamps are presented in the configured display timezone (§3.8) while the
 stored values remain UTC.
 """
 
-from __future__ import annotations
-
 import csv
 import io
 import zipfile
