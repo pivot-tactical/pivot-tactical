@@ -15,8 +15,6 @@ Two layers:
   :class:`pivot.db.config_store.ConfigStore`.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from pydantic import Field
