@@ -15,8 +15,6 @@ The result is routed through the band DSP chain by the engine, so HF/VHF/UHF
 cypher garble each take on their region's character (§3.4.2).
 """
 
-from __future__ import annotations
-
 import numpy as np
 
 from pivot.dsp.filters import bandpass, lowpass, normalise_rms
