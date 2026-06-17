@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from pivot.core.bands import BandProfile
@@ -113,8 +113,6 @@ def list_sessions(session: Session) -> list[SessionRow]:
 
 
 def list_sessions_with_event_count(session: Session) -> list[tuple[SessionRow, int]]:
-    from sqlalchemy import func
-
     stmt = (
         select(SessionRow, func.count(EventRow.event_id))
         .outerjoin(EventRow, SessionRow.id == EventRow.session_id)
