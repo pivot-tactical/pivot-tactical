@@ -656,3 +656,16 @@ def _recv_bytes(wsconn, limit=50):
         if msg.get("bytes") is not None:
             return msg["bytes"]
     raise AssertionError(f"did not receive a binary frame within {limit} messages")
+
+@pytest.mark.asyncio
+async def test_schedule_on_air():
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from pivot.api.ws import _schedule_on_air
+    ws_mock = AsyncMock()
+    manager_mock = MagicMock()
+    with patch("pivot.api.ws.asyncio.sleep", new_callable=AsyncMock) as sleep_mock:
+        await _schedule_on_air(ws_mock, manager_mock, "test-radio", 1500)
+        sleep_mock.assert_called_once_with(1.5)
+        manager_mock.ptt_sync_complete.assert_called_once_with("test-radio")
+        ws_mock.send_json.assert_called_once_with({"type": "secure_tx", "payload": {"radio_id": "test-radio"}})
