@@ -32,10 +32,7 @@ def test_render_net_frame_produces_one_buffer_per_reception():
     conditions = BandProfile().conditions_at(14e6)
     engine = DspEngine(SR)
     rendered = render_net_frame(
-        {"tx": frame},
-        conditions,
-        {Reception.CLEAR, Reception.HASH},
-        engine,
+        {"tx": frame}, conditions, {Reception.CLEAR, Reception.HASH}, engine,
         rng=np.random.default_rng(0),
     )
     assert set(rendered) == {Reception.CLEAR, Reception.HASH}
@@ -48,10 +45,8 @@ def test_render_net_frame_collision():
     conditions = BandProfile().conditions_at(145e6)
     engine = DspEngine(SR)
     rendered = render_net_frame(
-        {"a": a, "b": b},
-        conditions,
-        {Reception.PLAIN_COLLISION, Reception.CRYPTO_JAM},
-        engine,
+        {"a": a, "b": b}, conditions,
+        {Reception.PLAIN_COLLISION, Reception.CRYPTO_JAM}, engine,
         rng=np.random.default_rng(0),
     )
     assert rendered[Reception.PLAIN_COLLISION].shape == a.shape

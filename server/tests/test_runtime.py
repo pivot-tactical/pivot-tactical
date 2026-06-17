@@ -279,16 +279,11 @@ def test_remove_instructor_radio_renumbers_default_labels(manager):
     manager.add_instructor_radio()
     manager.add_instructor_radio("EAGLE EYE")
     assert [r["name"] for r in manager.instructor_radios()] == [
-        "INSTRUCTOR (Radio 1)",
-        "INSTRUCTOR (Radio 2)",
-        "INSTRUCTOR (EAGLE EYE)",
-    ]
+        "INSTRUCTOR (Radio 1)", "INSTRUCTOR (Radio 2)", "INSTRUCTOR (EAGLE EYE)"]
 
     manager.remove_instructor_radio(r1["radio_id"])
     assert [r["name"] for r in manager.instructor_radios()] == [
-        "INSTRUCTOR (Radio 1)",
-        "INSTRUCTOR (EAGLE EYE)",
-    ]
+        "INSTRUCTOR (Radio 1)", "INSTRUCTOR (EAGLE EYE)"]
     # The next default label continues from the list position, no duplicates.
     added = manager.add_instructor_radio()
     assert added["name"] == "INSTRUCTOR (Radio 3)"
@@ -296,10 +291,7 @@ def test_remove_instructor_radio_renumbers_default_labels(manager):
     # The renumbering reached the DB too, so it survives a restart.
     resumed = SessionManager(manager.db, manager.settings)
     assert [r["name"] for r in resumed.instructor_radios()] == [
-        "INSTRUCTOR (Radio 1)",
-        "INSTRUCTOR (EAGLE EYE)",
-        "INSTRUCTOR (Radio 3)",
-    ]
+        "INSTRUCTOR (Radio 1)", "INSTRUCTOR (EAGLE EYE)", "INSTRUCTOR (Radio 3)"]
 
 
 def test_instructor_radio_watcher_fires_and_removal_detaches_sink(manager):

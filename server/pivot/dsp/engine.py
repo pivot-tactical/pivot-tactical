@@ -44,7 +44,9 @@ class DspEngine:
     def _rng(self, rng: np.random.Generator | None) -> np.random.Generator:
         return rng if rng is not None else np.random.default_rng()
 
-    def _texture(self, conditions: BandConditions, rng: np.random.Generator | None) -> NoiseTexture:
+    def _texture(
+        self, conditions: BandConditions, rng: np.random.Generator | None
+    ) -> NoiseTexture:
         """The net's persistent texture, or a fresh seeded one when ``rng`` is
         given (deterministic tests and whole-buffer AAR re-renders)."""
         if rng is not None:

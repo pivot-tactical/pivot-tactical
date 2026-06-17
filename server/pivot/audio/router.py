@@ -173,7 +173,8 @@ class AudioRouter:
             render_map = self.manager.registry.render_map_for_net(freq)
             conditions = self.manager.band_profile.conditions_at(freq)
             active = {
-                t.radio_id: clean for t in self.manager.registry.active_transmitters_on_net(freq)
+                t.radio_id: clean
+                for t in self.manager.registry.active_transmitters_on_net(freq)
             }
             # Instructor radios with their noise toggle off get a separate
             # noiseless render pass (same crypto rules, no channel noise).

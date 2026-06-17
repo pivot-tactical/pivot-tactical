@@ -66,7 +66,7 @@ def test_appcast_has_signed_enclosure_and_parses(sa):
         url="https://example.test/PIVOT-Tactical-Setup-v1.2.0.exe",
         length=len(payload),
         ed_signature=sig,
-        pub_date=sa.rfc822(datetime.datetime(2026, 6, 6, 12, 0, 0, tzinfo=datetime.UTC)),
+        pub_date=sa.rfc822(datetime.datetime(2026, 6, 6, 12, 0, 0, tzinfo=datetime.timezone.utc)),
         notes_html="<h1>Notes</h1>",
     )
     xml = sa.build_appcast("PIVOT-Tactical", [item])
@@ -96,5 +96,5 @@ def test_appcast_escapes_special_characters(sa):
 
 
 def test_rfc822_is_appcast_shaped(sa):
-    s = sa.rfc822(datetime.datetime(2026, 6, 6, 12, 0, 0, tzinfo=datetime.UTC))
+    s = sa.rfc822(datetime.datetime(2026, 6, 6, 12, 0, 0, tzinfo=datetime.timezone.utc))
     assert s == "Sat, 06 Jun 2026 12:00:00 +0000"

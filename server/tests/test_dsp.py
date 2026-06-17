@@ -138,9 +138,8 @@ def test_plain_collision_mixes_voices():
     b = speech_like(seed=2)
     cond = BandProfile().conditions_at(145e6)
     engine = DspEngine(SR)
-    out = engine.render(
-        Reception.PLAIN_COLLISION, voices=[a, b], conditions=cond, rng=np.random.default_rng(0)
-    )
+    out = engine.render(Reception.PLAIN_COLLISION, voices=[a, b], conditions=cond,
+                        rng=np.random.default_rng(0))
     assert out.shape == a.shape
     # The mix correlates with neither source as strongly as a clean render would.
     assert norm_corr(out, a) < 0.9 and norm_corr(out, b) < 0.9

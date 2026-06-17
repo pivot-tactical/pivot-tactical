@@ -120,7 +120,7 @@ class Layout:
         # and is_dir() on it then raises WinError 448 — which would otherwise
         # crash pruning/discovery just for walking past it.
         tags = [
-            p.name[len(_APP_PREFIX) :]
+            p.name[len(_APP_PREFIX):]
             for p in self.versions.iterdir()
             if p.name.startswith(_APP_PREFIX) and p.is_dir()
         ]
@@ -134,7 +134,7 @@ class Layout:
         except (OSError, RuntimeError):
             return None
         name = target.name
-        return name[len(_APP_PREFIX) :] if name.startswith(_APP_PREFIX) else None
+        return name[len(_APP_PREFIX):] if name.startswith(_APP_PREFIX) else None
 
     def app_exe(self, tag: str, exe_name: str) -> Path | None:
         exe = self.app_dir(tag) / exe_name

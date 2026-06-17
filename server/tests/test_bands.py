@@ -1,5 +1,6 @@
 """Tests for the frequency model (spec §3.1.2, §4.1)."""
 
+
 import pytest
 
 from pivot.core.bands import (
@@ -19,17 +20,17 @@ from pivot.core.bands import (
 @pytest.mark.parametrize(
     "freq_hz,expected",
     [
-        (1_600_000, BandRegion.HF),  # 1.6–3 MHz is technically MF, reported as HF
+        (1_600_000, BandRegion.HF),       # 1.6–3 MHz is technically MF, reported as HF
         (7_100_000, BandRegion.HF),
         (9_999_999, BandRegion.HF),
         (10_000_000, BandRegion.HF),
         (14_250_000, BandRegion.HF),
         (29_999_999, BandRegion.HF),
-        (30_000_000, BandRegion.HF),  # ITU: 30 MHz upper edge belongs to HF
+        (30_000_000, BandRegion.HF),      # ITU: 30 MHz upper edge belongs to HF
         (30_000_001, BandRegion.VHF),
         (145_500_000, BandRegion.VHF),
         (299_999_999, BandRegion.VHF),
-        (300_000_000, BandRegion.VHF),  # ITU: 300 MHz upper edge belongs to VHF
+        (300_000_000, BandRegion.VHF),    # ITU: 300 MHz upper edge belongs to VHF
         (300_000_001, BandRegion.UHF),
         (2_400_000_000, BandRegion.UHF),
     ],
@@ -44,10 +45,10 @@ def test_region_boundaries(freq_hz, expected):
         ("14.250 MHz", 14_250_000),
         ("145500 kHz", 145_500_000),
         ("243 MHz", 243_000_000),
-        ("7.1", 7_100_000),  # bare -> MHz
+        ("7.1", 7_100_000),       # bare -> MHz
         ("2.4 GHz", 2_400_000_000),
         ("1600 kHz", 1_600_000),
-        (14.25, 14_250_000),  # bare float -> MHz
+        (14.25, 14_250_000),       # bare float -> MHz
         (145_500_000, 145_500_000),  # large number -> already Hz
     ],
 )
@@ -126,7 +127,9 @@ def test_curve_json_roundtrip():
     data = profile.curve_to_json()
     restored = BandProfile.from_curve_json(data)
     for f in (2e6, 14e6, 145e6, 440e6):
-        assert restored.conditions_at(f).snr_db == pytest.approx(profile.conditions_at(f).snr_db)
+        assert restored.conditions_at(f).snr_db == pytest.approx(
+            profile.conditions_at(f).snr_db
+        )
 
 
 def test_squelch_tail_longer_on_hf():

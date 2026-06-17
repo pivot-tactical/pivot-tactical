@@ -79,8 +79,8 @@ class Settings(BaseSettings):
 DEFAULT_CONFIG: dict[str, object] = {
     "schema_version": 1,
     # --- transcription (§3.1.6) ---
-    "whisper_model": "small",  # tiny/base/small/medium/large-v3
-    "whisper_compute_type": "auto",  # auto / int8 / int8_float16 / float16
+    "whisper_model": "small",            # tiny/base/small/medium/large-v3
+    "whisper_compute_type": "auto",      # auto / int8 / int8_float16 / float16
     "whisper_language": "en",
     "transcription_confidence_threshold": 0.80,
     "transcription_skip_under_seconds": 0.5,
@@ -101,8 +101,8 @@ DEFAULT_CONFIG: dict[str, object] = {
     "github_repo": DEFAULT_GITHUB_REPO,
     "github_token": "",
     "update_check_on_startup": False,
-    "update_channel": "stable",  # stable / include_prereleases
-    "auto_update": False,  # apply updates automatically on check
+    "update_channel": "stable",          # stable / include_prereleases
+    "auto_update": False,                # apply updates automatically on check
     "retained_versions": 3,
     "verify_checksums": True,
     # --- audio / logging (§7.1, §8.6) ---

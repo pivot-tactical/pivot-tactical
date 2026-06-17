@@ -105,11 +105,7 @@ def frontend_dist_dir() -> Path | None:
     return None
 
 
-def create_app(
-    settings: Settings | None = None,
-    manager: SessionManager | None = None,
-    force_https: bool = False,
-) -> FastAPI:
+def create_app(settings: Settings | None = None, manager: SessionManager | None = None, force_https: bool = False) -> FastAPI:
     """Build the app. A shared ``manager`` may be supplied (e.g. by the CLI
     entry point) so the caller and the server operate on the same live state."""
     cfg = settings or default_settings
@@ -180,7 +176,6 @@ def create_app(
 
     if force_https:
         from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
-
         app.add_middleware(HTTPSRedirectMiddleware)
 
     # LAN-only deployment: same-origin frontend, but allow LAN origins for dev.
@@ -201,7 +196,6 @@ def create_app(
 def _mount_frontend(app: FastAPI) -> None:
     dist = frontend_dist_dir()
     if dist is None:
-
         @app.get("/")
         def _no_frontend() -> JSONResponse:  # pragma: no cover - dev convenience
             return JSONResponse(
@@ -212,7 +206,6 @@ def _mount_frontend(app: FastAPI) -> None:
                     "api": "/api/status",
                 }
             )
-
         return
 
     # Serve hashed assets, with an index.html fallback for SPA client routes.

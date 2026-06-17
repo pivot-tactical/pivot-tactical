@@ -56,7 +56,9 @@ def test_negative_interference_cleans_the_channel():
     assert lifted.fading_depth_db < clean_base.fading_depth_db
     # The neighbouring channel keeps its natural (noisy) baseline.
     neighbour = profile.conditions_at(low_hf + 12_500.0)
-    assert neighbour.snr_db == pytest.approx(BandProfile().conditions_at(low_hf + 12_500.0).snr_db)
+    assert neighbour.snr_db == pytest.approx(
+        BandProfile().conditions_at(low_hf + 12_500.0).snr_db
+    )
 
 
 def test_cleanup_is_a_real_override_not_a_default():
@@ -203,7 +205,9 @@ def test_migration_adds_net_scenarios_column(tmp_path):
     db = Database(db_path)
     db.initialise()
     with db.session() as s:
-        row = s.execute(text("SELECT net_scenarios_json FROM band_profile WHERE id = 1")).fetchone()
+        row = s.execute(
+            text("SELECT net_scenarios_json FROM band_profile WHERE id = 1")
+        ).fetchone()
     assert row[0] == "[]"
 
 

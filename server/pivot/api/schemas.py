@@ -19,7 +19,7 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     role: str
-    token: str | None = None  # instructor bearer token
+    token: str | None = None          # instructor bearer token
     must_change_password: bool = False  # true while the default password is in use
     # Trainee radio fields (absent for instructors):
     trainee_id: str | None = None
@@ -137,9 +137,9 @@ class ScenarioRequest(BaseModel):
     want to change in one call."""
 
     crypto_enabled: bool | None = None
-    jamming_on: list[list[float]] | None = None  # [[low_hz, high_hz], ...]
-    noise_burst: list[float] | None = None  # [low_hz, high_hz]
+    jamming_on: list[list[float]] | None = None   # [[low_hz, high_hz], ...]
+    noise_burst: list[float] | None = None         # [low_hz, high_hz]
     net_scenario: NetScenarioRequest | None = None  # per-net interference/jam
-    curve: list[dict] | None = None  # noise-vs-frequency anchors
+    curve: list[dict] | None = None                # noise-vs-frequency anchors
     display_timezone: str | None = None
     kick_trainee_id: str | None = None

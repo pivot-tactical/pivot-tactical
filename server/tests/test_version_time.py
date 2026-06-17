@@ -1,6 +1,6 @@
 """Tests for semantic-version ordering (§3.7.3) and time handling (§3.8)."""
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from pivot.core.timebase import (
     format_clock,
@@ -66,7 +66,7 @@ def test_is_prerelease_flag():
 
 
 def test_utc_roundtrip():
-    dt = datetime(2026, 6, 5, 12, 30, 15, tzinfo=UTC)
+    dt = datetime(2026, 6, 5, 12, 30, 15, tzinfo=timezone.utc)
     assert parse_iso_utc(to_iso_utc(dt)) == dt
 
 
@@ -77,7 +77,7 @@ def test_naive_datetime_treated_as_utc():
 
 
 def test_clock_formats_in_zone():
-    dt = datetime(2026, 6, 5, 12, 0, 0, tzinfo=UTC)
+    dt = datetime(2026, 6, 5, 12, 0, 0, tzinfo=timezone.utc)
     assert format_clock(dt, "UTC") == "12:00:00"
     # New York is UTC-4 in June (DST).
     assert format_clock(dt, "America/New_York") == "08:00:00"
@@ -86,3 +86,25 @@ def test_clock_formats_in_zone():
 def test_unknown_timezone_falls_back_to_utc():
     tz = resolve_timezone("Not/AZone")
     assert tz.key == "UTC"
+
+
+def test_resolve_timezone_value_error_fallback():
+    # Empty string triggers ValueError in ZoneInfo
+    assert resolve_timezone("").key == "UTC"
+    # Absolute path triggers ValueError in ZoneInfo
+    assert resolve_timezone("/etc/localtime").key == "UTC"
+
+
+def test_resolve_timezone_key_error_fallback():
+    from unittest.mock import patch
+    from zoneinfo import ZoneInfo
+
+    original_zoneinfo = ZoneInfo
+
+    def mock_zoneinfo(name):
+        if name == "Some/Zone":
+            raise KeyError("Simulated KeyError")
+        return original_zoneinfo(name)
+
+    with patch("pivot.core.timebase.ZoneInfo", side_effect=mock_zoneinfo):
+        assert resolve_timezone("Some/Zone").key == "UTC"

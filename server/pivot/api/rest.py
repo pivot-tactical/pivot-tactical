@@ -149,9 +149,8 @@ def band_profile(manager=Depends(get_manager)) -> dict:
 # --- AAR / sessions (instructor only) -------------------------------------- #
 
 
-@router.get(
-    "/sessions", response_model=list[SessionResponse], dependencies=[Depends(require_instructor)]
-)
+@router.get("/sessions", response_model=list[SessionResponse],
+            dependencies=[Depends(require_instructor)])
 def list_sessions(manager=Depends(get_manager)) -> list[SessionResponse]:
     with manager.db.session() as s:
         out = []
@@ -237,18 +236,15 @@ def export_session(
     """Export a session as ZIP (logs + WAVs), plain text, or CSV (§3.6.4)."""
     if fmt == "text":
         body = exporting.export_text(manager.db, session_id)
-        return Response(
-            content=body, media_type="text/plain", headers=_attachment(f"{session_id}.txt")
-        )
+        return Response(content=body, media_type="text/plain",
+                        headers=_attachment(f"{session_id}.txt"))
     if fmt == "csv":
         body = exporting.export_csv(manager.db, session_id)
-        return Response(
-            content=body, media_type="text/csv", headers=_attachment(f"{session_id}.csv")
-        )
+        return Response(content=body, media_type="text/csv",
+                        headers=_attachment(f"{session_id}.csv"))
     blob = exporting.export_zip(manager.db, manager.settings, session_id)
-    return Response(
-        content=blob, media_type="application/zip", headers=_attachment(f"{session_id}.zip")
-    )
+    return Response(content=blob, media_type="application/zip",
+                    headers=_attachment(f"{session_id}.zip"))
 
 
 # --- instructor / admin (instructor token required) ------------------------ #
@@ -332,9 +328,7 @@ def admin_tune_instructor_radio(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@router.post(
-    "/admin/instructor-radios/{radio_id}/rx-noise", dependencies=[Depends(require_instructor)]
-)
+@router.post("/admin/instructor-radios/{radio_id}/rx-noise", dependencies=[Depends(require_instructor)])
 def admin_rx_noise_instructor_radio(
     radio_id: str, enabled: bool = Body(..., embed=True), manager=Depends(get_manager)
 ) -> dict:
@@ -564,7 +558,9 @@ def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) ->
 
 
 @router.post("/admin/updates/rollback", dependencies=[Depends(require_instructor)])
-def admin_rollback(req: RollbackRequest | None = None, manager=Depends(get_manager)) -> dict:
+def admin_rollback(
+    req: RollbackRequest | None = None, manager=Depends(get_manager)
+) -> dict:
     """Roll back to a retained version (instant, offline downgrade, §3.7.7).
 
     Recovery for a bad update without re-downloading: the chosen retained version

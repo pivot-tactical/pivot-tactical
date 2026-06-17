@@ -89,8 +89,8 @@ class InstructorRadioRow(Base):
     __tablename__ = "instructor_radios"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    label: Mapped[str] = mapped_column(String(64))  # "Radio 1", ...
-    frequency: Mapped[str] = mapped_column(String(32))  # current tuned frequency
+    label: Mapped[str] = mapped_column(String(64))         # "Radio 1", ...
+    frequency: Mapped[str] = mapped_column(String(32))     # current tuned frequency
     mode: Mapped[RadioMode] = mapped_column(_str_enum(RadioMode), default=RadioMode.PLAIN)
 
 
@@ -155,19 +155,17 @@ class EventRow(Base):
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("sessions.id"), index=True)
 
     trainee_name: Mapped[str] = mapped_column(String(96))  # or "INSTRUCTOR (Radio N)"
-    frequency: Mapped[str] = mapped_column(String(32))  # frequency transmitted on
-    band_region: Mapped[str] = mapped_column(String(16))  # HF / VHF / UHF (ITU)
+    frequency: Mapped[str] = mapped_column(String(32))      # frequency transmitted on
+    band_region: Mapped[str] = mapped_column(String(16))    # HF / VHF / UHF (ITU)
     tx_mode: Mapped[RadioMode] = mapped_column(_str_enum(RadioMode))
     audibility: Mapped[Audibility] = mapped_column(_str_enum(Audibility))
-    sync_status: Mapped[SyncStatus] = mapped_column(
-        _str_enum(SyncStatus), default=SyncStatus.COMPLETED
-    )
+    sync_status: Mapped[SyncStatus] = mapped_column(_str_enum(SyncStatus), default=SyncStatus.COMPLETED)
 
     timestamp_start: Mapped[str] = mapped_column(String(32), index=True)  # ISO 8601 UTC
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
 
-    audio_path: Mapped[str] = mapped_column(String(255))  # relative WAV path
-    dsp_profile_json: Mapped[str] = mapped_column(Text)  # full DSP settings for re-render
+    audio_path: Mapped[str] = mapped_column(String(255))     # relative WAV path
+    dsp_profile_json: Mapped[str] = mapped_column(Text)      # full DSP settings for re-render
 
     transcription: Mapped[str | None] = mapped_column(Text, nullable=True)
     transcription_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)

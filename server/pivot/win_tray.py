@@ -48,18 +48,9 @@ def _configure_win32_prototypes() -> None:
     user32.DefWindowProcW.argtypes = [HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
     user32.CreateWindowExW.restype = HWND
     user32.CreateWindowExW.argtypes = [
-        wintypes.DWORD,
-        wintypes.LPCWSTR,
-        wintypes.LPCWSTR,
-        wintypes.DWORD,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        HWND,
-        HMENU,
-        wintypes.HINSTANCE,
-        wintypes.LPVOID,
+        wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
+        ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+        HWND, HMENU, wintypes.HINSTANCE, wintypes.LPVOID,
     ]
     user32.DestroyWindow.argtypes = [HWND]
     user32.ShowWindow.argtypes = [HWND, ctypes.c_int]
@@ -74,13 +65,7 @@ def _configure_win32_prototypes() -> None:
     user32.AppendMenuW.argtypes = [HMENU, wintypes.UINT, ctypes.c_size_t, wintypes.LPCWSTR]
     user32.TrackPopupMenu.restype = wintypes.BOOL
     user32.TrackPopupMenu.argtypes = [
-        HMENU,
-        wintypes.UINT,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        HWND,
-        ctypes.c_void_p,
+        HMENU, wintypes.UINT, ctypes.c_int, ctypes.c_int, ctypes.c_int, HWND, ctypes.c_void_p,
     ]
     user32.DestroyMenu.argtypes = [HMENU]
     # Clipboard: GlobalAlloc/GlobalLock/SetClipboardData return pointers/handles
@@ -209,9 +194,8 @@ class _NOTIFYICONDATA(ctypes.Structure):
 class TrayApp:
     """A minimal tray icon driving the headless server's lifecycle."""
 
-    def __init__(
-        self, url: str, on_quit: Callable[[], None] | None = None, tooltip: str = "PIVOT — running"
-    ) -> None:
+    def __init__(self, url: str, on_quit: Callable[[], None] | None = None,
+                 tooltip: str = "PIVOT — running") -> None:
         self.url = url
         self.tooltip = tooltip
         self._on_quit = on_quit
@@ -258,21 +242,16 @@ class TrayApp:
         menu = user32.CreatePopupMenu()
         user32.AppendMenuW(menu, MF_STRING, ID_OPEN, "Open PIVOT in browser")
         user32.AppendMenuW(menu, MF_STRING, ID_COPY, "Copy LAN address")
-        user32.AppendMenuW(
-            menu,
-            MF_STRING,
-            ID_LOG,
-            "Hide log window" if self._console_visible else "Show log window",
-        )
+        user32.AppendMenuW(menu, MF_STRING, ID_LOG,
+                           "Hide log window" if self._console_visible else "Show log window")
         user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
         user32.AppendMenuW(menu, MF_STRING, ID_QUIT, "Quit PIVOT")
         pt = wintypes.POINT()
         user32.GetCursorPos(ctypes.byref(pt))
         # Required so the menu dismisses correctly when clicking elsewhere.
         user32.SetForegroundWindow(self._hwnd)
-        user32.TrackPopupMenu(
-            menu, TPM_RIGHTALIGN | TPM_BOTTOMALIGN, pt.x, pt.y, 0, self._hwnd, None
-        )
+        user32.TrackPopupMenu(menu, TPM_RIGHTALIGN | TPM_BOTTOMALIGN,
+                              pt.x, pt.y, 0, self._hwnd, None)
         user32.DestroyMenu(menu)
 
     def _quit(self) -> None:
@@ -322,7 +301,8 @@ class TrayApp:
             user32.DispatchMessageW(ctypes.byref(msg))
 
 
-def run_with_tray(serve: Callable[[], None], url: str, tooltip: str = "PIVOT — running") -> None:
+def run_with_tray(serve: Callable[[], None], url: str,
+                  tooltip: str = "PIVOT — running") -> None:
     """Hide the console, run ``serve`` on a daemon thread, own the tray loop.
 
     ``serve`` should block (it runs uvicorn). Quitting from the tray menu tears

@@ -61,3 +61,7 @@ def test_start_update_service_wiring(tmp_path, monkeypatch):
 
     # Test updater_kind wiring
     assert service._updater_kind() == "staged"
+
+    # Test on_change wiring
+    service._on_change({"status": "test_snap"})
+    manager.broadcast.assert_called_with("update_status", {"status": "test_snap"})

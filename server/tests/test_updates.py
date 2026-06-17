@@ -268,13 +268,8 @@ def test_download_accepts_valid_signature(tmp_path, monkeypatch):
     _patch_download(monkeypatch, archive, sig_b64)
 
     mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
-    rel = Release(
-        tag="1.1.0",
-        asset_url="http://x/a.zip",
-        asset_name="a.zip",
-        sha256_url="http://x/a.zip.sha256",
-        sig_url="http://x/a.zip.sig",
-    )
+    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
+                  sha256_url="http://x/a.zip.sha256", sig_url="http://x/a.zip.sig")
     dest = mgr.download(rel)
     assert dest.read_bytes() == archive
 
@@ -287,13 +282,8 @@ def test_download_rejects_bad_signature(tmp_path, monkeypatch):
     _patch_download(monkeypatch, archive, wrong_sig)
 
     mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
-    rel = Release(
-        tag="1.1.0",
-        asset_url="http://x/a.zip",
-        asset_name="a.zip",
-        sha256_url="http://x/a.zip.sha256",
-        sig_url="http://x/a.zip.sig",
-    )
+    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
+                  sha256_url="http://x/a.zip.sha256", sig_url="http://x/a.zip.sig")
     with pytest.raises(ValueError, match="not trusted"):
         mgr.download(rel)
     # The rejected download must not be left on disk to be staged.
@@ -309,13 +299,8 @@ def test_download_allows_unsigned_release_when_no_sig_published(tmp_path, monkey
     _patch_download(monkeypatch, archive, "unused")
 
     mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
-    rel = Release(
-        tag="1.1.0",
-        asset_url="http://x/a.zip",
-        asset_name="a.zip",
-        sha256_url="http://x/a.zip.sha256",
-        sig_url="",
-    )  # no signature
+    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
+                  sha256_url="http://x/a.zip.sha256", sig_url="")  # no signature
     dest = mgr.download(rel)
     assert dest.read_bytes() == archive
 
@@ -379,13 +364,8 @@ def test_download_and_stage_skips_redownload_when_already_staged(tmp_path, monke
     monkeypatch.setattr(mgrmod, "_http_get", fake_get)
 
     mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
-    rel = Release(
-        tag="1.1.0",
-        asset_url="http://x/a.zip",
-        asset_name="a.zip",
-        sha256_url="http://x/a.zip.sha256",
-        sig_url="http://x/a.zip.sig",
-    )
+    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
+                  sha256_url="http://x/a.zip.sha256", sig_url="http://x/a.zip.sig")
     first = mgr.download_and_stage(rel)
     second = mgr.download_and_stage(rel)
 

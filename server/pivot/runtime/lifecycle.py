@@ -151,7 +151,9 @@ def spawn_relauncher(settings=None) -> None:
     exe = _relauncher_exe(settings)
     kwargs: dict = {"close_fds": True}
     if sys.platform == "win32":  # pragma: no cover - Windows-only
-        kwargs["creationflags"] = _DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW
+        kwargs["creationflags"] = (
+            _DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW
+        )
     else:
         kwargs["start_new_session"] = True
     subprocess.Popen([exe, "--relaunch-after", str(os.getpid())], **kwargs)

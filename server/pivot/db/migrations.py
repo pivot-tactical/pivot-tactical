@@ -30,7 +30,8 @@ def _migrate_v2_net_scenarios(conn) -> None:
     if "net_scenarios_json" not in cols:
         conn.execute(
             text(
-                "ALTER TABLE band_profile ADD COLUMN net_scenarios_json TEXT NOT NULL DEFAULT '[]'"
+                "ALTER TABLE band_profile "
+                "ADD COLUMN net_scenarios_json TEXT NOT NULL DEFAULT '[]'"
             )
         )
     if "atmospheric_multiplier" in cols:
@@ -49,7 +50,9 @@ MIGRATIONS: list[tuple[int, Callable[[object], None]]] = [
 
 
 def _read_schema_version(conn) -> int:
-    row = conn.execute(text("SELECT value FROM config WHERE key = 'schema_version'")).fetchone()
+    row = conn.execute(
+        text("SELECT value FROM config WHERE key = 'schema_version'")
+    ).fetchone()
     if row is None:
         return 0
     try:

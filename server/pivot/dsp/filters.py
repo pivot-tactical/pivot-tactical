@@ -14,9 +14,7 @@ from scipy import signal
 
 
 @lru_cache(maxsize=128)
-def _cached_butter(
-    order: int, Wn: float | tuple[float, float], btype: str, output: str
-) -> np.ndarray:
+def _cached_butter(order: int, Wn: float | tuple[float, float], btype: str, output: str) -> np.ndarray:
     """Cache the relatively expensive Butterworth filter coefficient generation."""
     return signal.butter(order, Wn, btype=btype, output=output)
 
@@ -28,9 +26,7 @@ def _normalise_band(low_hz: float, high_hz: float, sample_rate: int) -> tuple[fl
     return low / nyq, high / nyq
 
 
-def bandpass(
-    x: np.ndarray, low_hz: float, high_hz: float, sample_rate: int, order: int = 4
-) -> np.ndarray:
+def bandpass(x: np.ndarray, low_hz: float, high_hz: float, sample_rate: int, order: int = 4) -> np.ndarray:
     """Voice bandpass (≈300 Hz – 3 kHz), zero-phase (§4.1.1)."""
     if x.size == 0:
         return x
@@ -57,9 +53,7 @@ def highpass(x: np.ndarray, cutoff_hz: float, sample_rate: int, order: int = 4) 
     return _safe_filtfilt(sos, x)
 
 
-def bandstop(
-    x: np.ndarray, low_hz: float, high_hz: float, sample_rate: int, order: int = 2
-) -> np.ndarray:
+def bandstop(x: np.ndarray, low_hz: float, high_hz: float, sample_rate: int, order: int = 2) -> np.ndarray:
     """Notch used to approximate frequency-selective fading (§4.1.1)."""
     if x.size == 0:
         return x
