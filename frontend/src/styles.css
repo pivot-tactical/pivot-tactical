@@ -256,7 +256,9 @@ body {
    instead of leaving dead space beside them. auto-fit collapses empty tracks. */
 .instr-radios {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  /* min(…, 100%) lets a track shrink with a narrow viewport instead of
+     overflowing the container (which is what shoved the PTT over the meter). */
+  grid-template-columns: repeat(auto-fit, minmax(min(400px, 100%), 1fr));
   gap: 16px;
   align-content: start;
   overflow-y: auto;
@@ -264,6 +266,15 @@ body {
   flex: 0 1 auto;
   padding: 2px;
 }
+/* Add Radio as a compact ghost button tucked under the radios (no header row
+   of its own, and outside the grid's scroll area so it is always reachable). */
+.instr-radios__add {
+  align-self: flex-end;
+  border: 1px dashed var(--line); border-radius: 10px;
+  background: transparent; color: var(--muted); font: inherit; cursor: pointer;
+  padding: 7px 16px; letter-spacing: 1px;
+}
+.instr-radios__add:hover { color: var(--green); border-color: var(--green); }
 .instr-radio { display: flex; align-items: stretch; gap: 18px; padding: 16px; }
 .instr-radio__info { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
 .instr-radio__head { display: flex; align-items: center; gap: 10px; }
@@ -279,9 +290,17 @@ body {
 .instr-radio .freq__unit { font-size: 15px; margin-left: 6px; }
 .instr-radio .freq__controls { margin-top: 0; justify-content: flex-start; gap: 8px; flex-wrap: wrap; }
 .instr-radio .freq__entry { width: 110px; font-size: 18px; }
-.instr-radio .radio__row { margin: 0; }
-.instr-radio .ptt { flex: 0 0 190px; align-self: stretch; margin-top: 0; padding: 18px; }
-.instr-radio .ptt__state { font-size: 22px; }
+/* The dial + signal row may wrap so the meter keeps a usable width instead of
+   being squeezed to nothing against the PTT when the card gets tight. */
+.instr-radio .radio__row { margin: 0; flex-wrap: wrap; }
+.instr-radio .signal { min-width: 140px; }
+/* Instructor PTT: much slimmer than the trainee's — there are many of them. */
+.instr-radio .ptt {
+  flex: 0 0 130px; align-self: stretch; margin-top: 0;
+  padding: 12px; gap: 4px; justify-content: center;
+}
+.instr-radio .ptt__state { font-size: 14px; letter-spacing: 1px; text-align: center; }
+.instr-radio .ptt__hint { font-size: 9px; letter-spacing: 1px; text-align: center; }
 
 /* Per-channel "god mode": interference slider + jam toggle on each instructor
    radio, applied to whatever frequency the radio is tuned to. */

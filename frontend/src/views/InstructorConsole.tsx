@@ -269,19 +269,30 @@ function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxL
   radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
   entries: LogEntry[]; netScenarios: NetScenario[]; rxLevels: RxLevels;
 }) {
-  const [phase, setPhase] = useState<TxPhase>("IDLE");
-  // Which radio is currently keyed. The instructor connection routes one
-  // transmission at a time, so a single phase + the keyed radio is enough to
-  // drive every card's PTT state independently.
-  const [txId, setTxId] = useState<string | null>(null);
+  // TX phase per keyed radio (absent = IDLE). Several radios can be keyed at
+  // once — the one mic feeds them all, and each runs its own PTT/crypto-sync
+  // lifecycle on the server (ptt_* messages carry the radio_id).
+  const [phases, setPhases] = useState<Record<string, TxPhase>>({});
+  // Radios this console is currently holding keyed: gates duplicate key-downs
+  // and decides when the last release stops the shared mic capture. A ref —
+  // start/end fire from event handlers and must see the live set.
+  const keyed = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!socket) return;
+    const setPhase = (id: string, ph: TxPhase) =>
+      setPhases((prev) => ({ ...prev, [id]: ph }));
+    const clearPhase = (id: string) =>
+      setPhases((prev) => { const next = { ...prev }; delete next[id]; return next; });
     const offs = [
-      socket.on("ptt_started", (p) => { setPhase(p.sync_applies ? "CRYPTO_SYNC" : "TX"); if (p.sync_applies) playSyncTone(); }),
-      socket.on("secure_tx", () => setPhase("SECURE_TX")),
-      socket.on("ptt_ended", () => { setPhase("IDLE"); setTxId(null); }),
-      socket.on("ptt_aborted", () => { setPhase("IDLE"); setTxId(null); }),
+      socket.on("ptt_started", (p) => {
+        if (!p.radio_id) return;
+        setPhase(p.radio_id, p.sync_applies ? "CRYPTO_SYNC" : "TX");
+        if (p.sync_applies) playSyncTone();
+      }),
+      socket.on("secure_tx", (p) => { if (p.radio_id) setPhase(p.radio_id, "SECURE_TX"); }),
+      socket.on("ptt_ended", (p) => { if (p.radio_id) clearPhase(p.radio_id); }),
+      socket.on("ptt_aborted", (p) => { if (p.radio_id) clearPhase(p.radio_id); }),
       socket.on("tuned", (r) => onChange(updateRadio(radios, r))),
       socket.on("mode_changed", (r) => onChange(updateRadio(radios, r))),
     ];
@@ -289,26 +300,28 @@ function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxL
   }, [socket, radios, onChange]);
 
   const startTx = useCallback(async (r: RadioState) => {
-    if (!socket || phase !== "IDLE" || txId !== null) return;
+    if (!socket || keyed.current.has(r.radio_id)) return;
     playClick();
-    setTxId(r.radio_id);
+    keyed.current.add(r.radio_id);
     try {
       await audio.startCapture((pcm) => socket.sendAudio(pcm));
     } catch {
       /* mic blocked: control proceeds, no audio reaches the net */
     }
+    // A quick tap can release before the mic finished opening — don't key a
+    // radio whose end has already been sent.
+    if (!keyed.current.has(r.radio_id)) return;
     socket.instrPttStart(r.radio_id, r.frequency, r.mode);
-  }, [socket, phase, txId, audio]);
+  }, [socket, audio]);
 
   const endTx = useCallback((r: RadioState) => {
-    if (!socket || txId !== r.radio_id) return;
+    if (!socket || !keyed.current.has(r.radio_id)) return;
+    keyed.current.delete(r.radio_id);
     playClick(700);
-    audio.stopCapture();
-    if (phase === "CRYPTO_SYNC") socket.instrPttAbort(r.radio_id);
+    if (keyed.current.size === 0) audio.stopCapture();
+    if (phases[r.radio_id] === "CRYPTO_SYNC") socket.instrPttAbort(r.radio_id);
     else socket.instrPttEnd(r.radio_id);
-    setPhase("IDLE");
-    setTxId(null);
-  }, [socket, txId, phase, audio]);
+  }, [socket, phases, audio]);
 
   // Per-radio PTT hotkey: Shift + the radio's number (§3.4.5). Each card shows
   // its own combo so there is no ambiguity about which radio keys up. Held by
@@ -347,10 +360,6 @@ function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxL
 
   return (
     <div className="radios-layout">
-      <div className="row between">
-        <h3>Instructor Radios</h3>
-        <button className="btn btn--primary" onClick={addRadio}>+ Add Radio</button>
-      </div>
       <div className="instr-radios">
         {radios.map((r, i) => (
           <InstrRadioCard
@@ -359,7 +368,7 @@ function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxL
             index={i + 1}
             socket={socket}
             audio={audio}
-            phase={txId === r.radio_id ? phase : "IDLE"}
+            phase={phases[r.radio_id] ?? "IDLE"}
             scenario={scenarioFor(netScenarios, r.frequency_hz)}
             rxLevels={rxLevels}
             onStart={startTx}
@@ -368,7 +377,9 @@ function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxL
           />
         ))}
       </div>
-      {radios.length === 0 && <p className="muted">No instructor radios yet. Add one to begin.</p>}
+      {/* Below the radios, right-aligned — out of the way, but never scrolled
+          out of sight like a grid tile would be when a row is exactly full. */}
+      <button className="instr-radios__add" onClick={addRadio}>+ Add Radio</button>
       <LiveLogTab entries={entries} />
     </div>
   );

@@ -119,6 +119,12 @@ export class AudioIO {
     node: AudioWorkletNode;
     mute: GainNode;
   } | null = null;
+  // In-flight/established capture. Several radios keyed at once share the one
+  // mic, so concurrent startCapture calls must join this rather than open a
+  // second stream. The epoch is bumped by stopCapture so an open still in
+  // flight knows it has been released.
+  private micPromise: Promise<void> | null = null;
+  private micEpoch = 0;
   // Per-radio output gain for the headset volume sliders. The instructor mixes
   // several radios into this one player, so gain is applied per frame keyed by
   // the source radio_id; a trainee has a single radio and uses the default.
@@ -152,25 +158,39 @@ export class AudioIO {
   }
 
   async startCapture(onFrame: (pcm: ArrayBuffer) => void): Promise<void> {
-    await this.init();
-    if (this.mic) return;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: true },
-    });
-    const src = this.ctx!.createMediaStreamSource(stream);
-    const node = new AudioWorkletNode(this.ctx!, "pivot-mic");
-    node.port.onmessage = (e) => onFrame(floatToPcm16(e.data as Float32Array));
-    // Route through a muted gain so the graph pulls the worklet without us
-    // hearing our own mic.
-    const mute = this.ctx!.createGain();
-    mute.gain.value = 0;
-    src.connect(node);
-    node.connect(mute);
-    mute.connect(this.ctx!.destination);
-    this.mic = { stream, src, node, mute };
+    if (this.micPromise) return this.micPromise;
+    const epoch = this.micEpoch;
+    const p: Promise<void> = (async () => {
+      await this.init();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: true },
+      });
+      if (this.micEpoch !== epoch) {
+        // stopCapture ran while the mic was being opened (a quick tap):
+        // release the stream instead of leaving an orphaned capture.
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      const src = this.ctx!.createMediaStreamSource(stream);
+      const node = new AudioWorkletNode(this.ctx!, "pivot-mic");
+      node.port.onmessage = (e) => onFrame(floatToPcm16(e.data as Float32Array));
+      // Route through a muted gain so the graph pulls the worklet without us
+      // hearing our own mic.
+      const mute = this.ctx!.createGain();
+      mute.gain.value = 0;
+      src.connect(node);
+      node.connect(mute);
+      mute.connect(this.ctx!.destination);
+      this.mic = { stream, src, node, mute };
+    })();
+    this.micPromise = p;
+    p.catch(() => { if (this.micPromise === p) this.micPromise = null; });
+    return p;
   }
 
   stopCapture(): void {
+    this.micEpoch++;
+    this.micPromise = null;
     if (!this.mic) return;
     this.mic.stream.getTracks().forEach((t) => t.stop());
     this.mic.src.disconnect();
