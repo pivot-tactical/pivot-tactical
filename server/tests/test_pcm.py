@@ -53,6 +53,16 @@ def test_float32_to_pcm16_values():
     assert res == expected
 
 
+def test_float32_to_pcm16_mid_range():
+    """Mid-range float32 values map correctly to PCM16."""
+    samples = np.array([0.0, 0.5, -0.5, 1.0, -1.0], dtype=np.float32)
+    res_bytes = float32_to_pcm16(samples)
+    res_array = np.frombuffer(res_bytes, dtype="<i2")
+
+    expected = np.array([0, int(0.5 * 32767), int(-0.5 * 32767), 32767, -32767], dtype="<i2")
+    np.testing.assert_array_equal(res_array, expected)
+
+
 def test_float32_to_pcm16_clipping():
     """Out-of-bounds float values are clipped to [-1.0, 1.0]."""
     samples = np.array([-2.0, 2.0, 1.5, -1.5], dtype=np.float32)
