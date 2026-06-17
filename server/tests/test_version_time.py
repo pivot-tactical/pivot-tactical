@@ -86,3 +86,25 @@ def test_clock_formats_in_zone():
 def test_unknown_timezone_falls_back_to_utc():
     tz = resolve_timezone("Not/AZone")
     assert tz.key == "UTC"
+
+
+def test_resolve_timezone_value_error_fallback():
+    # Empty string triggers ValueError in ZoneInfo
+    assert resolve_timezone("").key == "UTC"
+    # Absolute path triggers ValueError in ZoneInfo
+    assert resolve_timezone("/etc/localtime").key == "UTC"
+
+
+def test_resolve_timezone_key_error_fallback():
+    from unittest.mock import patch
+    from zoneinfo import ZoneInfo
+
+    original_zoneinfo = ZoneInfo
+
+    def mock_zoneinfo(name):
+        if name == "Some/Zone":
+            raise KeyError("Simulated KeyError")
+        return original_zoneinfo(name)
+
+    with patch("pivot.core.timebase.ZoneInfo", side_effect=mock_zoneinfo):
+        assert resolve_timezone("Some/Zone").key == "UTC"
