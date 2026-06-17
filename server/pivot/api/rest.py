@@ -9,7 +9,16 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Body,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+)
 
 from pivot import exporting
 from pivot.api.deps import get_auth, get_manager, require_instructor
@@ -604,6 +613,7 @@ def admin_delete_retained(tag: str, manager=Depends(get_manager)) -> dict:
 @router.post("/admin/restart", dependencies=[Depends(require_instructor)])
 def admin_restart(
     request: Request,
+    background_tasks: BackgroundTasks,
     req: RestartRequest | None = None,
     manager=Depends(get_manager),
 ) -> dict:
@@ -615,8 +625,7 @@ def admin_restart(
     the way back up. Refused while a session is live unless ``force`` is set, so
     trainees are never cut off mid-exercise by accident.
     """
-    import threading
-    import time as _time
+    import asyncio
 
     from pivot.runtime.lifecycle import restart_mode
 
@@ -638,11 +647,11 @@ def admin_restart(
 
     # Stop just after the response is flushed so the browser gets the ack and can
     # switch to its reconnecting state before the socket drops.
-    def _go() -> None:
-        _time.sleep(0.4)
+    async def _go() -> None:
+        await asyncio.sleep(0.4)
         request_restart()
 
-    threading.Thread(target=_go, name="restart", daemon=True).start()
+    background_tasks.add_task(_go)
 
     from pivot.updates.manager import UpdateManager
     from pivot.version import version_info
