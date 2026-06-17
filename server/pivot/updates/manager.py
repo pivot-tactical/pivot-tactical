@@ -28,7 +28,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 from pivot.updates.layout import Layout
@@ -152,7 +152,7 @@ def default_asset_pattern() -> str:
 _ASSET_EXTENSIONS = (".zip", ".tar.gz")
 
 
-class ReleaseStanding(str, Enum):
+class ReleaseStanding(StrEnum):
     NEWER = "newer"
     CURRENT = "current"
     OLDER = "older"

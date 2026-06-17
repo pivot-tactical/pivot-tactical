@@ -47,7 +47,7 @@ def _generate(ip: str | None) -> tuple[bytes, bytes]:
         if addr is not None and addr != _LOOPBACK:
             san.append(x509.IPAddress(addr))
 
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     cert = (
         x509.CertificateBuilder()
         .subject_name(name)
@@ -77,7 +77,7 @@ def _still_good(cert_pem: bytes, ip: str | None) -> bool:
     """
     try:
         cert = x509.load_pem_x509_certificate(cert_pem)
-        soon = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=_RENEW_WITHIN_DAYS)
+        soon = datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=_RENEW_WITHIN_DAYS)
         if cert.not_valid_after_utc < soon:
             return False
         if not ip:

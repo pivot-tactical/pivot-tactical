@@ -12,28 +12,28 @@ but the server is the source of truth for the configured zone and the canonical
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def utc_now() -> datetime:
     """Timezone-aware current time in UTC (the canonical clock)."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def to_iso_utc(dt: datetime) -> str:
     """Serialise an instant as an ISO-8601 UTC string for storage (§3.5.3)."""
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc).isoformat()
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC).isoformat()
 
 
 def parse_iso_utc(text: str) -> datetime:
     """Parse a stored ISO-8601 timestamp back into an aware UTC datetime."""
     dt = datetime.fromisoformat(text)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def resolve_timezone(name: str) -> ZoneInfo:
@@ -52,7 +52,7 @@ def format_clock(dt: datetime, tz_name: str = "UTC") -> str:
     """Render ``HH:MM:SS`` in the configured zone for the seven-segment clock."""
     tz = resolve_timezone(tz_name)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(tz).strftime("%H:%M:%S")
 
 
@@ -60,5 +60,5 @@ def display_in_zone(dt: datetime, tz_name: str = "UTC") -> datetime:
     """Convert a stored UTC instant into the configured display zone."""
     tz = resolve_timezone(tz_name)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(tz)

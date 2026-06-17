@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import io
 import json
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 import numpy as np
@@ -28,12 +28,12 @@ from pivot.db.models import EventRow
 from pivot.dsp.engine import DspEngine
 
 
-class PlaybackMode(str, Enum):
+class PlaybackMode(StrEnum):
     CLEAN = "clean"
     DIRTY = "dirty"
 
 
-class AarCryptoView(str, Enum):
+class AarCryptoView(StrEnum):
     PLAIN = "plain"   # cypher events render as hash (default, §3.6.3)
     CYPHER = "cypher"  # everything renders as clear voice for grading
 

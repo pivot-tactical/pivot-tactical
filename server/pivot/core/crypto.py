@@ -20,10 +20,10 @@ the encrypted hash (§3.4.2).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class RadioMode(str, Enum):
+class RadioMode(StrEnum):
     """Per-radio crypto mode (spec §3.4). Persists across retuning, never
     auto-resets (§3.4.4)."""
 
@@ -34,7 +34,7 @@ class RadioMode(str, Enum):
         return RadioMode.CYPHER if self is RadioMode.PLAIN else RadioMode.PLAIN
 
 
-class Reception(str, Enum):
+class Reception(StrEnum):
     """What a listener hears for a given moment of audio."""
 
     SILENCE = "silence"                 # nothing on frequency, or listener is keyed
@@ -44,7 +44,7 @@ class Reception(str, Enum):
     CRYPTO_JAM = "crypto_jam"           # cypher collision jam during overlap
 
 
-class Audibility(str, Enum):
+class Audibility(StrEnum):
     """Stored per-transmission on-air outcome (spec §3.5.3)."""
 
     HEARD = "Heard"
@@ -53,7 +53,7 @@ class Audibility(str, Enum):
     CYPHER_SUPPRESSED = "Cypher-suppressed"
 
 
-class SyncStatus(str, Enum):
+class SyncStatus(StrEnum):
     """Crypto-sync outcome for a keying (spec §3.5.3)."""
 
     COMPLETED = "Completed"

@@ -100,7 +100,7 @@ async def _redirect_to_https(
         header = await asyncio.wait_for(
             client_reader.readuntil(b"\r\n\r\n"), timeout=_HEADER_READ_TIMEOUT
         )
-    except (asyncio.IncompleteReadError, asyncio.TimeoutError, ConnectionError, OSError):
+    except (TimeoutError, asyncio.IncompleteReadError, ConnectionError, OSError):
         client_writer.close()
         return
     location = _redirect_target(first_byte + header, public_port)
