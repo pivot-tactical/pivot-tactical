@@ -181,3 +181,57 @@ def test_migration_boundary_check():
     assert crosses_migration_boundary(2, 1) is True
     assert crosses_migration_boundary(1, 1) is False
     assert crosses_migration_boundary(1, 2) is False
+
+
+def test_list_sessions_with_event_count(database):
+    """Ensure session listing handles 0 events properly and returns correct counts."""
+    with database.session() as s:
+        # Session with 0 events
+        empty_session = repo.start_session(s, "Empty Session")
+
+        # Session with 2 events
+        populated_session = repo.start_session(s, "Populated Session")
+        repo.create_event(
+            s,
+            session_id=populated_session.id,
+            trainee_name="Trainee 1",
+            frequency="14.0",
+            band_region="HF",
+            tx_mode=RadioMode.PLAIN,
+            audibility=Audibility.HEARD,
+            sync_status=SyncStatus.COMPLETED,
+            timestamp_start="2023-01-01T12:00:00Z",
+            duration_ms=1000,
+            audio_path="",
+            dsp_profile={},
+        )
+        repo.create_event(
+            s,
+            session_id=populated_session.id,
+            trainee_name="Trainee 2",
+            frequency="14.0",
+            band_region="HF",
+            tx_mode=RadioMode.PLAIN,
+            audibility=Audibility.HEARD,
+            sync_status=SyncStatus.COMPLETED,
+            timestamp_start="2023-01-01T12:00:00Z",
+            duration_ms=1000,
+            audio_path="",
+            dsp_profile={},
+        )
+        s.commit()
+
+    with database.session() as s:
+        results = repo.list_sessions_with_event_count(s)
+
+        # Ensure we have both sessions returned
+        assert len(results) >= 2
+
+        # Build dictionary for easier assertions
+        counts_by_id = {row.id: count for row, count in results}
+
+        assert empty_session.id in counts_by_id
+        assert counts_by_id[empty_session.id] == 0
+
+        assert populated_session.id in counts_by_id
+        assert counts_by_id[populated_session.id] == 2

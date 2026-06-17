@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from pivot.core.bands import BandProfile
@@ -112,6 +112,16 @@ def list_sessions(session: Session) -> list[SessionRow]:
     return list(session.scalars(select(SessionRow).order_by(SessionRow.started_at.desc())))
 
 
+def list_sessions_with_event_count(session: Session) -> list[tuple[SessionRow, int]]:
+    stmt = (
+        select(SessionRow, func.count(EventRow.event_id))
+        .outerjoin(EventRow, SessionRow.id == EventRow.session_id)
+        .group_by(SessionRow.id)
+        .order_by(SessionRow.started_at.desc())
+    )
+    return list(session.execute(stmt))
+
+
 def delete_session(session: Session, session_id: str) -> bool:
     row = session.get(SessionRow, session_id)
     if row is None:
@@ -195,11 +205,7 @@ def list_recent_events(session: Session, limit: int = 200) -> list[EventRow]:
     ``event_logged`` feed only carries new transmissions).
     """
     return list(
-        session.scalars(
-            select(EventRow)
-            .order_by(EventRow.timestamp_start.desc())
-            .limit(limit)
-        )
+        session.scalars(select(EventRow).order_by(EventRow.timestamp_start.desc()).limit(limit))
     )
 
 
