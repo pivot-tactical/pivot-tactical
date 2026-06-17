@@ -180,9 +180,7 @@ class SessionManager:
             return None
         with self.db.session() as s:
             row = repo.end_session(s, self.current_session_id)
-            result = (
-                {"id": row.id, "name": row.name, "ended_at": row.ended_at} if row else None
-            )
+            result = {"id": row.id, "name": row.name, "ended_at": row.ended_at} if row else None
         self.current_session_id = None
         self.current_session_name = None
         self._active_tx.clear()
@@ -209,7 +207,9 @@ class SessionManager:
                 state = repo.get_radio_state(s, self.current_session_id, trainee_id)
                 if state is not None:
                     freq_hz = parse_frequency(state.frequency)
-                    mode = state.mode if isinstance(state.mode, RadioMode) else RadioMode(state.mode)
+                    mode = (
+                        state.mode if isinstance(state.mode, RadioMode) else RadioMode(state.mode)
+                    )
 
         radio_id = trainee_id
         existing = self.registry.get(radio_id)
@@ -287,8 +287,9 @@ class SessionManager:
 
     # -- PTT lifecycle ----------------------------------------------------- #
 
-    def ptt_start(self, radio_id: str, frequency: str | float | None = None,
-                  tx_mode: RadioMode | None = None) -> dict:
+    def ptt_start(
+        self, radio_id: str, frequency: str | float | None = None, tx_mode: RadioMode | None = None
+    ) -> dict:
         """Key down (§3.2.3). Returns ``{event_id, sync_applies, sync_delay_ms}``."""
         radio = self.registry.get(radio_id)
         if radio is None:
@@ -453,12 +454,16 @@ class SessionManager:
                 if sink is None or id(sink) in sent_sinks:
                     continue
                 if data is None:
-                    data = float32_to_pcm16(self.engine.render_idle_noise(frame_samples, conditions))
+                    data = float32_to_pcm16(
+                        self.engine.render_idle_noise(frame_samples, conditions)
+                    )
                 if rid not in primed:
                     for _ in range(2):  # prime a ~2-frame cushion on first sight
                         self._emit_to_sink(
                             sink,
-                            float32_to_pcm16(self.engine.render_idle_noise(frame_samples, conditions)),
+                            float32_to_pcm16(
+                                self.engine.render_idle_noise(frame_samples, conditions)
+                            ),
                         )
                     primed.add(rid)
                 self._emit_to_sink(sink, data)
@@ -482,8 +487,9 @@ class SessionManager:
 
     # -- instructor radios ------------------------------------------------- #
 
-    def add_instructor_radio(self, label: str | None = None,
-                             frequency: str | float | None = None) -> dict:
+    def add_instructor_radio(
+        self, label: str | None = None, frequency: str | float | None = None
+    ) -> dict:
         with self.db.session() as s:
             if frequency is None:
                 frequency = ConfigStore(s).default_frequency_hz()
@@ -691,8 +697,9 @@ class SessionManager:
         if self.registry.has_listener(radio.frequency_hz, exclude=radio_id):
             acc.had_listener = True
 
-    def _finish_tx(self, radio_id: str, sync_status: SyncStatus,
-                   audio: np.ndarray | None) -> dict | None:
+    def _finish_tx(
+        self, radio_id: str, sync_status: SyncStatus, audio: np.ndarray | None
+    ) -> dict | None:
         acc = self._active_tx.pop(radio_id, None)
         radio = self.registry.get(radio_id)
         self.registry.end_key(radio_id) if radio is not None else None
@@ -700,9 +707,7 @@ class SessionManager:
             return None
 
         # Re-check for a listener that may have tuned in mid-transmission.
-        if not acc.had_listener and self.registry.has_listener(
-            acc.frequency_hz, exclude=radio_id
-        ):
+        if not acc.had_listener and self.registry.has_listener(acc.frequency_hz, exclude=radio_id):
             acc.had_listener = True
 
         if sync_status is SyncStatus.ABORTED:

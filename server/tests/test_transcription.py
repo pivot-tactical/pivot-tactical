@@ -17,8 +17,9 @@ class FakeTranscriber:
         self.calls = []
 
     def transcribe(self, audio, sample_rate, *, language, initial_prompt):
-        self.calls.append({"language": language, "initial_prompt": initial_prompt,
-                           "samples": len(audio)})
+        self.calls.append(
+            {"language": language, "initial_prompt": initial_prompt, "samples": len(audio)}
+        )
         return TranscriptionResult(text=self.text, confidence=self.confidence)
 
 

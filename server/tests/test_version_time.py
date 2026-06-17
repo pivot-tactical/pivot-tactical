@@ -1,6 +1,6 @@
 """Tests for semantic-version ordering (§3.7.3) and time handling (§3.8)."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pivot.core.timebase import (
     format_clock,
@@ -66,7 +66,7 @@ def test_is_prerelease_flag():
 
 
 def test_utc_roundtrip():
-    dt = datetime(2026, 6, 5, 12, 30, 15, tzinfo=timezone.utc)
+    dt = datetime(2026, 6, 5, 12, 30, 15, tzinfo=UTC)
     assert parse_iso_utc(to_iso_utc(dt)) == dt
 
 
@@ -77,7 +77,7 @@ def test_naive_datetime_treated_as_utc():
 
 
 def test_clock_formats_in_zone():
-    dt = datetime(2026, 6, 5, 12, 0, 0, tzinfo=timezone.utc)
+    dt = datetime(2026, 6, 5, 12, 0, 0, tzinfo=UTC)
     assert format_clock(dt, "UTC") == "12:00:00"
     # New York is UTC-4 in June (DST).
     assert format_clock(dt, "America/New_York") == "08:00:00"

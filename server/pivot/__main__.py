@@ -57,23 +57,39 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--headless", action="store_true", help=argparse.SUPPRESS)
     # Windows tray: minimise to the notification area instead of a console
     # window. Defaults on for the packaged exe; --no-tray forces the console.
-    p.add_argument("--tray", dest="tray", action="store_true", default=None,
-                   help="run minimised to the Windows system tray")
-    p.add_argument("--no-tray", dest="tray", action="store_false",
-                   help="run in the console (disable the system tray)")
+    p.add_argument(
+        "--tray",
+        dest="tray",
+        action="store_true",
+        default=None,
+        help="run minimised to the Windows system tray",
+    )
+    p.add_argument(
+        "--no-tray",
+        dest="tray",
+        action="store_false",
+        help="run in the console (disable the system tray)",
+    )
     # Out-of-band update apply (Linux): the systemd service runs this before
     # starting, swapping any staged update into place while the app is stopped.
-    p.add_argument("--apply-staged", action="store_true",
-                   help="apply a staged update and exit (used by the service)")
+    p.add_argument(
+        "--apply-staged",
+        action="store_true",
+        help="apply a staged update and exit (used by the service)",
+    )
     # Out-of-band downgrade recovery: roll back to a retained version and exit.
     # Optional TAG selects which retained version; omitted = the most recent.
-    p.add_argument("--rollback", nargs="?", const="", default=None,
-                   metavar="TAG",
-                   help="roll back to a retained version and exit (recovery)")
+    p.add_argument(
+        "--rollback",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="TAG",
+        help="roll back to a retained version and exit (recovery)",
+    )
     # Detached relaunch helper (packaged exe with no supervisor): wait for the
     # given pid to exit, apply any staged update, then start the app again.
-    p.add_argument("--relaunch-after", type=int, default=None,
-                   help=argparse.SUPPRESS)
+    p.add_argument("--relaunch-after", type=int, default=None, help=argparse.SUPPRESS)
     p.add_argument("--version", action="store_true", help="print version and exit")
     return p.parse_args(argv)
 
@@ -146,7 +162,9 @@ async def _serve_with_redirect(server: uvicorn.Server, settings: Settings) -> No
         await server.serve(sockets=[sock])
 
 
-def run_server(settings: Settings, manager: SessionManager, tls: tuple[Path, Path] | None = None) -> None:
+def run_server(
+    settings: Settings, manager: SessionManager, tls: tuple[Path, Path] | None = None
+) -> None:
     app = create_app(settings, manager=manager, force_https=tls is not None)
     if tls is not None:
         certfile, keyfile = tls
@@ -370,8 +388,11 @@ def main(argv: list[str] | None = None) -> int:
         # tray menu offers Open / Copy address / Show log / Quit.
         from pivot.win_tray import run_with_tray
 
-        run_with_tray(lambda: run_server(settings, manager, tls), url,
-                      tooltip=f"PIVOT {version_info.version} — {ip}:{settings.port}")
+        run_with_tray(
+            lambda: run_server(settings, manager, tls),
+            url,
+            tooltip=f"PIVOT {version_info.version} — {ip}:{settings.port}",
+        )
     else:
         run_server(settings, manager, tls)
     return 0

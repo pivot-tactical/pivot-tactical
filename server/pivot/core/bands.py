@@ -25,8 +25,8 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 # Overall tunable range: low HF through UHF (spec §3.1.2 table).
-MIN_FREQ_HZ: float = 1_600_000.0          # 1.6 MHz
-MAX_FREQ_HZ: float = 3_000_000_000.0      # 3 GHz
+MIN_FREQ_HZ: float = 1_600_000.0  # 1.6 MHz
+MAX_FREQ_HZ: float = 3_000_000_000.0  # 3 GHz
 
 
 class BandRegion(StrEnum):
@@ -159,13 +159,13 @@ class BandConditions:
     # Fading model (Rayleigh): peak-to-trough depth and how fast it varies.
     fading_depth_db: float
     fading_rate_hz: float
-    selective_fading: bool          # frequency-selective notch (HF only, §4.1.1)
-    qrm: bool                       # low-level interfering carriers (HF only)
+    selective_fading: bool  # frequency-selective notch (HF only, §4.1.1)
+    qrm: bool  # low-level interfering carriers (HF only)
     # Voice bandpass, narrowing slightly at the noisy low-HF end (§4.1.1).
     bandpass_low_hz: float
     bandpass_high_hz: float
-    squelch_tail_ms: float          # tail length, longer on HF
-    jammed: bool = False            # instructor jamming covers this frequency
+    squelch_tail_ms: float  # tail length, longer on HF
+    jammed: bool = False  # instructor jamming covers this frequency
     # Instructor noise offset on this net: 0.0 = the frequency's natural
     # baseline, up to +1.0 (severe induced interference, adds the interference
     # layers to the noise texture) or down to −1.0 (channel cleaned up below
@@ -298,8 +298,8 @@ class NetScenario:
     default-valued scenario is dropped from the profile rather than stored.
     """
 
-    freq_hz: float              # snapped channel frequency
-    interference: float = 0.0   # −1.0 (cleaned) .. 0.0 (baseline) .. 1.0 (severe)
+    freq_hz: float  # snapped channel frequency
+    interference: float = 0.0  # −1.0 (cleaned) .. 0.0 (baseline) .. 1.0 (severe)
     jammed: bool = False
 
     def __post_init__(self) -> None:
@@ -413,11 +413,11 @@ class BandProfile:
             snr += cleanup * _CLEANUP_SNR_BOOST_DB
             fading_depth *= 1.0 - cleanup
 
-        jammed = any(j.covers(freq_hz) for j in self.jamming) or (
-            net is not None and net.jammed
-        )
+        jammed = any(j.covers(freq_hz) for j in self.jamming) or (net is not None and net.jammed)
         if jammed:
-            jam_intensity = max((j.intensity for j in self.jamming if j.covers(freq_hz)), default=1.0)
+            jam_intensity = max(
+                (j.intensity for j in self.jamming if j.covers(freq_hz)), default=1.0
+            )
             # Jamming overrides the baseline with heavy noise on this frequency.
             snr = min(snr, 0.0) - 6.0 * jam_intensity
 

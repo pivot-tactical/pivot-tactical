@@ -195,11 +195,7 @@ def list_recent_events(session: Session, limit: int = 200) -> list[EventRow]:
     ``event_logged`` feed only carries new transmissions).
     """
     return list(
-        session.scalars(
-            select(EventRow)
-            .order_by(EventRow.timestamp_start.desc())
-            .limit(limit)
-        )
+        session.scalars(select(EventRow).order_by(EventRow.timestamp_start.desc()).limit(limit))
     )
 
 

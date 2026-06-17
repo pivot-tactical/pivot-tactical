@@ -174,4 +174,3 @@ class AuthService:
     def revoke(self, token: str | None) -> None:
         if token:
             self._revoked.add(token)
-

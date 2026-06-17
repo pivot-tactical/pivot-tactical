@@ -45,7 +45,16 @@ def test_core_runtime_deps_have_no_violations():
     """The core install (numpy/scipy/fastapi/sqlalchemy/pydantic/...) must pass
     the policy — acceptance criteria #25/#26."""
     findings = scan_environment()
-    runtime = {"numpy", "scipy", "fastapi", "starlette", "uvicorn", "sqlalchemy",
-               "pydantic", "soundfile", "websockets"}
+    runtime = {
+        "numpy",
+        "scipy",
+        "fastapi",
+        "starlette",
+        "uvicorn",
+        "sqlalchemy",
+        "pydantic",
+        "soundfile",
+        "websockets",
+    }
     relevant = [f for f in findings if f.name.lower() in runtime]
     assert violations(relevant) == []

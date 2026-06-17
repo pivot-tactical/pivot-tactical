@@ -6,7 +6,7 @@ import pivot.__main__ as entry
 
 
 def test_tray_flags_parse():
-    assert entry._parse_args([]).tray is None          # unset -> platform default
+    assert entry._parse_args([]).tray is None  # unset -> platform default
     assert entry._parse_args(["--tray"]).tray is True
     assert entry._parse_args(["--no-tray"]).tray is False
 
@@ -14,7 +14,7 @@ def test_tray_flags_parse():
 def test_use_tray_never_on_non_windows(monkeypatch):
     monkeypatch.setattr(entry.sys, "platform", "linux")
     assert entry._use_tray(None) is False
-    assert entry._use_tray(True) is False   # explicit request still can't on linux
+    assert entry._use_tray(True) is False  # explicit request still can't on linux
     assert entry._use_tray(False) is False
 
 
@@ -27,9 +27,9 @@ def test_use_tray_explicit_wins_on_windows(monkeypatch):
 def test_use_tray_default_follows_frozen_on_windows(monkeypatch):
     monkeypatch.setattr(entry.sys, "platform", "win32")
     monkeypatch.setattr(entry.sys, "frozen", True, raising=False)
-    assert entry._use_tray(None) is True      # packaged exe -> tray
+    assert entry._use_tray(None) is True  # packaged exe -> tray
     monkeypatch.setattr(entry.sys, "frozen", False, raising=False)
-    assert entry._use_tray(None) is False     # dev run -> console
+    assert entry._use_tray(None) is False  # dev run -> console
 
 
 def test_relaunch_after_flag_parses():
@@ -81,16 +81,18 @@ def test_relaunch_after_brings_app_back_even_if_apply_fails(monkeypatch, tmp_pat
 
     settings = Settings(data_dir=tmp_path / "data", versions_dir=tmp_path / "versions")
     calls = {"waited": None, "spawned": 0}
-    monkeypatch.setattr(lifecycle, "wait_for_exit",
-                        lambda pid, **k: calls.__setitem__("waited", pid))
-    monkeypatch.setattr(lifecycle, "spawn_app",
-                        lambda exe=None: calls.__setitem__("spawned", calls["spawned"] + 1))
+    monkeypatch.setattr(
+        lifecycle, "wait_for_exit", lambda pid, **k: calls.__setitem__("waited", pid)
+    )
+    monkeypatch.setattr(
+        lifecycle, "spawn_app", lambda exe=None: calls.__setitem__("spawned", calls["spawned"] + 1)
+    )
 
     # A staged update is pending, but applying it blows up.
     from pivot.updates.manager import UpdateManager
+
     mgr = UpdateManager("1.0.0", versions_dir=settings.versions_dir)
-    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0",
-                             settings.versions_dir / "app-1.1.0")
+    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", settings.versions_dir / "app-1.1.0")
 
     def boom(_s):
         raise RuntimeError("bad swap")
@@ -101,7 +103,7 @@ def test_relaunch_after_brings_app_back_even_if_apply_fails(monkeypatch, tmp_pat
 
     assert rc == 0
     assert calls["waited"] == 4321
-    assert calls["spawned"] == 1                      # app brought back despite the failure
+    assert calls["spawned"] == 1  # app brought back despite the failure
     assert (tmp_path / "data" / "relaunch.log").exists()  # work is captured, not lost
 
 
@@ -125,8 +127,7 @@ def test_apply_staged_for_relaunch_applies_in_process_when_not_frozen(monkeypatc
 
     settings = Settings(data_dir=tmp_path / "data", versions_dir=tmp_path / "versions")
     mgr = UpdateManager("1.0.0", versions_dir=settings.versions_dir)
-    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0",
-                             settings.versions_dir / "app-1.1.0")
+    mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", settings.versions_dir / "app-1.1.0")
     called = {"apply": 0}
     monkeypatch.setattr(entry, "_apply_staged", lambda _s: called.__setitem__("apply", 1))
     monkeypatch.setattr(entry.sys, "frozen", False, raising=False)

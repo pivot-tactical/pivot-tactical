@@ -113,9 +113,12 @@ def test_admin_scenario(client):
 
 def test_admin_scenario_per_net(client):
     """Per-net interference/jam set from an instructor radio panel (§3.1.5)."""
-    r = client.post("/api/admin/scenario", json={
-        "net_scenario": {"frequency_hz": 14_250_000, "interference": 0.5, "jammed": True},
-    })
+    r = client.post(
+        "/api/admin/scenario",
+        json={
+            "net_scenario": {"frequency_hz": 14_250_000, "interference": 0.5, "jammed": True},
+        },
+    )
     assert r.status_code == 200
     assert r.json()["net_scenarios"] == [
         {"freq_hz": 14_250_000.0, "interference": 0.5, "jammed": True}
@@ -123,23 +126,32 @@ def test_admin_scenario_per_net(client):
     # The override is visible to trainee clients via the public band profile.
     assert client.get("/api/band-profile").json()["net_scenarios"][0]["jammed"] is True
     # Returning the net to defaults clears the override.
-    r = client.post("/api/admin/scenario", json={
-        "net_scenario": {"frequency_hz": 14_250_000, "interference": 0.0, "jammed": False},
-    })
+    r = client.post(
+        "/api/admin/scenario",
+        json={
+            "net_scenario": {"frequency_hz": 14_250_000, "interference": 0.0, "jammed": False},
+        },
+    )
     assert r.json()["net_scenarios"] == []
     # Negative offsets (channel cleanup below baseline) are valid overrides.
-    r = client.post("/api/admin/scenario", json={
-        "net_scenario": {"frequency_hz": 14_250_000, "interference": -0.6},
-    })
+    r = client.post(
+        "/api/admin/scenario",
+        json={
+            "net_scenario": {"frequency_hz": 14_250_000, "interference": -0.6},
+        },
+    )
     assert r.json()["net_scenarios"] == [
         {"freq_hz": 14_250_000.0, "interference": -0.6, "jammed": False}
     ]
 
 
 def test_admin_scenario_per_net_rejects_bad_level(client):
-    r = client.post("/api/admin/scenario", json={
-        "net_scenario": {"frequency_hz": 14_250_000, "interference": 1.5},
-    })
+    r = client.post(
+        "/api/admin/scenario",
+        json={
+            "net_scenario": {"frequency_hz": 14_250_000, "interference": 1.5},
+        },
+    )
     assert r.status_code == 422
 
 
@@ -154,8 +166,9 @@ def test_instructor_login_and_authenticated_admin(raw_client):
     assert bad.status_code == 401
 
     # Default password logs in and returns a bearer token + change-me flag.
-    r = raw_client.post("/api/login", json={"role": "instructor",
-                                            "password": DEFAULT_INSTRUCTOR_PASSWORD})
+    r = raw_client.post(
+        "/api/login", json={"role": "instructor", "password": DEFAULT_INSTRUCTOR_PASSWORD}
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["role"] == "instructor"
@@ -168,8 +181,9 @@ def test_instructor_login_and_authenticated_admin(raw_client):
 
 
 def test_auth_refresh_slides_the_session(raw_client):
-    r = raw_client.post("/api/login", json={"role": "instructor",
-                                            "password": DEFAULT_INSTRUCTOR_PASSWORD})
+    r = raw_client.post(
+        "/api/login", json={"role": "instructor", "password": DEFAULT_INSTRUCTOR_PASSWORD}
+    )
     token = r.json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -178,15 +192,19 @@ def test_auth_refresh_slides_the_session(raw_client):
     assert refreshed.status_code == 200
     new_token = refreshed.json()["token"]
     assert new_token and new_token != token
-    assert raw_client.get(
-        "/api/admin/terminals", headers={"Authorization": f"Bearer {new_token}"}
-    ).status_code == 200
+    assert (
+        raw_client.get(
+            "/api/admin/terminals", headers={"Authorization": f"Bearer {new_token}"}
+        ).status_code
+        == 200
+    )
 
     # Without a token it is rejected — the browser then shows the login.
     assert raw_client.post("/api/auth/refresh").status_code == 401
-    assert raw_client.post(
-        "/api/auth/refresh", headers={"Authorization": "Bearer bogus"}
-    ).status_code == 401
+    assert (
+        raw_client.post("/api/auth/refresh", headers={"Authorization": "Bearer bogus"}).status_code
+        == 401
+    )
 
 
 def test_restart_unavailable_in_dev_run_mode(client):
@@ -269,9 +287,11 @@ def test_change_password_and_relogin(raw_client):
     headers = {"Authorization": f"Bearer {token}"}
 
     # Change the password; the old token is invalidated.
-    r = raw_client.post("/api/admin/password",
-                        json={"current_password": DEFAULT_INSTRUCTOR_PASSWORD,
-                              "new_password": "range-safety"}, headers=headers)
+    r = raw_client.post(
+        "/api/admin/password",
+        json={"current_password": DEFAULT_INSTRUCTOR_PASSWORD, "new_password": "range-safety"},
+        headers=headers,
+    )
     assert r.status_code == 200
     assert raw_client.get("/api/admin/terminals", headers=headers).status_code == 401
 
@@ -283,10 +303,10 @@ def test_change_password_and_relogin(raw_client):
 def test_trainee_cannot_operate_instructor_radio(client):
     # Create an instructor radio, then attempt to tune it via the open trainee
     # endpoint — rejected regardless of auth (the guard is in the endpoint).
-    radio = client.post("/api/admin/instructor-radios",
-                        json={"frequency": "30.000 MHz"}).json()
-    r = client.post("/api/radio/tune",
-                    json={"radio_id": radio["radio_id"], "frequency": "31.0 MHz"})
+    radio = client.post("/api/admin/instructor-radios", json={"frequency": "30.000 MHz"}).json()
+    r = client.post(
+        "/api/radio/tune", json={"radio_id": radio["radio_id"], "frequency": "31.0 MHz"}
+    )
     assert r.status_code == 403
 
 
@@ -388,8 +408,9 @@ def test_websocket_plain_ptt_creates_event(client):
     with client.websocket_connect("/ws?name=DELTA&trainee_id=ws-2") as wsconn:
         wsconn.receive_json()  # welcome
         wsconn.receive_json()  # band profile
-        wsconn.send_json({"type": "ptt_start", "payload": {"frequency": "145.500 MHz",
-                                                           "tx_mode": "Plain"}})
+        wsconn.send_json(
+            {"type": "ptt_start", "payload": {"frequency": "145.500 MHz", "tx_mode": "Plain"}}
+        )
         started = _recv_until(wsconn, "ptt_started")
         assert started["payload"]["sync_applies"] is False
         wsconn.send_json({"type": "ptt_end", "payload": {}})
@@ -398,10 +419,22 @@ def test_websocket_plain_ptt_creates_event(client):
 
 
 _FAKE_RELEASES = [
-    {"tag_name": "1.1.0", "name": "1.1.0", "prerelease": False, "assets": [
-        {"name": "PIVOT-Tactical-v1.1.0-win64.zip", "browser_download_url": "http://x/w"}]},
-    {"tag_name": "1.2.0-rc.1", "name": "rc", "prerelease": True, "assets": [
-        {"name": "PIVOT-Tactical-v1.2.0-rc.1-win64.zip", "browser_download_url": "http://x/r"}]},
+    {
+        "tag_name": "1.1.0",
+        "name": "1.1.0",
+        "prerelease": False,
+        "assets": [
+            {"name": "PIVOT-Tactical-v1.1.0-win64.zip", "browser_download_url": "http://x/w"}
+        ],
+    },
+    {
+        "tag_name": "1.2.0-rc.1",
+        "name": "rc",
+        "prerelease": True,
+        "assets": [
+            {"name": "PIVOT-Tactical-v1.2.0-rc.1-win64.zip", "browser_download_url": "http://x/r"}
+        ],
+    },
     {"tag_name": "0.9.0", "name": "old", "prerelease": False, "assets": []},
 ]
 
@@ -439,8 +472,7 @@ def test_update_check_graceful_when_unreachable(client, monkeypatch):
 def test_default_frequency_setting_snaps_to_channel_raster(client):
     """An off-raster default start frequency is snapped to a tunable channel
     when saved, so operators can't persist a value the radios can't use."""
-    r = client.post("/api/admin/settings",
-                     json={"default_frequency_hz": 7_003_000.0}).json()
+    r = client.post("/api/admin/settings", json={"default_frequency_hz": 7_003_000.0}).json()
     # 7.003 MHz -> nearest 12.5 kHz channel = 7.0 MHz.
     assert r["applied"]["default_frequency_hz"] == 7_000_000.0
 
@@ -473,8 +505,12 @@ def test_instructor_websocket_controls_radio(client):
         welcome = wsconn.receive_json()
         assert welcome["type"] == "welcome" and welcome["payload"]["role"] == "instructor"
 
-        wsconn.send_json({"type": "instr_tune",
-                          "payload": {"radio_id": radio["radio_id"], "frequency": "41.000 MHz"}})
+        wsconn.send_json(
+            {
+                "type": "instr_tune",
+                "payload": {"radio_id": radio["radio_id"], "frequency": "41.000 MHz"},
+            }
+        )
         ack = _recv_until(wsconn, "tuned")
         assert "41.000" in ack["payload"]["frequency"]
 
@@ -500,14 +536,17 @@ def test_rx_noise_toggle_over_rest_and_ws(client):
     assert r.status_code == 200 and r.json()["rx_noise"] is False
     assert client.get("/api/admin/instructor-radios").json()[0]["rx_noise"] is False
     # Unknown radios 404 (and trainee radios are never instructor radios).
-    assert client.post("/api/admin/instructor-radios/instr-999/rx-noise",
-                       json={"enabled": True}).status_code == 404
+    assert (
+        client.post(
+            "/api/admin/instructor-radios/instr-999/rx-noise", json={"enabled": True}
+        ).status_code
+        == 404
+    )
 
     with client.websocket_connect(f"/ws?token={token}") as wsconn:
         snapshot = _recv_until(wsconn, "instructor_radios")
         assert snapshot["payload"][0]["rx_noise"] is False
-        wsconn.send_json({"type": "instr_rx_noise",
-                          "payload": {"radio_id": rid, "enabled": True}})
+        wsconn.send_json({"type": "instr_rx_noise", "payload": {"radio_id": rid, "enabled": True}})
         update = _recv_until(wsconn, "instructor_radios")
         assert update["payload"][0]["rx_noise"] is True
 
@@ -521,8 +560,9 @@ def test_websocket_audio_frame_is_recorded(client):
     with client.websocket_connect("/ws?name=TX&trainee_id=tx-audio") as wsconn:
         wsconn.receive_json()  # welcome
         wsconn.receive_json()  # band profile
-        wsconn.send_json({"type": "ptt_start",
-                          "payload": {"frequency": "145.500 MHz", "tx_mode": "Plain"}})
+        wsconn.send_json(
+            {"type": "ptt_start", "payload": {"frequency": "145.500 MHz", "tx_mode": "Plain"}}
+        )
         _recv_until(wsconn, "ptt_started")
         frame = float32_to_pcm16(
             (0.2 * np.sin(2 * np.pi * 440 * np.arange(1600) / 16000)).astype(np.float32)
@@ -554,16 +594,19 @@ def test_instructor_audio_frames_are_tagged_with_radio_id(client):
             tx.receive_json()  # band profile
             tx.send_json({"type": "tune", "payload": {"frequency": "40.000 MHz"}})
             _recv_until(tx, "tuned")
-            tx.send_json({"type": "ptt_start",
-                          "payload": {"frequency": "40.000 MHz", "tx_mode": "Plain"}})
+            tx.send_json(
+                {"type": "ptt_start", "payload": {"frequency": "40.000 MHz", "tx_mode": "Plain"}}
+            )
             _recv_until(tx, "ptt_started")
-            tx.send_bytes(float32_to_pcm16(
-                (0.2 * np.sin(2 * np.pi * 440 * np.arange(1600) / 16000)).astype(np.float32)
-            ))
+            tx.send_bytes(
+                float32_to_pcm16(
+                    (0.2 * np.sin(2 * np.pi * 440 * np.arange(1600) / 16000)).astype(np.float32)
+                )
+            )
 
             data = _recv_bytes(instr)
             length = data[0]
-            assert data[1:1 + length].decode("ascii") == rid
+            assert data[1 : 1 + length].decode("ascii") == rid
             assert (len(data) - 1 - length) % 2 == 0  # remaining bytes are PCM16
             tx.send_json({"type": "ptt_end", "payload": {}})
 
@@ -591,15 +634,18 @@ def test_instructor_keys_multiple_radios_at_once(client):
             instr.receive_json()
 
         for rid in (r1["radio_id"], r2["radio_id"]):
-            instr.send_json({"type": "instr_ptt_start",
-                             "payload": {"radio_id": rid, "tx_mode": "Plain"}})
+            instr.send_json(
+                {"type": "instr_ptt_start", "payload": {"radio_id": rid, "tx_mode": "Plain"}}
+            )
             started = _recv_until(instr, "ptt_started")
             assert started["payload"]["radio_id"] == rid
 
         # One mic frame while both radios are keyed.
-        instr.send_bytes(float32_to_pcm16(
-            (0.2 * np.sin(2 * np.pi * 440 * np.arange(1600) / 16000)).astype(np.float32)
-        ))
+        instr.send_bytes(
+            float32_to_pcm16(
+                (0.2 * np.sin(2 * np.pi * 440 * np.arange(1600) / 16000)).astype(np.float32)
+            )
+        )
 
         for rid in (r1["radio_id"], r2["radio_id"]):
             instr.send_json({"type": "instr_ptt_end", "payload": {"radio_id": rid}})
@@ -623,22 +669,27 @@ def test_radio_added_over_rest_is_heard_on_live_instructor_socket(client):
         for _ in range(4):  # welcome, band profile, instructor_radios, terminal_update
             instr.receive_json()
 
-        second = client.post("/api/admin/instructor-radios", json={"frequency": "41.000 MHz"}).json()
+        second = client.post(
+            "/api/admin/instructor-radios", json={"frequency": "41.000 MHz"}
+        ).json()
         client.delete(f"/api/admin/instructor-radios/{first['radio_id']}")
 
         with client.websocket_connect("/ws?name=TX&trainee_id=rest-tx") as tx:
             tx.receive_json()  # welcome
             tx.receive_json()  # band profile
-            tx.send_json({"type": "ptt_start",
-                          "payload": {"frequency": "41.000 MHz", "tx_mode": "Plain"}})
+            tx.send_json(
+                {"type": "ptt_start", "payload": {"frequency": "41.000 MHz", "tx_mode": "Plain"}}
+            )
             _recv_until(tx, "ptt_started")
-            tx.send_bytes(float32_to_pcm16(
-                (0.2 * np.sin(2 * np.pi * 440 * np.arange(1600) / 16000)).astype(np.float32)
-            ))
+            tx.send_bytes(
+                float32_to_pcm16(
+                    (0.2 * np.sin(2 * np.pi * 440 * np.arange(1600) / 16000)).astype(np.float32)
+                )
+            )
 
             data = _recv_bytes(instr)
             length = data[0]
-            assert data[1:1 + length].decode("ascii") == second["radio_id"]
+            assert data[1 : 1 + length].decode("ascii") == second["radio_id"]
             tx.send_json({"type": "ptt_end", "payload": {}})
 
 

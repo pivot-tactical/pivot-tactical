@@ -34,7 +34,7 @@ class PlaybackMode(StrEnum):
 
 
 class AarCryptoView(StrEnum):
-    PLAIN = "plain"   # cypher events render as hash (default, §3.6.3)
+    PLAIN = "plain"  # cypher events render as hash (default, §3.6.3)
     CYPHER = "cypher"  # everything renders as clear voice for grading
 
 
@@ -64,9 +64,7 @@ def render_event(
     tx_mode = event.tx_mode if isinstance(event.tx_mode, RadioMode) else RadioMode(event.tx_mode)
     reception = reception_for_playback(tx_mode, view)
     engine = DspEngine(sample_rate=sr)
-    rendered = engine.render(
-        reception, clean, conditions=conditions, rng=rng, with_transients=True
-    )
+    rendered = engine.render(reception, clean, conditions=conditions, rng=rng, with_transients=True)
     return rendered, sr
 
 

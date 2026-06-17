@@ -36,8 +36,8 @@ class Radio:
     """
 
     radio_id: str
-    owner: str               # trainee_id, or INSTRUCTOR_OWNER for instructor radios
-    label: str               # callsign / display name / "Radio 1"
+    owner: str  # trainee_id, or INSTRUCTOR_OWNER for instructor radios
+    label: str  # callsign / display name / "Radio 1"
     frequency_hz: float
     is_instructor: bool = False
     mode: RadioMode = RadioMode.PLAIN
@@ -128,9 +128,7 @@ class RadioRegistry:
         r.last_activity = utc_now()
         return r
 
-    def begin_key(
-        self, radio_id: str, event_id: str, crypto_enabled: bool = True
-    ) -> bool:
+    def begin_key(self, radio_id: str, event_id: str, crypto_enabled: bool = True) -> bool:
         """Press PTT. Returns True if a crypto sync delay applies before air.
 
         A Plain keying (or any keying when crypto is globally disabled) goes
@@ -178,9 +176,7 @@ class RadioRegistry:
             if r.radio_id != exclude and self.net_key(r.frequency_hz) == key
         ]
 
-    def active_transmitters_on_net(
-        self, freq_hz: float, exclude: str | None = None
-    ) -> list[Radio]:
+    def active_transmitters_on_net(self, freq_hz: float, exclude: str | None = None) -> list[Radio]:
         """Stations *on-air* (past crypto sync) on this net."""
         return [r for r in self.radios_on_net(freq_hz, exclude=exclude) if r.on_air]
 
@@ -189,9 +185,7 @@ class RadioRegistry:
         return [r for r in self.radios_on_net(freq_hz) if not r.transmitting]
 
     def has_listener(self, freq_hz: float, exclude: str | None = None) -> bool:
-        return any(
-            not r.transmitting for r in self.radios_on_net(freq_hz, exclude=exclude)
-        )
+        return any(not r.transmitting for r in self.radios_on_net(freq_hz, exclude=exclude))
 
     # -- render decisions -------------------------------------------------- #
 
