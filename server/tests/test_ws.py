@@ -1,8 +1,8 @@
 import asyncio
-import pytest
 from unittest.mock import MagicMock
 
 from pivot.api.ws import _cancel
+
 
 def test_cancel_none():
     _cancel(None)

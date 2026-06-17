@@ -105,11 +105,7 @@ def frontend_dist_dir() -> Path | None:
     return None
 
 
-def create_app(settings: Settings | None = None, manager: SessionManager | None = None, force_https: bool = False) -> FastAPI:
-    """Build the app. A shared ``manager`` may be supplied (e.g. by the CLI
-    entry point) so the caller and the server operate on the same live state."""
-    cfg = settings or default_settings
-
+def create_app_lifespan(cfg: Settings, manager: SessionManager | None = None):
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         import asyncio
@@ -168,14 +164,27 @@ def create_app(settings: Settings | None = None, manager: SessionManager | None 
             if noise is not None:
                 await noise.stop()
 
+    return lifespan
+
+
+def create_app(
+    settings: Settings | None = None,
+    manager: SessionManager | None = None,
+    force_https: bool = False,
+) -> FastAPI:
+    """Build the app. A shared ``manager`` may be supplied (e.g. by the CLI
+    entry point) so the caller and the server operate on the same live state."""
+    cfg = settings or default_settings
+
     app = FastAPI(
         title="PIVOT — Procedural Interactive Voice Operations Trainer",
         version=version_info.version,
-        lifespan=lifespan,
+        lifespan=create_app_lifespan(cfg, manager),
     )
 
     if force_https:
         from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+
         app.add_middleware(HTTPSRedirectMiddleware)
 
     # LAN-only deployment: same-origin frontend, but allow LAN origins for dev.
@@ -186,8 +195,10 @@ def create_app(settings: Settings | None = None, manager: SessionManager | None 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
-            "http://localhost:5173", "http://127.0.0.1:5173",
-            "http://localhost:8080", "http://127.0.0.1:8080",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
         ],
         allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$",
         allow_methods=["*"],
@@ -204,6 +215,7 @@ def create_app(settings: Settings | None = None, manager: SessionManager | None 
 def _mount_frontend(app: FastAPI) -> None:
     dist = frontend_dist_dir()
     if dist is None:
+
         @app.get("/")
         def _no_frontend() -> JSONResponse:  # pragma: no cover - dev convenience
             return JSONResponse(
@@ -214,6 +226,7 @@ def _mount_frontend(app: FastAPI) -> None:
                     "api": "/api/status",
                 }
             )
+
         return
 
     # Serve hashed assets, with an index.html fallback for SPA client routes.
