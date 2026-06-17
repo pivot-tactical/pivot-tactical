@@ -1,12 +1,12 @@
 """Tests for the REST + WebSocket API (spec §6)."""
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from unittest.mock import MagicMock, patch
-from pivot.api.app import _maybe_start_transcription
-from pivot.api.app import create_app
+from pivot.api.app import _maybe_start_transcription, create_app
 from pivot.api.deps import require_instructor
 from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD
 from pivot.db.config_store import ConfigStore
