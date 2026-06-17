@@ -9,12 +9,11 @@ Semantic-version comparison here is used by the update manager (spec §3.7.3) to
 order GitHub release tags relative to the running build.
 """
 
-from __future__ import annotations
-
 import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Self
 
 # Canonical semantic version. Bumped per release; the packaged build overwrites
 # the buildinfo fields below via packaging/_buildinfo.py generated in CI.
@@ -47,7 +46,7 @@ class SemVer:
     build: str | None = field(default=None, compare=False)
 
     @classmethod
-    def parse(cls, text: str) -> SemVer:
+    def parse(cls, text: str) -> Self:
         m = _SEMVER_RE.match(text.strip())
         if not m:
             raise ValueError(f"not a semantic version: {text!r}")
@@ -62,7 +61,7 @@ class SemVer:
         )
 
     @classmethod
-    def try_parse(cls, text: str) -> SemVer | None:
+    def try_parse(cls, text: str) -> Self | None:
         try:
             return cls.parse(text)
         except ValueError:

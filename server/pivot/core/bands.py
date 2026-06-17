@@ -22,14 +22,14 @@ import bisect
 import math
 import re
 from dataclasses import dataclass, field, replace
-from enum import Enum
+from enum import StrEnum
 
 # Overall tunable range: low HF through UHF (spec §3.1.2 table).
 MIN_FREQ_HZ: float = 1_600_000.0          # 1.6 MHz
 MAX_FREQ_HZ: float = 3_000_000_000.0      # 3 GHz
 
 
-class BandRegion(str, Enum):
+class BandRegion(StrEnum):
     """Standard ITU band label, used for display and the ``band_region`` event
     field (spec §3.5.3). Only the three internationally defined bands that the
     tunable range spans are used — HF, VHF and UHF (ITU-R V.431). There is no

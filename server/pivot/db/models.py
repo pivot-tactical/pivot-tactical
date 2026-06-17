@@ -31,7 +31,7 @@ class Base(DeclarativeBase):
     pass
 
 
-class TranscriptionStatus(str, enum.Enum):
+class TranscriptionStatus(enum.StrEnum):
     """faster-whisper job state for an event (spec §3.5.3)."""
 
     PENDING = "Pending"
