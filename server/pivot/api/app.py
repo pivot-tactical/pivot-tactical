@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import os
 import sys
-from contextlib import asynccontextmanager
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -105,7 +106,9 @@ def frontend_dist_dir() -> Path | None:
     return None
 
 
-def create_app_lifespan(cfg: Settings, manager: SessionManager | None = None):
+def _create_app_lifespan(
+    cfg: Settings, manager: SessionManager | None = None
+) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         import asyncio
@@ -179,7 +182,7 @@ def create_app(
     app = FastAPI(
         title="PIVOT — Procedural Interactive Voice Operations Trainer",
         version=version_info.version,
-        lifespan=create_app_lifespan(cfg, manager),
+        lifespan=_create_app_lifespan(cfg, manager),
     )
 
     if force_https:
