@@ -14,8 +14,6 @@ background thread while the Win32 message loop owns the main thread (required fo
 ``Shell_NotifyIcon`` and the popup menu).
 """
 
-from __future__ import annotations
-
 import sys
 import threading
 import webbrowser
