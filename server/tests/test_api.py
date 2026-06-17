@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from unittest.mock import MagicMock, patch
+from pivot.api.app import _maybe_start_transcription
 from pivot.api.app import create_app
 from pivot.api.deps import require_instructor
 from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD
@@ -669,3 +671,24 @@ async def test_schedule_on_air():
         sleep_mock.assert_called_once_with(1.5)
         manager_mock.ptt_sync_complete.assert_called_once_with("test-radio")
         ws_mock.send_json.assert_called_once_with({"type": "secure_tx", "payload": {"radio_id": "test-radio"}})
+
+
+@patch.dict("sys.modules", {"faster_whisper": MagicMock()})
+@patch("pivot.transcription.worker.TranscriptionWorker")
+def test_maybe_start_transcription_success(MockWorker):
+    manager = MagicMock()
+    cfg = MagicMock()
+    worker = _maybe_start_transcription(manager, cfg)
+    MockWorker.assert_called_once_with(manager.db, cfg)
+    worker.start.assert_called_once()
+    assert worker.on_complete == manager.notify_transcription
+    assert manager.transcription_worker == worker
+    assert worker == MockWorker.return_value
+
+
+@patch.dict("sys.modules", {"faster_whisper": None})
+def test_maybe_start_transcription_no_whisper():
+    manager = MagicMock()
+    cfg = MagicMock()
+    worker = _maybe_start_transcription(manager, cfg)
+    assert worker is None
