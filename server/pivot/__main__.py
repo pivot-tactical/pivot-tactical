@@ -9,8 +9,6 @@ desktop GUI.
     python -m pivot --data-dir DIR  # override the data directory
 """
 
-from __future__ import annotations
-
 import argparse
 import asyncio
 import os
