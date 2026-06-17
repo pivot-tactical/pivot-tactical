@@ -60,7 +60,7 @@ def test_session_and_event_lifecycle(database):
         session_id = sess.id
 
     with database.session() as s:
-        ev = repo.create_event(
+        _ = repo.create_event(
             s,
             session_id=session_id,
             trainee_name="ALPHA",
@@ -74,7 +74,6 @@ def test_session_and_event_lifecycle(database):
             audio_path=f"{session_id}/evt.wav",
             dsp_profile={"snr_db": 16.0, "region": "HF"},
         )
-        event_id = ev.event_id
 
     with database.session() as s:
         events = repo.list_events(s, session_id)
