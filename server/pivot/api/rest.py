@@ -420,6 +420,16 @@ def admin_refresh_updates(manager=Depends(get_manager)) -> dict:
     Touches the internet and degrades gracefully (``reachable: false``) so
     air-gapped sites can ignore it and use offline import instead (§3.7.1).
     """
+    from pivot.updates import github
+
+    # "Check now" must reach the network, not return a stale TTL-cached result:
+    # forcing a fresh fetch is the whole point of this endpoint (the background
+    # poll is the one that benefits from the cache). Invalidate before delegating
+    # so the fetch below — via the service or the live fallback — actually runs.
+    # ``getattr`` keeps this safe when ``fetch_releases`` is monkeypatched/hot-
+    # swapped with a plain callable that has no cache (see app.py late-binding).
+    getattr(github.fetch_releases, "cache_clear", lambda: None)()
+
     service = getattr(manager, "update_service", None)
     if service is not None:
         return _shape_update_status(service.refresh())

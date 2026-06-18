@@ -40,6 +40,34 @@ def test_order_handles_prerelease_precedence():
     assert [r.tag for r in order_releases(rels)] == ["1.0.0", "1.0.0-rc.1"]
 
 
+def test_ttl_cache_serves_within_ttl_and_clears_on_demand():
+    """The TTL cache reuses results within the window, but ``cache_clear`` forces
+    a fresh call — that is what the "Check now" endpoint relies on to override it.
+    """
+    from pivot.updates.github import ttl_cache
+
+    calls = []
+
+    @ttl_cache(ttl_seconds=300.0)
+    def fetch(repo):
+        calls.append(repo)
+        return [{"repo": repo, "n": len(calls)}]
+
+    first = fetch("o/r")
+    second = fetch("o/r")
+    assert calls == ["o/r"]  # second call served from cache
+    assert first == second
+
+    # A different key is fetched independently.
+    fetch("o/other")
+    assert calls == ["o/r", "o/other"]
+
+    # Clearing forces the next call back to the wrapped function ("Check now").
+    fetch.cache_clear()
+    fetch("o/r")
+    assert calls == ["o/r", "o/other", "o/r"]
+
+
 def test_filter_channel_stable_only():
     rels = [rel("1.0.0"), rel("1.1.0-rc.1", prerelease=True)]
     stable = filter_channel(rels, include_prereleases=False)
