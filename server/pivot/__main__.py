@@ -311,6 +311,31 @@ def _relaunch_after(pid: int, settings: Settings) -> int:
             log.close()
 
 
+def _print_startup_message(ip: str, port: int, tls: tuple[Path, Path] | None, is_default_password: bool) -> str:
+    scheme = "https" if tls else "http"
+    url = f"{scheme}://{ip}:{port}"
+    print(f"PIVOT {version_info.version} — open {url} in a browser")
+    print("  Trainees: enter a callsign.  Instructor: 'Log in as instructor'.")
+    if tls:
+        print(
+            "  NOTE: the browser will warn that the connection isn't private — "
+            "that's expected for a self-hosted LAN address (the certificate is "
+            "self-signed). Choose Advanced → Proceed once; this is what lets the "
+            "microphone work."
+        )
+    else:
+        print(
+            "  WARNING: couldn't set up a secure connection — the microphone may "
+            "be unavailable in some browsers (notably Firefox) at this address."
+        )
+    if is_default_password:
+        print(
+            f"  NOTE: instructor password is the default ('{DEFAULT_INSTRUCTOR_PASSWORD}'). "
+            "Change it in Settings after logging in."
+        )
+    return url
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.version:
@@ -341,27 +366,7 @@ def main(argv: list[str] | None = None) -> int:
     from pivot.runtime.tls import ensure_cert
 
     tls = ensure_cert(settings.data_dir / "tls", ip)
-    scheme = "https" if tls else "http"
-    url = f"{scheme}://{ip}:{settings.port}"
-    print(f"PIVOT {version_info.version} — open {url} in a browser")
-    print("  Trainees: enter a callsign.  Instructor: 'Log in as instructor'.")
-    if tls:
-        print(
-            "  NOTE: the browser will warn that the connection isn't private — "
-            "that's expected for a self-hosted LAN address (the certificate is "
-            "self-signed). Choose Advanced → Proceed once; this is what lets the "
-            "microphone work."
-        )
-    else:
-        print(
-            "  WARNING: couldn't set up a secure connection — the microphone may "
-            "be unavailable in some browsers (notably Firefox) at this address."
-        )
-    if auth.is_default():
-        print(
-            f"  NOTE: instructor password is the default ('{DEFAULT_INSTRUCTOR_PASSWORD}'). "
-            "Change it in Settings after logging in."
-        )
+    url = _print_startup_message(ip, settings.port, tls, auth.is_default())
 
     if _use_tray(args.tray):
         # Headless on Windows: tuck the server into the notification area. The
