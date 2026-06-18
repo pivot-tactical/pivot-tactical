@@ -11,12 +11,51 @@ import.
 from __future__ import annotations
 
 import json
+import threading
+import time
 import urllib.error
 import urllib.request
+from functools import wraps
 
 GITHUB_API = "https://api.github.com"
 
 
+def ttl_cache(maxsize: int = 128, ttl_seconds: float = 300.0):
+    """Simple thread-safe TTL cache decorator."""
+
+    def decorator(func):
+        cache: dict[str, tuple[list[dict], float]] = {}
+        lock = threading.Lock()
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            key = str(args) + str(kwargs)
+            now = time.time()
+
+            with lock:
+                if key in cache:
+                    result, timestamp = cache[key]
+                    if now - timestamp < ttl_seconds:
+                        return result
+
+            result = func(*args, **kwargs)
+
+            with lock:
+                cache[key] = (result, now)
+
+                if len(cache) > maxsize:
+                    # Create a list of items to avoid "dictionary changed size during iteration"
+                    oldest_key = min(list(cache.items()), key=lambda item: item[1][1])[0]
+                    del cache[oldest_key]
+
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+@ttl_cache(ttl_seconds=300.0)
 def fetch_releases(repo: str, token: str | None = None, timeout: float = 10.0) -> list[dict]:
     """Return the raw GitHub releases JSON for ``owner/repo`` (newest first).
 
