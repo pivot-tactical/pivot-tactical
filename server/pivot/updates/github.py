@@ -50,6 +50,12 @@ def ttl_cache(maxsize: int = 128, ttl_seconds: float = 300.0):
 
             return result
 
+        def cache_clear() -> None:
+            """Drop all cached entries (used to force a fresh fetch)."""
+            with lock:
+                cache.clear()
+
+        wrapper.cache_clear = cache_clear
         return wrapper
 
     return decorator
