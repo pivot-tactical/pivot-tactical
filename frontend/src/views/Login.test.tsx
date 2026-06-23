@@ -142,7 +142,9 @@ describe("Login", () => {
     const input = screen.getByPlaceholderText("default: instructor");
     await user.type(input, "my-password{enter}");
 
-    expect(mockOnInstructor).toHaveBeenCalledWith("my-password");
+    await waitFor(() => {
+      expect(mockOnInstructor).toHaveBeenCalledWith("my-password");
+    });
   });
 
   it("checks microphone and displays blocked message for insecure contexts", async () => {
@@ -206,7 +208,7 @@ describe("Login", () => {
     const originalMediaDevices = navigator.mediaDevices;
     Object.defineProperty(navigator, "mediaDevices", {
       value: {
-        getUserMedia: vi.fn().mockRejectedValue(new Error("NotAllowedError")),
+        getUserMedia: vi.fn().mockRejectedValueOnce(new Error("NotAllowedError")),
       },
       configurable: true,
     });
