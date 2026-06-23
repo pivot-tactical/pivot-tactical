@@ -162,11 +162,6 @@ class SessionManager:
 
     # -- session lifecycle ------------------------------------------------- #
 
-    def get_config(self) -> dict:
-        """Return the full effective config from the database."""
-        with self.db.session() as s:
-            return ConfigStore(s).all()
-
     @property
     def session_active(self) -> bool:
         return self.current_session_id is not None
@@ -674,6 +669,12 @@ class SessionManager:
             "jamming": [[j.low_hz, j.high_hz] for j in self.band_profile.jamming],
             "net_scenarios": self.band_profile.net_scenarios_to_json(),
         }
+
+    # -- config ------------------------------------------------------------ #
+
+    def get_config(self) -> dict:
+        with self.db.session() as s:
+            return ConfigStore(s).all()
 
     # -- internals --------------------------------------------------------- #
 
