@@ -98,7 +98,7 @@ export function Login({
                 autoFocus
                 placeholder="default: instructor"
                 onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && submitInstructor()}
+                onKeyDown={(e) => e.key === "Enter" && password && submitInstructor()}
               />
             </label>
             {error && <p className="login__hint">{error}</p>}
