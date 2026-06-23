@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
-import * as matchers from '@testing-library/jest-dom/matchers';
-expect.extend(matchers);
+import '@testing-library/jest-dom/vitest';
 
 import { Radio } from './Radio';
 import { PivotSocket } from '../ws';
 import type { LoginResponse } from '../types';
+import * as audioModule from '../audio';
 
 // Mock the components
 vi.mock('../components/ModeDial', () => ({
@@ -117,6 +117,21 @@ describe('Radio', () => {
     expect(mockSocket.tune).toHaveBeenCalledWith('8.5000 MHz');
   });
 
+  it('handles tuning boundaries', () => {
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    const entryInput = screen.getByLabelText('Frequency in MHz');
+
+    // Test lower bound (1.6e6)
+    fireEvent.change(entryInput, { target: { value: '1.0' } });
+    fireEvent.keyDown(entryInput, { key: 'Enter' });
+    expect(mockSocket.tune).toHaveBeenCalledWith('1.6000 MHz');
+
+    // Test upper bound (3e9)
+    fireEvent.change(entryInput, { target: { value: '4000.0' } });
+    fireEvent.keyDown(entryInput, { key: 'Enter' });
+    expect(mockSocket.tune).toHaveBeenCalledWith('3000.0000 MHz');
+  });
+
   it('handles mode toggle', () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
 
@@ -130,7 +145,7 @@ describe('Radio', () => {
   it('handles PTT via button', async () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
 
-    const pttBtn = screen.getByText('PUSH TO TALK').closest('button')!;
+    const pttBtn = screen.getByRole('button', { name: /push to talk/i });
 
     // Start PTT
     await act(async () => {
@@ -161,8 +176,63 @@ describe('Radio', () => {
     expect(mockSocket.pttEnd).toHaveBeenCalled();
   });
 
-  it('responds to websocket state updates', () => {
-    // Need to capture the event handlers
+  it('ignores PTT via spacebar when typing in an input', async () => {
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    const entryInput = screen.getByLabelText('Frequency in MHz');
+
+    await act(async () => {
+      fireEvent.keyDown(entryInput, { code: 'Space', target: entryInput });
+    });
+
+    expect(mockSocket.pttStart).not.toHaveBeenCalled();
+  });
+
+  it('aborts PTT when releasing during CRYPTO_SYNC', async () => {
+    const handlers: Record<string, Function> = {};
+    mockSocket.on.mockImplementation((event: string, handler: Function) => {
+      handlers[event] = handler;
+      return () => {};
+    });
+
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    const pttBtn = screen.getByRole('button', { name: /push to talk/i });
+
+    // Start PTT and simulate sync
+    await act(async () => {
+      fireEvent.mouseDown(pttBtn);
+    });
+    act(() => {
+      handlers['ptt_started']({ sync_applies: true });
+    });
+    expect(screen.getByRole('button', { name: /crypto sync…/i })).toBeInTheDocument();
+
+    // Release PTT
+    fireEvent.mouseUp(pttBtn);
+
+    expect(mockSocket.pttAbort).toHaveBeenCalled();
+    expect(mockSocket.pttEnd).not.toHaveBeenCalled();
+  });
+
+  it('handles onMouseLeave during PTT', async () => {
+    const handlers: Record<string, Function> = {};
+    mockSocket.on.mockImplementation((event: string, handler: Function) => {
+      handlers[event] = handler;
+      return () => {};
+    });
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    const pttBtn = screen.getByRole('button', { name: /push to talk/i });
+
+    await act(async () => {
+      fireEvent.mouseDown(pttBtn);
+    });
+    expect(mockSocket.pttStart).toHaveBeenCalled();
+    act(() => { handlers['ptt_started']({ sync_applies: false }); });
+
+    fireEvent.mouseLeave(pttBtn);
+    expect(mockSocket.pttEnd).toHaveBeenCalled();
+  });
+
+  it('responds to websocket state updates correctly', () => {
     const handlers: Record<string, Function> = {};
     mockSocket.on.mockImplementation((event: string, handler: Function) => {
       handlers[event] = handler;
@@ -171,19 +241,46 @@ describe('Radio', () => {
 
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
 
-    act(() => {
-      handlers['tuned']({ frequency_hz: 8000000 });
-    });
+    act(() => { handlers['tuned']({ frequency_hz: 8000000 }); });
     expect(screen.getByText('8.0000')).toBeInTheDocument();
 
-    act(() => {
-      handlers['ptt_started']({ sync_applies: false });
-    });
-    expect(screen.getByText('TX')).toBeInTheDocument();
+    act(() => { handlers['mode_changed']({ mode: 'Cypher' }); });
+    expect(screen.getByTestId('mode-dial')).toHaveTextContent('Cypher');
 
-    act(() => {
-      handlers['ptt_started']({ sync_applies: true });
+    act(() => { handlers['ptt_started']({ sync_applies: false }); });
+    expect(screen.getByRole('button', { name: /tx/i })).toBeInTheDocument();
+
+    act(() => { handlers['ptt_started']({ sync_applies: true }); });
+    expect(screen.getByRole('button', { name: /crypto sync…/i })).toBeInTheDocument();
+
+    act(() => { handlers['secure_tx']({}); });
+    expect(screen.getByRole('button', { name: /secure tx/i })).toBeInTheDocument();
+
+    act(() => { handlers['ptt_ended']({}); });
+    expect(screen.getByRole('button', { name: /push to talk/i })).toBeInTheDocument();
+
+    // Test that aborting also returns to IDLE state
+    act(() => { handlers['ptt_started']({ sync_applies: true }); });
+    expect(screen.getByRole('button', { name: /crypto sync…/i })).toBeInTheDocument();
+    act(() => { handlers['ptt_aborted']({}); });
+    expect(screen.getByRole('button', { name: /push to talk/i })).toBeInTheDocument();
+  });
+
+  it('updates volume correctly', () => {
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    const slider = screen.getByTestId('volume-slider');
+
+    fireEvent.change(slider, { target: { value: '0.8' } });
+    expect(audioModule.saveVolume).toHaveBeenCalledWith('trainee', 0.8);
+  });
+
+  it('ignores e.repeat on spacebar keydown', async () => {
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+
+    await act(async () => {
+      fireEvent.keyDown(window, { code: 'Space', repeat: true });
     });
-    expect(screen.getByText('CRYPTO SYNC…')).toBeInTheDocument();
+
+    expect(mockSocket.pttStart).not.toHaveBeenCalled();
   });
 });
