@@ -128,7 +128,9 @@ describe("Login", () => {
     // Submitting again clears the error and shows busy
     mockOnInstructor.mockResolvedValueOnce(undefined);
     await user.click(signInBtn);
-    expect(screen.queryByText("Incorrect password.")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("Incorrect password.")).not.toBeInTheDocument();
+    });
     expect(mockOnInstructor).toHaveBeenNthCalledWith(2, "wrong-password");
   });
 
@@ -147,84 +149,97 @@ describe("Login", () => {
     });
   });
 
-  it("checks microphone and displays blocked message for insecure contexts", async () => {
+  it("does not submit instructor login on Enter key when password is empty", async () => {
     const user = userEvent.setup();
-
-    // Mock insecure context
-    const originalIsSecureContext = window.isSecureContext;
-    Object.defineProperty(window, "isSecureContext", { value: false, configurable: true });
-
     render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
 
-    const checkMicBtn = screen.getByRole("button", { name: /Check microphone/i });
-    await user.click(checkMicBtn);
+    await user.click(screen.getByRole("button", { name: /Log in as instructor/i }));
 
-    expect(screen.getByText(/Microphone blocked/i)).toBeInTheDocument();
-    expect(screen.getByText(/This connection isn't secure/i)).toBeInTheDocument();
+    // Press Enter without typing a password
+    const input = screen.getByPlaceholderText("default: instructor");
+    await user.type(input, "{enter}");
 
-    // Restore original
-    Object.defineProperty(window, "isSecureContext", { value: originalIsSecureContext, configurable: true });
+    expect(mockOnInstructor).not.toHaveBeenCalled();
   });
 
-  it("checks microphone successfully in secure context", async () => {
-    const user = userEvent.setup();
+  describe("microphone checks", () => {
+    let originalIsSecureContext: boolean;
+    let originalMediaDevices: any;
 
-    // Mock secure context and getUserMedia
-    const originalIsSecureContext = window.isSecureContext;
-    Object.defineProperty(window, "isSecureContext", { value: true, configurable: true });
-
-    const mockStream = {
-      getTracks: () => [{ stop: vi.fn() }],
-    };
-
-    const originalMediaDevices = navigator.mediaDevices;
-    Object.defineProperty(navigator, "mediaDevices", {
-      value: {
-        getUserMedia: vi.fn().mockResolvedValue(mockStream),
-      },
-      configurable: true,
+    beforeEach(() => {
+      originalIsSecureContext = window.isSecureContext;
+      originalMediaDevices = navigator.mediaDevices;
     });
 
-    render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
-
-    const checkMicBtn = screen.getByRole("button", { name: /Check microphone/i });
-    await user.click(checkMicBtn);
-
-    await waitFor(() => {
-      expect(screen.getByText(/Microphone OK/i)).toBeInTheDocument();
+    afterEach(() => {
+      Object.defineProperty(window, "isSecureContext", { value: originalIsSecureContext, configurable: true });
+      Object.defineProperty(navigator, "mediaDevices", { value: originalMediaDevices, configurable: true });
     });
 
-    // Restore original
-    Object.defineProperty(window, "isSecureContext", { value: originalIsSecureContext, configurable: true });
-    Object.defineProperty(navigator, "mediaDevices", { value: originalMediaDevices, configurable: true });
-  });
+    it("displays blocked message for insecure contexts", async () => {
+      const user = userEvent.setup();
 
-  it("shows allow-access hint when getUserMedia is denied", async () => {
-    const user = userEvent.setup();
+      // Mock insecure context
+      Object.defineProperty(window, "isSecureContext", { value: false, configurable: true });
 
-    const originalIsSecureContext = window.isSecureContext;
-    Object.defineProperty(window, "isSecureContext", { value: true, configurable: true });
+      render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
 
-    const originalMediaDevices = navigator.mediaDevices;
-    Object.defineProperty(navigator, "mediaDevices", {
-      value: {
-        getUserMedia: vi.fn().mockRejectedValueOnce(new Error("NotAllowedError")),
-      },
-      configurable: true,
-    });
+      const checkMicBtn = screen.getByRole("button", { name: /Check microphone/i });
+      await user.click(checkMicBtn);
 
-    render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
-
-    const checkMicBtn = screen.getByRole("button", { name: /Check microphone/i });
-    await user.click(checkMicBtn);
-
-    await waitFor(() => {
       expect(screen.getByText(/Microphone blocked/i)).toBeInTheDocument();
-      expect(screen.getByText(/Allow microphone access in your browser to transmit./i)).toBeInTheDocument();
+      expect(screen.getByText(/This connection isn't secure/i)).toBeInTheDocument();
     });
 
-    Object.defineProperty(window, "isSecureContext", { value: originalIsSecureContext, configurable: true });
-    Object.defineProperty(navigator, "mediaDevices", { value: originalMediaDevices, configurable: true });
+    it("checks microphone successfully in secure context", async () => {
+      const user = userEvent.setup();
+
+      // Mock secure context and getUserMedia
+      Object.defineProperty(window, "isSecureContext", { value: true, configurable: true });
+
+      const mockStream = {
+        getTracks: () => [{ stop: vi.fn() }],
+      };
+
+      Object.defineProperty(navigator, "mediaDevices", {
+        value: {
+          getUserMedia: vi.fn().mockResolvedValue(mockStream),
+        },
+        configurable: true,
+      });
+
+      render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
+
+      const checkMicBtn = screen.getByRole("button", { name: /Check microphone/i });
+      await user.click(checkMicBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Microphone OK/i)).toBeInTheDocument();
+      });
+    });
+
+    it("shows allow-access hint when getUserMedia is denied", async () => {
+      const user = userEvent.setup();
+
+      Object.defineProperty(window, "isSecureContext", { value: true, configurable: true });
+
+      Object.defineProperty(navigator, "mediaDevices", {
+        value: {
+          getUserMedia: vi.fn().mockRejectedValueOnce(new Error("NotAllowedError")),
+        },
+        configurable: true,
+      });
+
+      render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
+
+      const checkMicBtn = screen.getByRole("button", { name: /Check microphone/i });
+      await user.click(checkMicBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Microphone blocked/i)).toBeInTheDocument();
+        expect(screen.getByText(/Allow microphone access in your browser to transmit./i)).toBeInTheDocument();
+      });
+    });
   });
 
   it("shows server status dot correctly based on API status", async () => {
