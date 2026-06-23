@@ -54,14 +54,12 @@ def _start_update_service(manager: SessionManager, cfg: Settings):
     Reads config live each cycle, gates auto-update on session state, and pushes
     status changes to the instructor console over the live feed.
     """
-    from pivot.db.config_store import ConfigStore
     from pivot.updates import github
     from pivot.updates.service import UpdateService
     from pivot.version import version_info
 
     def config_provider() -> dict:
-        with manager.db.session() as s:
-            return ConfigStore(s).all()
+        return manager.get_config()
 
     # Late-bind the fetch through the module so test monkeypatches and any
     # future hot-swap of the network layer are honoured at call time.

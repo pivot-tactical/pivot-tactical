@@ -162,6 +162,11 @@ class SessionManager:
 
     # -- session lifecycle ------------------------------------------------- #
 
+    def get_config(self) -> dict:
+        """Return the full effective config from the database."""
+        with self.db.session() as s:
+            return ConfigStore(s).all()
+
     @property
     def session_active(self) -> bool:
         return self.current_session_id is not None
