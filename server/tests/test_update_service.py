@@ -165,3 +165,19 @@ def test_default_apply_short_circuits_when_already_staged(tmp_path):
                                         asset_name="a.zip"), cfg={})
     assert result["applied"] is True
     assert "already staged" in result["message"]
+
+
+def test_run_catches_refresh_exception_and_keeps_daemon_alive(tmp_path):
+    svc = _service(tmp_path, config={"github_repo": "o/r"})
+
+    def fake_refresh():
+        svc.stop()
+        raise RuntimeError("mocked error")
+
+    svc.refresh = fake_refresh
+    svc._run()
+
+    snap = svc.snapshot()
+    assert snap["reachable"] is False
+    assert snap["error"] == "mocked error"
+    assert snap["checking"] is False
