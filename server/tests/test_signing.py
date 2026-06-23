@@ -2,8 +2,23 @@
 
 from unittest.mock import patch
 
-from pivot.updates.signing import is_configured, verify_bytes
+from pivot.updates.signing import is_configured, verify_bytes, public_key, _EMBEDDED_PUBLIC_KEY
 
+
+def test_public_key_default(monkeypatch):
+    """If no environment variable is set, it should return the embedded key."""
+    monkeypatch.delenv("PIVOT_EDDSA_PUBLIC_KEY", raising=False)
+    assert public_key() == _EMBEDDED_PUBLIC_KEY
+
+def test_public_key_env_override(monkeypatch):
+    """If the environment variable is set, it should be used (and stripped)."""
+    monkeypatch.setenv("PIVOT_EDDSA_PUBLIC_KEY", "  custom_env_key  ")
+    assert public_key() == "custom_env_key"
+
+def test_public_key_empty_env(monkeypatch):
+    """If the environment variable is empty or only whitespace, it should fall back to the embedded key."""
+    monkeypatch.setenv("PIVOT_EDDSA_PUBLIC_KEY", "   ")
+    assert public_key() == _EMBEDDED_PUBLIC_KEY
 
 def test_verify_bytes_empty_signature():
     """An empty signature string should immediately return False."""
