@@ -56,9 +56,3 @@ def format_clock(dt: datetime, tz_name: str = "UTC") -> str:
     return dt.astimezone(tz).strftime("%H:%M:%S")
 
 
-def display_in_zone(dt: datetime, tz_name: str = "UTC") -> datetime:
-    """Convert a stored UTC instant into the configured display zone."""
-    tz = resolve_timezone(tz_name)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(tz)
