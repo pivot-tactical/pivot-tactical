@@ -2,7 +2,37 @@
 
 from unittest.mock import patch
 
-from pivot.updates.signing import is_configured, verify_bytes, public_key, _EMBEDDED_PUBLIC_KEY
+from pivot.updates.signing import is_configured, verify_bytes, public_key, _EMBEDDED_PUBLIC_KEY, verify_file
+
+
+def test_verify_file_delegates(tmp_path, monkeypatch):
+    """verify_file should read the file and pass its contents to verify_bytes."""
+    test_file = tmp_path / "test_update.zip"
+    test_file.write_bytes(b"file_content")
+
+    # Mock verify_bytes to simply check its arguments
+    def mock_verify_bytes(data, signature_b64, public_b64=None):
+        assert data == b"file_content"
+        assert signature_b64 == "test_sig"
+        assert public_b64 == "test_pub"
+        return True
+
+    monkeypatch.setattr("pivot.updates.signing.verify_bytes", mock_verify_bytes)
+
+    assert verify_file(test_file, "test_sig", "test_pub") is True
+
+
+def test_verify_file_propagates_false(tmp_path, monkeypatch):
+    """verify_file should return False if verify_bytes returns False."""
+    test_file = tmp_path / "test_update.zip"
+    test_file.write_bytes(b"bad_content")
+
+    def mock_verify_bytes(data, signature_b64, public_b64=None):
+        return False
+
+    monkeypatch.setattr("pivot.updates.signing.verify_bytes", mock_verify_bytes)
+
+    assert verify_file(test_file, "bad_sig") is False
 
 
 def test_public_key_default(monkeypatch):
@@ -27,9 +57,6 @@ def test_verify_bytes_empty_signature():
 def test_verify_bytes_empty_public_key():
     """A whitespace-only public key string should evaluate to empty after strip and return False."""
     assert verify_bytes(b"data", "some_signature", "   ") is False
-
-
-
 
 
 def test_is_configured_true():
