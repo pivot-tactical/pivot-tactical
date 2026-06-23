@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Login } from "../Login";
-import { api } from "../../api";
+import { Login } from "./Login";
+import { api } from "../api";
 import * as matchers from "@testing-library/jest-dom/matchers";
 
 expect.extend(matchers);
 
 // Mock the API to avoid actual network calls
-vi.mock("../../api", () => ({
+vi.mock("../api", () => ({
   api: {
     status: vi.fn(),
   },
@@ -129,7 +129,20 @@ describe("Login", () => {
     mockOnInstructor.mockResolvedValueOnce(undefined);
     await user.click(signInBtn);
     expect(screen.queryByText("Incorrect password.")).not.toBeInTheDocument();
-    expect(mockOnInstructor).toHaveBeenCalledWith("wrong-password");
+    expect(mockOnInstructor).toHaveBeenNthCalledWith(2, "wrong-password");
+  });
+
+  it("submits instructor login on Enter key", async () => {
+    const user = userEvent.setup();
+    render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
+
+    // Switch to instructor
+    await user.click(screen.getByRole("button", { name: /Log in as instructor/i }));
+
+    const input = screen.getByPlaceholderText("default: instructor");
+    await user.type(input, "my-password{enter}");
+
+    expect(mockOnInstructor).toHaveBeenCalledWith("my-password");
   });
 
   it("checks microphone and displays blocked message for insecure contexts", async () => {
@@ -184,6 +197,34 @@ describe("Login", () => {
     Object.defineProperty(navigator, "mediaDevices", { value: originalMediaDevices, configurable: true });
   });
 
+  it("shows allow-access hint when getUserMedia is denied", async () => {
+    const user = userEvent.setup();
+
+    const originalIsSecureContext = window.isSecureContext;
+    Object.defineProperty(window, "isSecureContext", { value: true, configurable: true });
+
+    const originalMediaDevices = navigator.mediaDevices;
+    Object.defineProperty(navigator, "mediaDevices", {
+      value: {
+        getUserMedia: vi.fn().mockRejectedValue(new Error("NotAllowedError")),
+      },
+      configurable: true,
+    });
+
+    render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
+
+    const checkMicBtn = screen.getByRole("button", { name: /Check microphone/i });
+    await user.click(checkMicBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Microphone blocked/i)).toBeInTheDocument();
+      expect(screen.getByText(/Allow microphone access in your browser to transmit./i)).toBeInTheDocument();
+    });
+
+    Object.defineProperty(window, "isSecureContext", { value: originalIsSecureContext, configurable: true });
+    Object.defineProperty(navigator, "mediaDevices", { value: originalMediaDevices, configurable: true });
+  });
+
   it("shows server status dot correctly based on API status", async () => {
     render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
 
@@ -191,6 +232,18 @@ describe("Login", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Server online")).toBeInTheDocument();
+    });
+  });
+
+  it("shows server unreachable status dot when API rejects", async () => {
+    (api.status as any).mockRejectedValueOnce(new Error("Network Error"));
+
+    render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
+
+    expect(screen.getByText("Connecting…")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText("Server unreachable")).toBeInTheDocument();
     });
   });
 });
