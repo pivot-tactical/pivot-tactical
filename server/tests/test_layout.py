@@ -88,3 +88,35 @@ def test_prune_keeps_newest_active_and_protected(tmp_path):
     kept = set(layout.installed_versions())
     assert kept == {"1.3.0", "1.2.0", "1.0.0"}
     assert "1.1.0" not in kept
+
+
+def test_remove_link_oserror_fallback(tmp_path, monkeypatch):
+    import os
+    import shutil
+
+    from pivot.updates.layout import _remove_link
+
+    link = tmp_path / "fake_link"
+    link.touch()
+
+    def mock_unlink(*args, **kwargs):
+        raise OSError("unlink failed")
+
+    def mock_rmdir(*args, **kwargs):
+        raise OSError("rmdir failed")
+
+    monkeypatch.setattr(os, "unlink", mock_unlink)
+    monkeypatch.setattr(os, "rmdir", mock_rmdir)
+
+    rmtree_called = []
+
+    def mock_rmtree(path, ignore_errors=False):
+        rmtree_called.append((path, ignore_errors))
+
+    monkeypatch.setattr(shutil, "rmtree", mock_rmtree)
+
+    _remove_link(link)
+
+    assert len(rmtree_called) == 1
+    assert rmtree_called[0][0] == link
+    assert rmtree_called[0][1] is True
