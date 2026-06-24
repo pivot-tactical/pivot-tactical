@@ -37,9 +37,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     auth = getattr(ws.app.state, "auth", None)
     await ws.accept()
 
-    # Cookie is primary (browser sends it automatically during the WS handshake).
-    # Query param is kept as fallback for non-browser clients and test tooling.
-    token = ws.cookies.get("pivot_token") or ws.query_params.get("token")
+    token = ws.query_params.get("token")
     if token and auth is not None and auth.validate(token):
         await _instructor_session(ws, manager)
     else:

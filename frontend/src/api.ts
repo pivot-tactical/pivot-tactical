@@ -1,5 +1,5 @@
 // REST client for the PIVOT API (spec §6.1).
-// Instructor endpoints are gated by an HttpOnly session cookie set by the server.
+// Instructor endpoints require a bearer token obtained from instructor login.
 import type {
   EventRow,
   LoginResponse,
@@ -8,26 +8,25 @@ import type {
   Terminal,
 } from "./types";
 
-// The actual instructor token lives in an HttpOnly cookie set by the server —
-// JS never sees the value. We track a login-state flag in sessionStorage so
-// the app knows whether to attempt a session restore on load. Closing the tab
-// clears sessionStorage (and the browser drops the session cookie), so the
-// instructor is logged out on tab close the same as before.
-let _loggedIn: boolean = sessionStorage.getItem("pivot_session") === "1";
+// Persisted in sessionStorage so the instructor stays logged in across a page
+// refresh and a server restart within the same tab, but is cleared when the
+// tab is closed. The token is short-lived and server-signed; the app
+// refreshes it while the console is open (see App.tsx).
+let instructorToken: string | null = sessionStorage.getItem("pivot_token");
 
 export function setToken(t: string | null) {
-  _loggedIn = t !== null;
-  if (t) sessionStorage.setItem("pivot_session", "1");
-  else sessionStorage.removeItem("pivot_session");
+  instructorToken = t;
+  if (t) sessionStorage.setItem("pivot_token", t);
+  else sessionStorage.removeItem("pivot_token");
 }
-export function getToken(): string | null {
-  return _loggedIn ? "authenticated" : null;
+export function getToken() {
+  return instructorToken;
 }
 
 function headers(): Record<string, string> {
-  // No Authorization header needed — the HttpOnly cookie is sent automatically
-  // by the browser for all same-origin requests.
-  return { "Content-Type": "application/json" };
+  const h: Record<string, string> = { "Content-Type": "application/json" };
+  if (instructorToken) h["Authorization"] = `Bearer ${instructorToken}`;
+  return h;
 }
 
 async function jsonFetch<T>(url: string, options?: RequestInit): Promise<T> {
@@ -82,6 +81,11 @@ export interface UpdateStatus {
   previous?: string | null; // the most recent retained version
 }
 
+function tokenQuery(extra = ""): string {
+  const t = instructorToken ? `token=${encodeURIComponent(instructorToken)}` : "";
+  return [extra, t].filter(Boolean).join("&");
+}
+
 export const api = {
   status: () => jsonFetch<ServerStatus>("/api/status"),
 
@@ -97,13 +101,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ role: "instructor", password }),
     });
-    // Server sets the HttpOnly cookie; we just update local login-state.
-    setToken("active");
+    if (resp.token) setToken(resp.token);
     return resp;
   },
 
-  // Slide the instructor session: the server rotates the HttpOnly cookie.
-  // Used on load (to confirm the session cookie survived a refresh/restart and
+  // Slide the instructor session: swap a still-valid token for a fresh one.
+  // Used on load (to confirm a stored token survived a refresh/restart and
   // restore the console) and on a timer while the console is open. Throws on
   // 401, which the caller treats as "logged out".
   async refreshToken(): Promise<{ token: string; must_change_password?: boolean }> {
@@ -111,7 +114,7 @@ export const api = {
       "/api/auth/refresh",
       { method: "POST" }
     );
-    setToken("active");
+    if (resp.token) setToken(resp.token);
     return resp;
   },
 
@@ -239,10 +242,8 @@ export const api = {
   // so history survives a refresh, a server restart and an update.
   recentEvents: (limit = 200) => jsonFetch<EventRow[]>(`/api/events/recent?limit=${limit}`),
   events: (sessionId: string) => jsonFetch<EventRow[]>(`/api/sessions/${sessionId}/events`),
-  // Cookie is sent automatically by the browser for these GET requests,
-  // so no token query param is needed (and no longer exposed in server logs).
   eventAudioUrl: (eventId: string, mode: "clean" | "dirty", view: "plain" | "cypher") =>
-    `/api/events/${eventId}/audio?mode=${mode}&view=${view}`,
+    `/api/events/${eventId}/audio?${tokenQuery(`mode=${mode}&view=${view}`)}`,
   exportUrl: (sessionId: string, fmt: "zip" | "text" | "csv") =>
-    `/api/sessions/${sessionId}/export?fmt=${fmt}`,
+    `/api/sessions/${sessionId}/export?${tokenQuery(`fmt=${fmt}`)}`,
 };

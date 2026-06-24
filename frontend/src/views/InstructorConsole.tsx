@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api";
+import { api, getToken } from "../api";
 import type { ReleaseInfo, UpdateStatus } from "../api";
 import { AudioIO, loadVolume, parseTaggedAudio, pcmLevel, playClick, playSyncTone, saveVolume } from "../audio";
 import { ConnectionBanner } from "../components/ConnectionBanner";
@@ -79,8 +79,7 @@ export function InstructorConsole({
   }
 
   useEffect(() => {
-    // Cookie is sent automatically with the WS handshake; no token in the URL.
-    const sock = new PivotSocket({});
+    const sock = new PivotSocket(() => ({ token: getToken() || "" }));
     sock.on("open", () => setConn("online"));
     sock.on("close", () => {
       if (restartingRef.current) { setConn("restarting"); startRestartPoll(); }

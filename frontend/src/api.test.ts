@@ -4,24 +4,26 @@ import { setToken, getToken } from './api';
 describe('api token management', () => {
   beforeEach(() => {
     sessionStorage.clear();
-    // Reset internal login state via setToken(null)
+    // Reset internal token state via setToken(null)
     setToken(null);
   });
 
-  it('should set the login state and persist the flag to sessionStorage', () => {
-    setToken('active');
+  it('should set the token and persist to sessionStorage', () => {
+    const testToken = 'test-token-123';
+    setToken(testToken);
 
-    expect(getToken()).toBe('authenticated');
-    expect(sessionStorage.getItem('pivot_session')).toBe('1');
+    expect(getToken()).toBe(testToken);
+    expect(sessionStorage.getItem('pivot_token')).toBe(testToken);
   });
 
-  it('should clear the login state and remove the flag from sessionStorage when passing null', () => {
-    setToken('active');
+  it('should clear the token and remove from sessionStorage when passing null', () => {
+    const testToken = 'test-token-456';
+    setToken(testToken);
 
-    // Clear login state
+    // Clear token
     setToken(null);
 
     expect(getToken()).toBeNull();
-    expect(sessionStorage.getItem('pivot_session')).toBeNull();
+    expect(sessionStorage.getItem('pivot_token')).toBeNull();
   });
 });

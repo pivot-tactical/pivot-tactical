@@ -84,10 +84,8 @@ export default function App() {
   }
 
   // On first load, restore a prior session so a refresh or a server restart
-  // doesn't log anyone out. The instructor session is cookie-backed: a
-  // sessionStorage flag tells us whether to attempt a refresh (the actual token
-  // lives in an HttpOnly cookie set by the server). A remembered trainee
-  // callsign rejoins automatically.
+  // doesn't log anyone out. An instructor token (in localStorage) is re-validated
+  // by refreshing it; a remembered trainee callsign rejoins automatically.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -105,7 +103,7 @@ export default function App() {
           return;
         }
       } catch {
-        setToken(null); // stale/expired session — fall back to login
+        setToken(null); // stale/expired instructor token — fall back to login
       } finally {
         if (!cancelled) setRestoring(false);
       }

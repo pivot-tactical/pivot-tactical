@@ -3,8 +3,7 @@
 **Learning:** Pydantic models must validate all file path components derived from user input to prevent SSRF or Path Traversal, even if the user is considered an admin (defense in depth).
 **Prevention:** Always use `@field_validator` on API schemas to sanitize input strings that will be interpolated into file or directory paths. Reject payloads containing `/`, `\`, and `..`.
 
-## 2024-05-24 - [LocalStorage Token Persistence Vulnerability — resolved via HttpOnly cookies]
+## 2024-05-24 - [LocalStorage Token Persistence Vulnerability]
 **Vulnerability:** The `instructorToken` was being stored in `localStorage` in `frontend/src/api.ts`.
-**Learning:** Storing sensitive authentication tokens in `localStorage` or `sessionStorage` makes them vulnerable to XSS — JavaScript can read and exfiltrate the token at any time.
-**Prevention:** Use HttpOnly cookies set by the server. The token never reaches JavaScript at all: the browser sends it automatically on every same-origin request (including audio/export GETs and the WebSocket handshake), and XSS cannot read it. Use `SameSite=Strict` to prevent CSRF. A non-HttpOnly `sessionStorage` flag can track login state locally without exposing the token value.
-**Resolution:** Server sets `pivot_token; HttpOnly; SameSite=Strict` on login/refresh and clears it on logout. Frontend tracks a boolean login-state flag in sessionStorage only. The `Authorization: Bearer` header is kept as a fallback for non-browser API clients.
+**Learning:** Storing sensitive authentication tokens in `localStorage` makes them vulnerable to cross-site scripting (XSS) attacks, as they persist indefinitely across browser sessions and tabs until explicitly cleared.
+**Prevention:** Sensitive session tokens should be bound to the immediate session context using `sessionStorage` (or better yet, HttpOnly cookies), ensuring the token is cleared when the tab or window is closed.
