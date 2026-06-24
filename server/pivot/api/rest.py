@@ -359,8 +359,7 @@ def admin_mode_instructor_radio(
 
 @router.get("/admin/config", dependencies=[Depends(require_instructor)])
 def admin_config(manager=Depends(get_manager)) -> dict:
-    with manager.db.session() as s:
-        return ConfigStore(s).all()
+    return manager.get_config()
 
 
 @router.post("/admin/settings", dependencies=[Depends(require_instructor)])
@@ -458,8 +457,7 @@ def _live_update_check(manager) -> dict:
     from pivot.updates.manager import UpdateManager, classify_release
     from pivot.version import SemVer, version_info
 
-    with manager.db.session() as s:
-        cfg = ConfigStore(s).all()
+    cfg = manager.get_config()
     repo = str(cfg.get("github_repo") or "")
     token = str(cfg.get("github_token") or "") or None
     channel = str(cfg.get("update_channel", "stable"))
@@ -538,8 +536,7 @@ def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) ->
     from pivot.updates.manager import Release, UpdateManager
     from pivot.version import version_info
 
-    with manager.db.session() as s:
-        cfg = ConfigStore(s).all()
+    cfg = manager.get_config()
     token = str(cfg.get("github_token") or "") or None
 
     mgr = UpdateManager(version_info.version, manager.settings.versions_dir)

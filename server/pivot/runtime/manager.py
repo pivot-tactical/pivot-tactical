@@ -670,6 +670,12 @@ class SessionManager:
             "net_scenarios": self.band_profile.net_scenarios_to_json(),
         }
 
+    # -- config ------------------------------------------------------------ #
+
+    def get_config(self) -> dict:
+        with self.db.session() as s:
+            return ConfigStore(s).all()
+
     # -- internals --------------------------------------------------------- #
 
     def _go_on_air(self, radio_id: str) -> None:
