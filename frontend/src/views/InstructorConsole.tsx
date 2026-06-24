@@ -458,7 +458,7 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
         <div className="instr-radio__head">
           <span className="instr-radio__num mono" aria-hidden>{index}</span>
           <span className="instr-radio__name mono">{radio.name}</span>
-          <button className="btn btn--ghost instr-radio__remove" title="Remove radio"
+          <button className="btn btn--ghost instr-radio__remove" aria-label="Remove radio" title="Remove radio"
             onClick={() => onRemove(radio.radio_id)} disabled={transmitting}>✕</button>
         </div>
 
@@ -575,8 +575,8 @@ function LiveLogTab({ entries }: { entries: LogEntry[] }) {
           return (
             <div className="logrow" key={ev.event_id}>
               <span className="event__play-group">
-                <button className="event__play" onClick={() => play(ev, "clean")} title="Play without noise">▶</button>
-                <button className="event__play" onClick={() => play(ev, "dirty")} title="Play with noise (as heard)">📻</button>
+                <button className="event__play" onClick={() => play(ev, "clean")} aria-label="Play without noise" title="Play without noise">▶</button>
+                <button className="event__play" onClick={() => play(ev, "dirty")} aria-label="Play with noise (as heard)" title="Play with noise (as heard)">📻</button>
               </span>
               <span className="mono muted">{ev.timestamp_start.slice(11, 19)}</span>
               <span className="mono">{ev.trainee_name}</span>
