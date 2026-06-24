@@ -22,6 +22,7 @@ from fastapi import (
 
 from pivot import exporting
 from pivot.api.deps import get_auth, get_manager, require_instructor
+from pivot.auth import TOKEN_TTL_SECONDS
 from pivot.api.schemas import (
     ApplyUpdateRequest,
     LoginRequest,
@@ -73,15 +74,41 @@ _SETTABLE_KEYS = {
 # --- auth / login ---------------------------------------------------------- #
 
 
+def _set_session_cookie(response: Response, token: str, request: Request) -> None:
+    """Set the HttpOnly instructor session cookie on a response."""
+    response.set_cookie(
+        "pivot_token",
+        token,
+        httponly=True,
+        # Secure flag only when the connection is already TLS — the server
+        # falls back to plain HTTP when TLS setup fails, so we match the
+        # scheme rather than hard-code True.
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        max_age=TOKEN_TTL_SECONDS,
+        path="/",
+    )
+
+
 @router.post("/login", response_model=LoginResponse)
-def login(req: LoginRequest, manager=Depends(get_manager), auth=Depends(get_auth)) -> LoginResponse:
-    """Trainee login (callsign) or instructor login (password → bearer token)."""
+def login(
+    req: LoginRequest,
+    response: Response,
+    request: Request,
+    manager=Depends(get_manager),
+    auth=Depends(get_auth),
+) -> LoginResponse:
+    """Trainee login (callsign) or instructor login (password → HttpOnly cookie)."""
     if req.role == "instructor":
         if not req.password or not auth.verify(req.password):
             raise HTTPException(status_code=401, detail="invalid instructor password")
+        token = auth.issue_token()
+        _set_session_cookie(response, token, request)
+        # Token also returned in the body so non-browser API clients can still
+        # use it via the Bearer header fallback in _extract_token.
         return LoginResponse(
             role="instructor",
-            token=auth.issue_token(),
+            token=token,
             must_change_password=auth.is_default(),
         )
 
@@ -94,23 +121,26 @@ def login(req: LoginRequest, manager=Depends(get_manager), auth=Depends(get_auth
 
 
 @router.post("/auth/refresh", dependencies=[Depends(require_instructor)])
-def refresh_token(auth=Depends(get_auth)) -> dict:
+def refresh_token(response: Response, request: Request, auth=Depends(get_auth)) -> dict:
     """Slide the instructor session: issue a fresh token for a still-valid one.
 
-    The browser calls this on load (to confirm a stored token still works after a
-    refresh or a server restart, and restore the console without re-login) and
-    periodically while the console is open (so a long scenario never expires
-    mid-exercise). A failure (401) means the token is gone — show the login.
+    The browser calls this on load (to confirm the session cookie still works
+    after a page refresh or a server restart) and periodically while the console
+    is open (so a long scenario never expires mid-exercise). A failure (401)
+    means the session is gone — show the login.
     """
-    return {"token": auth.issue_token(), "must_change_password": auth.is_default()}
+    token = auth.issue_token()
+    _set_session_cookie(response, token, request)
+    return {"token": token, "must_change_password": auth.is_default()}
 
 
 @router.post("/logout")
-def logout(request: Request, auth=Depends(get_auth)) -> dict:
-    """Revoke the caller's instructor token, if any."""
+def logout(request: Request, response: Response, auth=Depends(get_auth)) -> dict:
+    """Revoke the caller's instructor token and clear the session cookie."""
     from pivot.api.deps import _extract_token
 
     auth.revoke(_extract_token(request, request.headers.get("authorization")))
+    response.delete_cookie("pivot_token", path="/", samesite="strict")
     return {"ok": True}
 
 

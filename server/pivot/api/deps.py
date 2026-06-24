@@ -22,14 +22,18 @@ def get_auth(request: Request) -> AuthService:
 
 
 def _extract_token(request: Request, authorization: str | None) -> str | None:
-    """Bearer token from the Authorization header, or a ``?token=`` query param.
+    """Instructor token from the HttpOnly session cookie or the Authorization header.
 
-    The query-param form lets the browser's ``<audio>`` element and the
-    WebSocket pass the token where custom headers are awkward.
+    The cookie is the primary mechanism for browser clients (set by the server,
+    never readable by JS). The Bearer header is kept as a fallback for API
+    clients and scripts that cannot use cookies.
     """
+    cookie_token = request.cookies.get("pivot_token")
+    if cookie_token:
+        return cookie_token
     if authorization and authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
-    return request.query_params.get("token")
+    return None
 
 
 def require_instructor(request: Request, authorization: str | None = Header(default=None)) -> None:

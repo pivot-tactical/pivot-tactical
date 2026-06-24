@@ -155,7 +155,7 @@ def test_instructor_login_and_authenticated_admin(raw_client):
     bad = raw_client.post("/api/login", json={"role": "instructor", "password": "nope"})
     assert bad.status_code == 401
 
-    # Default password logs in and returns a bearer token + change-me flag.
+    # Default password logs in, returns the change-me flag, and sets a cookie.
     r = raw_client.post("/api/login", json={"role": "instructor",
                                             "password": DEFAULT_INSTRUCTOR_PASSWORD})
     assert r.status_code == 200
@@ -164,9 +164,39 @@ def test_instructor_login_and_authenticated_admin(raw_client):
     assert body["must_change_password"] is True
     token = body["token"]
 
-    # The token authorises admin endpoints.
+    # The token authorises admin endpoints via the Bearer header fallback.
     headers = {"Authorization": f"Bearer {token}"}
     assert raw_client.get("/api/admin/terminals", headers=headers).status_code == 200
+
+
+def test_instructor_login_sets_httponly_cookie(raw_client):
+    r = raw_client.post("/api/login", json={"role": "instructor",
+                                            "password": DEFAULT_INSTRUCTOR_PASSWORD})
+    assert r.status_code == 200
+    # Server sets an HttpOnly session cookie.
+    assert "pivot_token" in r.cookies
+    cookie_header = r.headers.get("set-cookie", "")
+    assert "httponly" in cookie_header.lower()
+    assert "samesite=strict" in cookie_header.lower()
+
+
+def test_cookie_auth_works_for_admin_endpoints(raw_client):
+    # Login sets the cookie; TestClient carries it automatically.
+    raw_client.post("/api/login", json={"role": "instructor",
+                                        "password": DEFAULT_INSTRUCTOR_PASSWORD})
+    # No explicit Authorization header — the cookie is enough.
+    assert raw_client.get("/api/admin/terminals").status_code == 200
+
+
+def test_logout_clears_session_cookie(raw_client):
+    raw_client.post("/api/login", json={"role": "instructor",
+                                        "password": DEFAULT_INSTRUCTOR_PASSWORD})
+    assert raw_client.get("/api/admin/terminals").status_code == 200
+
+    raw_client.post("/api/logout")
+
+    # Cookie cleared — admin endpoint now rejects.
+    assert raw_client.get("/api/admin/terminals").status_code == 401
 
 
 def test_auth_refresh_slides_the_session(raw_client):
@@ -189,6 +219,21 @@ def test_auth_refresh_slides_the_session(raw_client):
     assert raw_client.post(
         "/api/auth/refresh", headers={"Authorization": "Bearer bogus"}
     ).status_code == 401
+
+
+def test_auth_refresh_rotates_session_cookie(raw_client):
+    # Login sets the initial cookie.
+    raw_client.post("/api/login", json={"role": "instructor",
+                                        "password": DEFAULT_INSTRUCTOR_PASSWORD})
+    first_cookie = raw_client.cookies.get("pivot_token")
+
+    # Refresh rotates the cookie to a new token value.
+    raw_client.post("/api/auth/refresh")
+    rotated_cookie = raw_client.cookies.get("pivot_token")
+    assert rotated_cookie and rotated_cookie != first_cookie
+
+    # The rotated cookie still grants admin access.
+    assert raw_client.get("/api/admin/terminals").status_code == 200
 
 
 def test_restart_unavailable_in_dev_run_mode(client):
