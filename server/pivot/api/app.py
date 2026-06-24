@@ -16,7 +16,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from pivot.api import rest, ws
@@ -216,18 +216,6 @@ def create_app(
 def _mount_frontend(app: FastAPI) -> None:
     dist = frontend_dist_dir()
     if dist is None:
-
-        @app.get("/")
-        def _no_frontend() -> JSONResponse:  # pragma: no cover - dev convenience
-            return JSONResponse(
-                {
-                    "name": "PIVOT",
-                    "version": version_info.version,
-                    "note": "Frontend build not found. Run `npm run build` in frontend/.",
-                    "api": "/api/status",
-                }
-            )
-
         return
 
     # Serve hashed assets, with an index.html fallback for SPA client routes.
