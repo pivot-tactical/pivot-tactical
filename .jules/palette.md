@@ -1,0 +1,3 @@
+## 2024-06-25 - Missing Focus States & ARIA Labels on Icon Buttons
+**Learning:** The PIVOT UI relied heavily on mouse interaction patterns, lacking visible focus indicators for keyboard navigation across its custom button elements (`.btn`, `.ptt`, `.dial`). Additionally, several critical icon-only buttons in the Instructor Console (like remove radio or play event) lacked `aria-label` attributes, relying only on `title` which is insufficient for robust screen reader support.
+**Action:** Implemented a global `button:focus-visible` style utilizing the application's primary `--green` tactical color to ensure high-contrast, accessible keyboard navigation without disrupting mouse users. Added proper `aria-label` attributes to all icon-only action buttons.
