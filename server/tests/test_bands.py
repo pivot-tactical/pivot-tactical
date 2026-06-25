@@ -78,7 +78,7 @@ def test_snr_increases_with_frequency():
     samples = [1.6e6, 7e6, 14e6, 50e6, 145e6, 440e6, 2.4e9]
     snrs = [profile.conditions_at(f).snr_db for f in samples]
     # Strictly non-decreasing, and meaningfully better at the top.
-    assert all(b >= a for a, b in zip(snrs, snrs[1:]))
+    assert all(b >= a for a, b in zip(snrs, snrs[1:], strict=False))
     assert snrs[-1] - snrs[0] > 15.0
 
 

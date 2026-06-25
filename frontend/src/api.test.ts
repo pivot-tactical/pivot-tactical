@@ -3,20 +3,20 @@ import { setToken, getToken } from './api';
 
 describe('api token management', () => {
   beforeEach(() => {
-    localStorage.clear();
+    sessionStorage.clear();
     // Reset internal token state via setToken(null)
     setToken(null);
   });
 
-  it('should set the token and persist to localStorage', () => {
+  it('should set the token and persist to sessionStorage', () => {
     const testToken = 'test-token-123';
     setToken(testToken);
 
     expect(getToken()).toBe(testToken);
-    expect(localStorage.getItem('pivot_token')).toBe(testToken);
+    expect(sessionStorage.getItem('pivot_token')).toBe(testToken);
   });
 
-  it('should clear the token and remove from localStorage when passing null', () => {
+  it('should clear the token and remove from sessionStorage when passing null', () => {
     const testToken = 'test-token-456';
     setToken(testToken);
 
@@ -24,6 +24,6 @@ describe('api token management', () => {
     setToken(null);
 
     expect(getToken()).toBeNull();
-    expect(localStorage.getItem('pivot_token')).toBeNull();
+    expect(sessionStorage.getItem('pivot_token')).toBeNull();
   });
 });

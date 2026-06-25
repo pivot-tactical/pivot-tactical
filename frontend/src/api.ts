@@ -8,15 +8,16 @@ import type {
   Terminal,
 } from "./types";
 
-// Persisted in localStorage (not sessionStorage) so the instructor stays logged
-// in across a page refresh and a server restart. The token is short-lived and
-// server-signed; the app refreshes it while the console is open (see App.tsx).
-let instructorToken: string | null = localStorage.getItem("pivot_token");
+// Persisted in sessionStorage so the instructor stays logged in across a page
+// refresh and a server restart within the same tab, but is cleared when the
+// tab is closed. The token is short-lived and server-signed; the app
+// refreshes it while the console is open (see App.tsx).
+let instructorToken: string | null = sessionStorage.getItem("pivot_token");
 
 export function setToken(t: string | null) {
   instructorToken = t;
-  if (t) localStorage.setItem("pivot_token", t);
-  else localStorage.removeItem("pivot_token");
+  if (t) sessionStorage.setItem("pivot_token", t);
+  else sessionStorage.removeItem("pivot_token");
 }
 export function getToken() {
   return instructorToken;
