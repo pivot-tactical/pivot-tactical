@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { loadVolume, parseTaggedAudio, saveVolume } from "./audio";
+import { loadVolume, parseTaggedAudio, saveVolume, pcmLevel } from "./audio";
 
 // Build an instructor-style tagged frame: [1-byte id length][radio_id][PCM…].
 function taggedFrame(radioId: string, samples: number[]): ArrayBuffer {
@@ -41,5 +41,27 @@ describe("volume persistence", () => {
     expect(loadVolume("trainee")).toBe(1);
     saveVolume("trainee", -1);
     expect(loadVolume("trainee")).toBe(0);
+  });
+});
+
+describe("pcmLevel", () => {
+  it("returns 0 for empty buffers", () => {
+    const pcm = new Int16Array([]).buffer;
+    expect(pcmLevel(pcm)).toBe(0);
+  });
+
+  it("returns 0 for pure silence", () => {
+    const pcm = new Int16Array([0, 0, 0, 0]).buffer;
+    expect(pcmLevel(pcm)).toBe(0);
+  });
+
+  it("caps at 1 for full scale audio", () => {
+    const pcm = new Int16Array([32767, -32768, 32767]).buffer;
+    expect(pcmLevel(pcm)).toBe(1);
+  });
+
+  it("computes expected level for mid-scale audio", () => {
+    const pcm = new Int16Array([16384, -16384, 16384]).buffer;
+    expect(pcmLevel(pcm)).toBeCloseTo(0.88388, 4);
   });
 });
