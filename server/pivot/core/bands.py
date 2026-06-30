@@ -172,9 +172,6 @@ class BandConditions:
     # its baseline).
     interference: float = 0.0
 
-    @property
-    def snr_linear(self) -> float:
-        return 10.0 ** (self.snr_db / 20.0)
 
     def without_noise(self) -> BandConditions:
         """These conditions with every channel degradation lifted (§3.1.5).
