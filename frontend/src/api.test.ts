@@ -8,6 +8,14 @@ describe('api token management', () => {
     setToken(null);
   });
 
+  it('should retrieve the token correctly with getToken', () => {
+    expect(getToken()).toBeNull();
+
+    const testToken = 'token-get-123';
+    setToken(testToken);
+    expect(getToken()).toBe(testToken);
+  });
+
   it('should set the token and persist to sessionStorage', () => {
     const testToken = 'test-token-123';
     setToken(testToken);
