@@ -40,6 +40,12 @@ def test_order_handles_prerelease_precedence():
     assert [r.tag for r in order_releases(rels)] == ["1.0.0", "1.0.0-rc.1"]
 
 
+def test_order_unparseable_tags_last():
+    rels = [rel("invalid-2"), rel("1.0.0"), rel("invalid-1"), rel("2.0.0")]
+    ordered = [r.tag for r in order_releases(rels)]
+    assert ordered == ["2.0.0", "1.0.0", "invalid-2", "invalid-1"]
+
+
 def test_ttl_cache_serves_within_ttl_and_clears_on_demand():
     """The TTL cache reuses results within the window, but ``cache_clear`` forces
     a fresh call — that is what the "Check now" endpoint relies on to override it.
