@@ -35,9 +35,9 @@ def _maybe_start_transcription(manager: SessionManager, cfg: Settings):
     worker broadcasts ``transcription_updated`` via ``manager.notify_transcription``
     so the instructor's live log fills in transcripts as they complete (§3.5.2).
     """
-    try:
-        import faster_whisper  # noqa: F401
-    except Exception:
+    import importlib.util
+
+    if importlib.util.find_spec("faster_whisper") is None:
         return None
     from pivot.transcription.worker import TranscriptionWorker
 
