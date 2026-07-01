@@ -8,6 +8,7 @@ routers, and serves the built React frontend so trainees reach the UI at
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 from collections.abc import Callable
@@ -35,9 +36,7 @@ def _maybe_start_transcription(manager: SessionManager, cfg: Settings):
     worker broadcasts ``transcription_updated`` via ``manager.notify_transcription``
     so the instructor's live log fills in transcripts as they complete (§3.5.2).
     """
-    try:
-        import faster_whisper  # noqa: F401
-    except Exception:
+    if importlib.util.find_spec("faster_whisper") is None:
         return None
     from pivot.transcription.worker import TranscriptionWorker
 

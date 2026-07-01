@@ -673,9 +673,9 @@ async def test_schedule_on_air():
         ws_mock.send_json.assert_called_once_with({"type": "secure_tx", "payload": {"radio_id": "test-radio"}})
 
 
-@patch.dict("sys.modules", {"faster_whisper": MagicMock()})
+@patch("importlib.util.find_spec", return_value=MagicMock())
 @patch("pivot.transcription.worker.TranscriptionWorker")
-def test_maybe_start_transcription_success(MockWorker):
+def test_maybe_start_transcription_success(MockWorker, mock_find_spec):
     manager = MagicMock()
     cfg = MagicMock()
     worker = _maybe_start_transcription(manager, cfg)
