@@ -128,10 +128,10 @@ def _relauncher_exe(settings) -> str:
     if settings is None:
         return sys.executable
     try:
-        from pivot.updates.manager import UpdateManager
+        from pivot.updates.manager import UpdateConfig, UpdateManager
         from pivot.version import version_info
 
-        mgr = UpdateManager(version_info.version, settings.versions_dir)
+        mgr = UpdateManager(UpdateConfig(version_info.version, settings.versions_dir))
         staged_exe = mgr.staged_app_exe(Path(sys.executable).name)
         if staged_exe is not None:
             return str(staged_exe)
@@ -151,9 +151,7 @@ def spawn_relauncher(settings=None) -> None:
     exe = _relauncher_exe(settings)
     kwargs: dict = {"close_fds": True}
     if sys.platform == "win32":  # pragma: no cover - Windows-only
-        kwargs["creationflags"] = (
-            _DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW
-        )
+        kwargs["creationflags"] = _DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW
     else:
         kwargs["start_new_session"] = True
     subprocess.Popen([exe, "--relaunch-after", str(os.getpid())], **kwargs)

@@ -43,8 +43,8 @@ def test_idle_noise_louder_on_noisy_band_than_clean():
     eng = DspEngine(sample_rate=16_000)
     prof = BandProfile()
     rng = np.random.default_rng(0)
-    low_hf = eng.render_idle_noise(FRAME, _conditions(prof, 3.0), rng=rng)   # noisy
-    uhf = eng.render_idle_noise(FRAME, _conditions(prof, 400.0), rng=rng)    # clean
+    low_hf = eng.render_idle_noise(FRAME, _conditions(prof, 3.0), rng=rng)  # noisy
+    uhf = eng.render_idle_noise(FRAME, _conditions(prof, 400.0), rng=rng)  # clean
     assert rms(low_hf) > rms(uhf)
 
 
@@ -88,8 +88,8 @@ def test_same_net_listeners_get_identical_frame(manager):
     _, a = _idle_listener(manager, "ALPHA", "t-1", "14.250 MHz")
     _, b = _idle_listener(manager, "BRAVO", "t-2", "14.250 MHz")
     primed: set[str] = set()
-    manager.render_idle_noise_tick(FRAME, primed)   # primes (extra cushion frames)
-    manager.render_idle_noise_tick(FRAME, primed)   # steady: one shared frame each
+    manager.render_idle_noise_tick(FRAME, primed)  # primes (extra cushion frames)
+    manager.render_idle_noise_tick(FRAME, primed)  # steady: one shared frame each
     # The last frame each received this tick is the same shared per-net buffer.
     assert a.frames[-1] == b.frames[-1]
     assert len(a.frames[-1]) == FRAME * 2  # 16-bit samples

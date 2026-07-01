@@ -25,6 +25,7 @@ import shutil
 import sys
 import threading
 import time
+import typing
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -170,8 +171,8 @@ class Release:
     body: str = ""
     asset_url: str = ""
     asset_name: str = ""
-    sha256_url: str = ""   # URL of the .sha256 sidecar published alongside the asset
-    sig_url: str = ""      # URL of the .sig Ed25519 signature sidecar (authenticity)
+    sha256_url: str = ""  # URL of the .sha256 sidecar published alongside the asset
+    sig_url: str = ""  # URL of the .sig Ed25519 signature sidecar (authenticity)
 
     @property
     def semver(self) -> SemVer | None:
@@ -226,6 +227,7 @@ class UpdatePlan:
 
 def order_releases(releases: list[Release]) -> list[Release]:
     """Newest first by semantic version; unparseable tags sort last (§3.7.3)."""
+
     def key(r: Release):
         sv = r.semver
         return (0, sv) if sv is not None else (1, SemVer(0, 0, 0))
@@ -299,6 +301,16 @@ def _verify_signature(dest: Path, release: Release, token: str | None) -> None:
         )
 
 
+@dataclass
+class UpdateConfig:
+    current_version: str
+    versions_dir: Path | str
+    retained_count: int = 3
+    include_prereleases: bool = False
+    releases_provider: typing.Any = None
+    asset_pattern: str | None = None
+
+
 class UpdateManager:
     """Coordinates checks, retained versions and rollback (§3.7).
 
@@ -307,37 +319,33 @@ class UpdateManager:
     so air-gapped builds can omit it entirely (offline import only).
     """
 
-    def __init__(
-        self,
-        current_version: str,
-        versions_dir: Path,
-        retained_count: int = 3,
-        include_prereleases: bool = False,
-        releases_provider=None,
-        asset_pattern: str | None = None,
-    ) -> None:
-        self.current_version = current_version
-        self.versions_dir = Path(versions_dir)
+    def __init__(self, config: UpdateConfig) -> None:
+        self.current_version = config.current_version
+        self.versions_dir = Path(config.versions_dir)
         self.layout = Layout(self.versions_dir)
-        self.retained_count = retained_count
-        self.include_prereleases = include_prereleases
-        self._releases_provider = releases_provider
-        # Which platform build to offer (win64 / linux-x86_64 / …). Defaults to
-        # the OS the app is running on (§3.7.5).
-        self.asset_pattern = asset_pattern or default_asset_pattern()
+        self.retained_count = config.retained_count
+        self.include_prereleases = config.include_prereleases
+        self._releases_provider = config.releases_provider
+        self.asset_pattern = config.asset_pattern or default_asset_pattern()
 
     # -- discovery --------------------------------------------------------- #
 
     def list_releases(self, raw: list[dict] | None = None) -> list[Release]:
         """Return channel-filtered, newest-first releases (§3.7.3)."""
-        data = raw if raw is not None else (self._releases_provider() if self._releases_provider else [])
+        data = (
+            raw
+            if raw is not None
+            else (self._releases_provider() if self._releases_provider else [])
+        )
         releases = [Release.from_github(d, self.asset_pattern) for d in data]
         releases = filter_channel(releases, self.include_prereleases)
         return order_releases(releases)
 
     def available_updates(self, raw: list[dict] | None = None) -> list[Release]:
         cur = SemVer.parse(self.current_version)
-        return [r for r in self.list_releases(raw) if classify_release(r, cur) is ReleaseStanding.NEWER]
+        return [
+            r for r in self.list_releases(raw) if classify_release(r, cur) is ReleaseStanding.NEWER
+        ]
 
     def plan(self, target: Release, schema_versions: tuple[int, int] | None = None) -> UpdatePlan:
         """Build an :class:`UpdatePlan`, warning on a schema-boundary downgrade."""
@@ -441,9 +449,7 @@ class UpdateManager:
         checksum mismatch.
         """
         if not release.asset_url:
-            raise ValueError(
-                f"No asset available for this platform ({self.asset_pattern})"
-            )
+            raise ValueError(f"No asset available for this platform ({self.asset_pattern})")
         staging = self.versions_dir / "_staging" / release.tag
         staging.mkdir(parents=True, exist_ok=True)
         dest = staging / release.asset_name

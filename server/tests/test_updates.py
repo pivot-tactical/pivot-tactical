@@ -7,13 +7,14 @@ import pytest
 from pivot.updates.manager import (
     Release,
     ReleaseStanding,
+    UpdateConfig,
     UpdateManager,
     classify_release,
     default_asset_pattern,
     filter_channel,
     order_releases,
-    verify_sha256,
     sha256_of,
+    verify_sha256,
 )
 from pivot.version import SemVer
 
@@ -80,7 +81,7 @@ def test_filter_channel():
         rel("1.0.0"),
         rel("1.1.0-rc.1", prerelease=True),
         rel("1.2.0"),
-        rel("2.0.0-beta", prerelease=True)
+        rel("2.0.0-beta", prerelease=True),
     ]
     # Test stable only (exclude prereleases)
     stable = filter_channel(rels, include_prereleases=False)
@@ -107,7 +108,7 @@ def test_available_updates_filters_newer():
         {"tag_name": "1.1.0", "assets": []},
         {"tag_name": "0.9.0", "assets": []},
     ]
-    mgr = UpdateManager("1.0.0", versions_dir=Path("/tmp/none"))
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=Path("/tmp/none")))
     updates = mgr.available_updates(raw)
     assert [r.tag for r in updates] == ["1.1.0"]
 
@@ -180,7 +181,7 @@ def test_retained_versions_and_rollback(tmp_path):
     _make_app(versions, "1.0.0")
     _make_app(versions, "1.1.0")
 
-    mgr = UpdateManager("1.1.0", versions_dir=versions, retained_count=3)
+    mgr = UpdateManager(UpdateConfig("1.1.0", versions_dir=versions, retained_count=3))
     mgr.layout.activate("1.1.0")
 
     assert mgr.can_rollback() is True
@@ -193,7 +194,7 @@ def test_retained_versions_pruned_to_count(tmp_path):
     versions.mkdir()
     for tag in ["1.0.0", "1.1.0", "1.2.0", "1.3.0"]:
         _make_app(versions, tag)
-    mgr = UpdateManager("1.3.0", versions_dir=versions, retained_count=2)
+    mgr = UpdateManager(UpdateConfig("1.3.0", versions_dir=versions, retained_count=2))
     mgr.layout.activate("1.3.0")
 
     mgr._prune_retained()
@@ -204,7 +205,7 @@ def test_retained_versions_pruned_to_count(tmp_path):
 
 
 def test_downgrade_plan_warns_on_schema_boundary(tmp_path):
-    mgr = UpdateManager("2.0.0", versions_dir=tmp_path)
+    mgr = UpdateManager(UpdateConfig("2.0.0", versions_dir=tmp_path))
     plan = mgr.plan(rel("1.0.0"), schema_versions=(2, 1))
     assert plan.standing is ReleaseStanding.OLDER
     assert plan.crosses_schema_boundary is True
@@ -212,14 +213,14 @@ def test_downgrade_plan_warns_on_schema_boundary(tmp_path):
 
 
 def test_upgrade_plan_no_warning(tmp_path):
-    mgr = UpdateManager("1.0.0", versions_dir=tmp_path)
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=tmp_path))
     plan = mgr.plan(rel("1.1.0"), schema_versions=(1, 1))
     assert plan.standing is ReleaseStanding.NEWER
     assert plan.warnings == []
 
 
 def test_pending_marker_roundtrip(tmp_path):
-    mgr = UpdateManager("1.0.0", versions_dir=tmp_path)
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=tmp_path))
     marker = tmp_path / "pending.json"
     mgr.write_pending_marker(marker, "1.1.0", tmp_path / "staging")
     data = mgr.read_pending_marker(marker)
@@ -232,7 +233,7 @@ def test_apply_pending_activates_staged_version(tmp_path):
     _make_app(versions, "1.0.0", content="old binary v1.0.0")
     new_dir = _make_app(versions, "1.1.0", content="new binary v1.1.0")
 
-    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=versions))
     mgr.layout.activate("1.0.0")
     mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", new_dir)
 
@@ -248,7 +249,7 @@ def test_apply_pending_activates_staged_version(tmp_path):
 
 
 def test_apply_pending_noop_without_marker(tmp_path):
-    mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "v")
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=tmp_path / "v"))
     assert mgr.apply_pending() is None
 
 
@@ -260,7 +261,7 @@ def test_stage_rollback_then_apply_restores_retained_version(tmp_path):
     _make_app(versions, "1.1.0", content="good binary v1.1.0")
     _make_app(versions, "1.2.0", content="new (broken) binary v1.2.0")
 
-    mgr = UpdateManager("1.2.0", versions_dir=versions)
+    mgr = UpdateManager(UpdateConfig("1.2.0", versions_dir=versions))
     mgr.layout.activate("1.2.0")
     assert mgr.previous_version() == "1.1.0"
 
@@ -276,7 +277,7 @@ def test_stage_rollback_then_apply_restores_retained_version(tmp_path):
 
 
 def test_stage_rollback_rejects_unknown_tag(tmp_path):
-    mgr = UpdateManager("1.2.0", versions_dir=tmp_path / "versions")
+    mgr = UpdateManager(UpdateConfig("1.2.0", versions_dir=tmp_path / "versions"))
     with pytest.raises(ValueError, match="No retained version"):
         mgr.stage_rollback("9.9.9")
 
@@ -322,9 +323,14 @@ def test_download_accepts_valid_signature(tmp_path, monkeypatch):
     monkeypatch.setenv("PIVOT_EDDSA_PUBLIC_KEY", pub_b64)
     _patch_download(monkeypatch, archive, sig_b64)
 
-    mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
-    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
-                  sha256_url="http://x/a.zip.sha256", sig_url="http://x/a.zip.sig")
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=tmp_path / "versions"))
+    rel = Release(
+        tag="1.1.0",
+        asset_url="http://x/a.zip",
+        asset_name="a.zip",
+        sha256_url="http://x/a.zip.sha256",
+        sig_url="http://x/a.zip.sig",
+    )
     dest = mgr.download(rel)
     assert dest.read_bytes() == archive
 
@@ -336,9 +342,14 @@ def test_download_rejects_bad_signature(tmp_path, monkeypatch):
     monkeypatch.setenv("PIVOT_EDDSA_PUBLIC_KEY", pub_b64)
     _patch_download(monkeypatch, archive, wrong_sig)
 
-    mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
-    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
-                  sha256_url="http://x/a.zip.sha256", sig_url="http://x/a.zip.sig")
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=tmp_path / "versions"))
+    rel = Release(
+        tag="1.1.0",
+        asset_url="http://x/a.zip",
+        asset_name="a.zip",
+        sha256_url="http://x/a.zip.sha256",
+        sig_url="http://x/a.zip.sig",
+    )
     with pytest.raises(ValueError, match="not trusted"):
         mgr.download(rel)
     # The rejected download must not be left on disk to be staged.
@@ -353,9 +364,14 @@ def test_download_allows_unsigned_release_when_no_sig_published(tmp_path, monkey
     monkeypatch.setenv("PIVOT_EDDSA_PUBLIC_KEY", pub_b64)
     _patch_download(monkeypatch, archive, "unused")
 
-    mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
-    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
-                  sha256_url="http://x/a.zip.sha256", sig_url="")  # no signature
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=tmp_path / "versions"))
+    rel = Release(
+        tag="1.1.0",
+        asset_url="http://x/a.zip",
+        asset_name="a.zip",
+        sha256_url="http://x/a.zip.sha256",
+        sig_url="",
+    )  # no signature
     dest = mgr.download(rel)
     assert dest.read_bytes() == archive
 
@@ -373,7 +389,7 @@ def test_stage_is_idempotent_on_restage(tmp_path):
         zf.writestr("PIVOT-Tactical/_internal/watchfiles/x.txt", "data")
         zf.writestr("PIVOT-Tactical/PIVOT-Tactical.exe", "binary")
 
-    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=versions))
     release = Release(tag="1.1.0", asset_name=asset.name)
 
     first = mgr.stage(asset, release)
@@ -418,9 +434,14 @@ def test_download_and_stage_skips_redownload_when_already_staged(tmp_path, monke
     monkeypatch.setattr(mgrmod, "_http_download", fake_download)
     monkeypatch.setattr(mgrmod, "_http_get", fake_get)
 
-    mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
-    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
-                  sha256_url="http://x/a.zip.sha256", sig_url="http://x/a.zip.sig")
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=tmp_path / "versions"))
+    rel = Release(
+        tag="1.1.0",
+        asset_url="http://x/a.zip",
+        asset_name="a.zip",
+        sha256_url="http://x/a.zip.sha256",
+        sig_url="http://x/a.zip.sig",
+    )
     first = mgr.download_and_stage(rel)
     second = mgr.download_and_stage(rel)
 
@@ -524,7 +545,7 @@ def test_retained_details_reports_size_and_delete_frees_space(tmp_path):
     versions.mkdir()
     _make_app(versions, "1.0.0", exe_name="app.bin", content="x" * 2048)
     _make_app(versions, "0.9.0", exe_name="app.bin", content="y" * 512)
-    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=versions))
 
     details = mgr.retained_details()
     assert [d["tag"] for d in details] == ["1.0.0", "0.9.0"]  # newest first
@@ -544,7 +565,7 @@ def test_retained_versions_excludes_staging_dir(tmp_path):
     versions = tmp_path / "versions"
     (versions / "_staging" / "1.1.0").mkdir(parents=True)
     _make_app(versions, "1.0.0")
-    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=versions))
     assert mgr.retained_versions() == ["1.0.0"]  # _staging is not an app-<tag> dir
 
 
@@ -552,7 +573,7 @@ def test_staged_tag_reports_pending_stage(tmp_path):
     versions = tmp_path / "versions"
     versions.mkdir()
     app_dir = _make_app(versions, "1.1.0")
-    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=versions))
     assert mgr.staged_tag() is None  # no marker yet
     mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", app_dir)
     assert mgr.staged_tag() == "1.1.0"
@@ -560,7 +581,7 @@ def test_staged_tag_reports_pending_stage(tmp_path):
 
 def test_staged_tag_ignores_marker_when_app_dir_missing(tmp_path):
     versions = tmp_path / "versions"
-    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=versions))
     # Marker points at a tag whose app-<tag> folder isn't installed -> nothing staged.
     mgr.write_pending_marker(mgr.pending_marker_path, "1.1.0", versions / "gone")
     assert mgr.staged_tag() is None
@@ -572,6 +593,6 @@ def test_offline_import_verification(tmp_path):
     import hashlib
 
     digest = hashlib.sha256(pkg.read_bytes()).hexdigest()
-    mgr = UpdateManager("1.0.0", versions_dir=tmp_path)
+    mgr = UpdateManager(UpdateConfig("1.0.0", versions_dir=tmp_path))
     assert mgr.verify_import_package(pkg, digest) is True
     assert mgr.verify_import_package(pkg, "00") is False

@@ -54,5 +54,3 @@ def format_clock(dt: datetime, tz_name: str = "UTC") -> str:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(tz).strftime("%H:%M:%S")
-
-

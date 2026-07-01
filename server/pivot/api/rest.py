@@ -454,7 +454,7 @@ def _shape_update_status(snap: dict) -> dict:
 def _live_update_check(manager) -> dict:
     """One-shot live check used when the background service isn't running."""
     from pivot.updates import github
-    from pivot.updates.manager import UpdateManager, classify_release
+    from pivot.updates.manager import UpdateConfig, UpdateManager, classify_release
     from pivot.version import SemVer, version_info
 
     cfg = manager.get_config()
@@ -467,7 +467,9 @@ def _live_update_check(manager) -> dict:
     updater = "staged"
 
     mgr = UpdateManager(
-        version_info.version, manager.settings.versions_dir, include_prereleases=include_pre
+        UpdateConfig(
+            version_info.version, manager.settings.versions_dir, include_prereleases=include_pre
+        )
     )
     result = {
         "current_version": version_info.version,
@@ -533,13 +535,13 @@ def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) ->
     lets stable and prerelease behave identically and channel switches take
     effect on the fly.
     """
-    from pivot.updates.manager import Release, UpdateManager
+    from pivot.updates.manager import Release, UpdateConfig, UpdateManager
     from pivot.version import version_info
 
     cfg = manager.get_config()
     token = str(cfg.get("github_token") or "") or None
 
-    mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
+    mgr = UpdateManager(UpdateConfig(version_info.version, manager.settings.versions_dir))
     # Already staged this exact release — skip the redundant download + extract
     # and just tell the client to restart (§3.7.5).
     if mgr.staged_tag() == req.tag:
@@ -579,11 +581,11 @@ def admin_rollback(req: RollbackRequest | None = None, manager=Depends(get_manag
     the in-app counterpart to the ``--rollback`` recovery flag. A downgrade may
     cross a DB schema migration; the UI warns before calling this.
     """
-    from pivot.updates.manager import UpdateManager
+    from pivot.updates.manager import UpdateConfig, UpdateManager
     from pivot.version import version_info
 
     req = req or RollbackRequest()
-    mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
+    mgr = UpdateManager(UpdateConfig(version_info.version, manager.settings.versions_dir))
     target = req.tag or mgr.previous_version()
     if target is None:
         raise HTTPException(status_code=409, detail="No retained version to roll back to.")
@@ -602,20 +604,20 @@ def admin_retained_versions(manager=Depends(get_manager)) -> dict:
     these are already on disk. Lets the Updates pane show what's stored and how
     much space it uses before deleting it.
     """
-    from pivot.updates.manager import UpdateManager
+    from pivot.updates.manager import UpdateConfig, UpdateManager
     from pivot.version import version_info
 
-    mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
+    mgr = UpdateManager(UpdateConfig(version_info.version, manager.settings.versions_dir))
     return {"retained": mgr.retained_details(), "current_version": version_info.version}
 
 
 @router.delete("/admin/updates/retained/{tag}", dependencies=[Depends(require_instructor)])
 def admin_delete_retained(tag: str, manager=Depends(get_manager)) -> dict:
     """Delete a retained version to free disk space (§3.7.7)."""
-    from pivot.updates.manager import UpdateManager
+    from pivot.updates.manager import UpdateConfig, UpdateManager
     from pivot.version import version_info
 
-    mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
+    mgr = UpdateManager(UpdateConfig(version_info.version, manager.settings.versions_dir))
     if not mgr.delete_retained(tag):
         raise HTTPException(status_code=404, detail=f"No retained version: {tag}")
     return {"deleted": tag, "retained": mgr.retained_details()}
@@ -664,10 +666,12 @@ def admin_restart(
 
     background_tasks.add_task(_go)
 
-    from pivot.updates.manager import UpdateManager
+    from pivot.updates.manager import UpdateConfig, UpdateManager
     from pivot.version import version_info
 
-    staged = UpdateManager(version_info.version, manager.settings.versions_dir).staged_tag()
+    staged = UpdateManager(
+        UpdateConfig(version_info.version, manager.settings.versions_dir)
+    ).staged_tag()
     return {"restarting": True, "mode": mode, "staged": staged}
 
 

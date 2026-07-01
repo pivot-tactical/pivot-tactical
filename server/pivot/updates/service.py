@@ -24,7 +24,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from pivot.core.timebase import to_iso_utc, utc_now
-from pivot.updates.manager import Release, UpdateManager, classify_release
+from pivot.updates.manager import Release, UpdateConfig, UpdateManager, classify_release
 from pivot.version import SemVer
 
 log = logging.getLogger("pivot.updates")
@@ -138,8 +138,14 @@ class UpdateService:
         repo = str(cfg.get("github_repo") or "")
         token = str(cfg.get("github_token") or "") or None
 
-        self._merge({"checking": True, "channel": channel, "auto_update": auto,
-                     "updater": self._updater_kind()})
+        self._merge(
+            {
+                "checking": True,
+                "channel": channel,
+                "auto_update": auto,
+                "updater": self._updater_kind(),
+            }
+        )
 
         try:
             raw = self._fetch(repo, token)
@@ -149,11 +155,19 @@ class UpdateService:
             # failures that don't affect ordinary browsing (the browser uses the
             # OS proxy/cert store; this stdlib urllib request does not) (§3.7.3).
             log.warning("update check for %r failed: %s", repo, exc)
-            self._merge({"reachable": False, "error": str(exc), "checking": False,
-                         "last_checked": to_iso_utc(utc_now())})
+            self._merge(
+                {
+                    "reachable": False,
+                    "error": str(exc),
+                    "checking": False,
+                    "last_checked": to_iso_utc(utc_now()),
+                }
+            )
             return self.snapshot()
 
-        mgr = UpdateManager(self._version, self._versions_dir, include_prereleases=include_pre)
+        mgr = UpdateManager(
+            UpdateConfig(self._version, self._versions_dir, include_prereleases=include_pre)
+        )
         cur = SemVer.parse(self._version)
         releases = mgr.list_releases(raw)
         available = mgr.available_updates(raw)
@@ -182,13 +196,19 @@ class UpdateService:
                 target = available[0]
                 # Broadcast a downloading state so the UI shows progress before
                 # the potentially-slow download completes.
-                self._merge({**update, "auto_state": "downloading",
-                             "auto_message": f"Downloading {target.tag}…"})
+                self._merge(
+                    {
+                        **update,
+                        "auto_state": "downloading",
+                        "auto_message": f"Downloading {target.tag}…",
+                    }
+                )
                 try:
                     result = self._apply(target, cfg)
                     update["auto_state"] = "applied" if result.get("applied") else "error"
                     update["auto_message"] = result.get("message", "") or (
-                        f"Updating to {target.tag}." if result.get("applied")
+                        f"Updating to {target.tag}."
+                        if result.get("applied")
                         else "Auto-update failed."
                     )
                 except Exception as exc:
@@ -207,16 +227,22 @@ class UpdateService:
         # Single channel-aware path: verified download (SHA-256 + Ed25519) + a
         # staged swap applied on the next restart (§3.7.5). Identical on every
         # platform and channel, so on-the-fly channel switching is honoured.
-        mgr = UpdateManager(self._version, self._versions_dir)
+        mgr = UpdateManager(UpdateConfig(self._version, self._versions_dir))
         # Already staged — don't re-download/re-extract on the next poll tick.
         if mgr.staged_tag() == release.tag:
-            return {"applied": True, "via": "staged",
-                    "message": f"{release.tag} already staged — restart to apply."}
+            return {
+                "applied": True,
+                "via": "staged",
+                "message": f"{release.tag} already staged — restart to apply.",
+            }
 
         token = str(cfg.get("github_token") or "") or None
         mgr.download_and_stage(release, token)
-        return {"applied": True, "via": "staged",
-                "message": f"{release.tag} staged — restart to apply."}
+        return {
+            "applied": True,
+            "via": "staged",
+            "message": f"{release.tag} staged — restart to apply.",
+        }
 
     # -- internal ---------------------------------------------------------- #
 

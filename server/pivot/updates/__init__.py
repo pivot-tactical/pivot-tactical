@@ -13,6 +13,7 @@ runtime never imports or depends on any of this.
 
 from pivot.updates.manager import (
     Release,
+    UpdateConfig,
     UpdateManager,
     UpdatePlan,
     classify_release,
@@ -25,6 +26,7 @@ from pivot.updates.manager import (
 __all__ = [
     "Release",
     "UpdateManager",
+    "UpdateConfig",
     "UpdatePlan",
     "classify_release",
     "default_asset_pattern",

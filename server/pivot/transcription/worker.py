@@ -113,9 +113,7 @@ class TranscriptionWorker:
             event = repo.get_event(s, event_id)
             if event is None:
                 return TranscriptionStatus.FAILED
-            audio_path = event_audio_path(
-                self.settings.recordings_dir, event.session_id, event_id
-            )
+            audio_path = event_audio_path(self.settings.recordings_dir, event.session_id, event_id)
 
         if not audio_path.exists():
             self._store(event_id, None, None, TranscriptionStatus.FAILED)
@@ -172,6 +170,8 @@ class TranscriptionWorker:
         if self._transcriber is None or key != self._transcriber_key:
             from pivot.transcription.whisper import FasterWhisperTranscriber
 
-            self._transcriber = FasterWhisperTranscriber(model_size=model, compute_type=compute_type)
+            self._transcriber = FasterWhisperTranscriber(
+                model_size=model, compute_type=compute_type
+            )
             self._transcriber_key = key
         return self._transcriber
