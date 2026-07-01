@@ -79,9 +79,7 @@ class DspEngine:
         x = apply_fading(
             x,
             sr,
-            conditions.fading_depth_db,
-            conditions.fading_rate_hz,
-            conditions.selective_fading,
+            conditions,
             rng,
         )
         texture = texture if texture is not None else self._texture(conditions, rng)
