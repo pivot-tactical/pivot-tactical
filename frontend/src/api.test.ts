@@ -1,29 +1,50 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { setToken, getToken } from './api';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('api token management', () => {
-  beforeEach(() => {
-    sessionStorage.clear();
-    // Reset internal token state via setToken(null)
-    setToken(null);
+  describe('initialization', () => {
+    beforeEach(() => {
+      vi.resetModules();
+      sessionStorage.clear();
+    });
+
+    it('should initialize token from sessionStorage', async () => {
+      sessionStorage.setItem('pivot_token', 'initial-token');
+      const api = await import('./api');
+      expect(api.getToken()).toBe('initial-token');
+    });
   });
 
-  it('should set the token and persist to sessionStorage', () => {
-    const testToken = 'test-token-123';
-    setToken(testToken);
+  describe('setToken and getToken', () => {
+    beforeEach(async () => {
+      sessionStorage.clear();
+      const api = await import('./api');
+      api.setToken(null);
+    });
 
-    expect(getToken()).toBe(testToken);
-    expect(sessionStorage.getItem('pivot_token')).toBe(testToken);
-  });
+    it('should set the token and persist to sessionStorage', async () => {
+      const api = await import('./api');
+      const testToken = 'test-token-123';
+      api.setToken(testToken);
 
-  it('should clear the token and remove from sessionStorage when passing null', () => {
-    const testToken = 'test-token-456';
-    setToken(testToken);
+      expect(api.getToken()).toBe(testToken);
+      expect(sessionStorage.getItem('pivot_token')).toBe(testToken);
+    });
 
-    // Clear token
-    setToken(null);
+    it('should clear the token and remove from sessionStorage when passing null', async () => {
+      const api = await import('./api');
+      const testToken = 'test-token-456';
+      api.setToken(testToken);
 
-    expect(getToken()).toBeNull();
-    expect(sessionStorage.getItem('pivot_token')).toBeNull();
+      // Clear token
+      api.setToken(null);
+
+      expect(api.getToken()).toBeNull();
+      expect(sessionStorage.getItem('pivot_token')).toBeNull();
+    });
+
+    it('should return null when token is not set', async () => {
+      const api = await import('./api');
+      expect(api.getToken()).toBeNull();
+    });
   });
 });
