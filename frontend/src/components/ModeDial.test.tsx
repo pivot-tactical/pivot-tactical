@@ -12,7 +12,7 @@ describe('ModeDial', () => {
     const onToggle = vi.fn();
     render(<ModeDial mode="Plain" onToggle={onToggle} />);
 
-    const button = screen.getByRole('button');
+    const button = screen.getByRole('switch');
     expect(button).toHaveClass('dial--plain');
     expect(button).toHaveClass('dial--md'); // default size
     expect(button).not.toBeDisabled();
@@ -25,7 +25,7 @@ describe('ModeDial', () => {
     const onToggle = vi.fn();
     render(<ModeDial mode="Cypher" onToggle={onToggle} />);
 
-    const button = screen.getByRole('button');
+    const button = screen.getByRole('switch');
     expect(button).toHaveClass('dial--cypher');
     expect(button).toHaveClass('dial--md');
   });
@@ -34,7 +34,7 @@ describe('ModeDial', () => {
     const onToggle = vi.fn();
     render(<ModeDial mode="Plain" onToggle={onToggle} />);
 
-    const button = screen.getByRole('button');
+    const button = screen.getByRole('switch');
     fireEvent.click(button);
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
@@ -43,7 +43,7 @@ describe('ModeDial', () => {
     const onToggle = vi.fn();
     render(<ModeDial mode="Plain" onToggle={onToggle} disabled={true} />);
 
-    const button = screen.getByRole('button');
+    const button = screen.getByRole('switch');
     expect(button).toBeDisabled();
 
     fireEvent.click(button);
@@ -54,7 +54,7 @@ describe('ModeDial', () => {
     const onToggle = vi.fn();
     render(<ModeDial mode="Plain" onToggle={onToggle} size="sm" />);
 
-    const button = screen.getByRole('button');
+    const button = screen.getByRole('switch');
     expect(button).toHaveClass('dial--sm');
     expect(button).not.toHaveClass('dial--md');
   });
@@ -64,7 +64,7 @@ describe('ModeDial', () => {
     const testTitle = "Toggle Mode";
     render(<ModeDial mode="Plain" onToggle={onToggle} title={testTitle} />);
 
-    const button = screen.getByRole('button');
+    const button = screen.getByRole('switch');
     expect(button).toHaveAttribute('title', testTitle);
   });
 });
