@@ -25,6 +25,13 @@ describe("parseTaggedAudio", () => {
     expect(radioId).toBe("instr-10");
     expect(Array.from(new Int16Array(pcm))).toEqual([7, 8]);
   });
+
+  it("handles an empty buffer gracefully", () => {
+    const emptyBuf = new ArrayBuffer(0);
+    const { radioId, pcm } = parseTaggedAudio(emptyBuf);
+    expect(radioId).toBe("");
+    expect(pcm.byteLength).toBe(0);
+  });
 });
 
 describe("volume persistence", () => {
