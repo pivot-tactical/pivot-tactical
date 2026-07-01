@@ -86,3 +86,17 @@ def test_round_trip():
     assert len(orig_vals) == len(rt_vals)
     diff = np.abs(orig_vals.astype(np.int32) - rt_vals.astype(np.int32))
     assert np.max(diff) <= 1
+
+
+def test_pcm16_to_float32_known_bytes():
+    """Verify decoding with an explicitly defined byte sequence."""
+    # b"\x00\x00" -> 0
+    # b"\xff\x7f" -> 32767
+    # b"\x00\x80" -> -32768
+    data = b"\x00\x00\xff\x7f\x00\x80"
+    res = pcm16_to_float32(data)
+    assert res.dtype == np.float32
+    assert len(res) == 3
+    assert res[0] == 0.0
+    assert np.isclose(res[1], 32767.0 / 32768.0)
+    assert np.isclose(res[2], -1.0)
