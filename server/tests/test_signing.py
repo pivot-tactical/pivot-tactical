@@ -1,6 +1,7 @@
 """Tests for the signing functionality in pivot.updates.signing."""
 
 import base64
+import sys
 from unittest.mock import patch
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -70,6 +71,12 @@ def test_verify_bytes_empty_signature():
 def test_verify_bytes_empty_public_key():
     """A whitespace-only public key string should evaluate to empty after strip and return False."""
     assert verify_bytes(b"data", "some_signature", "   ") is False
+
+
+def test_verify_bytes_exception(monkeypatch):
+    """An exception during verification (e.g., missing dep or bad base64) should return False."""
+    monkeypatch.setitem(sys.modules, "cryptography.hazmat.primitives.asymmetric.ed25519", None)
+    assert verify_bytes(b"data", "some_sig", "some_pub") is False
 
 
 def test_is_configured_true():
