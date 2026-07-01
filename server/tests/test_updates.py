@@ -74,12 +74,22 @@ def test_ttl_cache_serves_within_ttl_and_clears_on_demand():
     assert calls == ["o/r", "o/other", "o/r"]
 
 
-def test_filter_channel_stable_only():
-    rels = [rel("1.0.0"), rel("1.1.0-rc.1", prerelease=True)]
+def test_filter_channel():
+    rels = [
+        rel("1.0.0"),
+        rel("1.1.0-rc.1", prerelease=True),
+        rel("1.2.0"),
+        rel("2.0.0-beta", prerelease=True)
+    ]
+    # Test stable only (exclude prereleases)
     stable = filter_channel(rels, include_prereleases=False)
-    assert [r.tag for r in stable] == ["1.0.0"]
+    assert [r.tag for r in stable] == ["1.0.0", "1.2.0"]
+
+    # Test include prereleases (keep all)
     allr = filter_channel(rels, include_prereleases=True)
-    assert len(allr) == 2
+    assert [r.tag for r in allr] == ["1.0.0", "1.1.0-rc.1", "1.2.0", "2.0.0-beta"]
+    # Ensure it returns a new list
+    assert allr is not rels
 
 
 def test_classify_release():
