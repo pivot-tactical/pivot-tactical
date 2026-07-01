@@ -1,7 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
-// Since vitest environment doesn't have expect globally exported by default in this setup,
-// we'll explicitly extend expect
 import * as matchers from "@testing-library/jest-dom/matchers";
 expect.extend(matchers);
 
@@ -17,19 +15,39 @@ describe("ConnectionBanner", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("renders offline banner when state is offline", () => {
+  it("renders offline banner with correct styles and text", () => {
     render(<ConnectionBanner state="offline" />);
     const banner = screen.getByRole("status");
     expect(banner).toBeInTheDocument();
     expect(banner).toHaveTextContent("Connection to the server lost — reconnecting…");
-    expect(banner).toHaveStyle({ background: "#e08020" });
+    expect(banner).toHaveStyle({
+      position: "fixed",
+      top: "0px",
+      left: "0px",
+      right: "0px",
+      zIndex: "1000",
+      textAlign: "center",
+      padding: "6px 12px",
+      color: "#000",
+      background: "#e08020",
+    });
   });
 
-  it("renders restarting banner when state is restarting", () => {
+  it("renders restarting banner with correct styles and text", () => {
     render(<ConnectionBanner state="restarting" />);
     const banner = screen.getByRole("status");
     expect(banner).toBeInTheDocument();
     expect(banner).toHaveTextContent("PIVOT is restarting — reconnecting, the page will refresh automatically…");
-    expect(banner).toHaveStyle({ background: "#f0c000" });
+    expect(banner).toHaveStyle({
+      position: "fixed",
+      top: "0px",
+      left: "0px",
+      right: "0px",
+      zIndex: "1000",
+      textAlign: "center",
+      padding: "6px 12px",
+      color: "#000",
+      background: "#f0c000",
+    });
   });
 });
