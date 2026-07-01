@@ -37,6 +37,14 @@ def test_pcm16_to_float32_odd_length():
     assert np.isclose(res[1], 32767.0 / 32768.0)
 
 
+def test_float32_to_pcm16_list_input():
+    """Float32 to PCM16 handles non-numpy array inputs (like lists) by converting them."""
+    samples = [0.0, 1.0, -1.0]
+    res = float32_to_pcm16(samples)
+    expected = np.array([0, 32767, -32767], dtype="<i2").tobytes()
+    assert res == expected
+
+
 def test_float32_to_pcm16_empty():
     """Empty float32 array returns empty bytes."""
     res = float32_to_pcm16(np.array([], dtype=np.float32))
