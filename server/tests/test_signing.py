@@ -67,6 +67,23 @@ def test_verify_bytes_empty_signature():
     assert verify_bytes(b"data", "") is False
 
 
+def test_verify_bytes_exception(monkeypatch):
+    """An exception during verification (e.g., missing dep) returns False."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def mock_import(name, *args, **kwargs):
+        if name == "cryptography.hazmat.primitives.asymmetric.ed25519":
+            raise ImportError("Mock missing dependency")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", mock_import)
+
+    # Ensure the inputs bypass the initial empty-check so it reaches the try block
+    assert verify_bytes(b"data", "sig_b64", "pub_b64") is False
+
+
 def test_verify_bytes_empty_public_key():
     """A whitespace-only public key string should evaluate to empty after strip and return False."""
     assert verify_bytes(b"data", "some_signature", "   ") is False
