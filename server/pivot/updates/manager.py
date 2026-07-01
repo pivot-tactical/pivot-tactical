@@ -259,11 +259,7 @@ def verify_sha256(path: Path, expected_hex: str) -> bool:
     """Verify a downloaded package against its published SHA-256 (§3.7.5)."""
     if not expected_hex:
         return False
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest().lower() == expected_hex.strip().lower()
+    return sha256_of(path).lower() == expected_hex.strip().lower()
 
 
 def sha256_of(path: Path) -> str:

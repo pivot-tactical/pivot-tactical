@@ -13,6 +13,7 @@ from pivot.updates.manager import (
     filter_channel,
     order_releases,
     verify_sha256,
+    sha256_of,
 )
 from pivot.version import SemVer
 
@@ -161,6 +162,16 @@ def test_verify_sha256(tmp_path):
     assert verify_sha256(pkg, digest) is True
     assert verify_sha256(pkg, "deadbeef") is False
     assert verify_sha256(pkg, "") is False
+    assert verify_sha256(pkg, f"  {digest.upper()}  \n") is True
+
+
+def test_sha256_of(tmp_path):
+    pkg = tmp_path / "pkg.zip"
+    pkg.write_bytes(b"hello world")
+    import hashlib
+
+    digest = hashlib.sha256(b"hello world").hexdigest()
+    assert sha256_of(pkg) == digest
 
 
 def test_retained_versions_and_rollback(tmp_path):
