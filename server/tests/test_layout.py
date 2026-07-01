@@ -120,3 +120,19 @@ def test_remove_link_oserror_fallback(tmp_path, monkeypatch):
     assert len(rmtree_called) == 1
     assert rmtree_called[0][0] == link
     assert rmtree_called[0][1] is True
+
+def test_remove_link_rmdir_success(tmp_path, monkeypatch):
+    import os
+
+    from pivot.updates.layout import _remove_link
+
+    link = tmp_path / "fake_dir"
+    link.mkdir()
+
+    def mock_unlink(*args, **kwargs):
+        raise OSError("unlink failed")
+
+    monkeypatch.setattr(os, "unlink", mock_unlink)
+
+    _remove_link(link)
+    assert not link.exists()
