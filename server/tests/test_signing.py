@@ -109,6 +109,46 @@ def test_verify_bytes_invalid():
     assert verify_bytes(b"hello world modified", sig_b64, pub_b64) is False
 
 
+def test_verify_bytes_missing_crypto():
+    import sys
+
+    private_key = Ed25519PrivateKey.generate()
+    public_key = private_key.public_key()
+    data = b"hello world"
+    sig = private_key.sign(data)
+
+    sig_b64 = base64.b64encode(sig).decode("utf-8")
+    pub_b64 = base64.b64encode(public_key.public_bytes_raw()).decode("utf-8")
+
+    original_module = sys.modules.get("cryptography.hazmat.primitives.asymmetric.ed25519")
+    sys.modules["cryptography.hazmat.primitives.asymmetric.ed25519"] = None
+    try:
+        assert verify_bytes(data, sig_b64, pub_b64) is False
+    finally:
+        if original_module is not None:
+            sys.modules["cryptography.hazmat.primitives.asymmetric.ed25519"] = original_module
+        else:
+            del sys.modules["cryptography.hazmat.primitives.asymmetric.ed25519"]
+
+
+def test_verify_bytes_invalid_base64():
+    private_key = Ed25519PrivateKey.generate()
+    public_key = private_key.public_key()
+    data = b"hello world"
+    pub_b64 = base64.b64encode(public_key.public_bytes_raw()).decode("utf-8")
+
+    assert verify_bytes(data, "not-base-64!", pub_b64) is False
+
+
+def test_verify_bytes_invalid_key_length():
+    private_key = Ed25519PrivateKey.generate()
+    data = b"hello world"
+    sig = private_key.sign(data)
+    sig_b64 = base64.b64encode(sig).decode("utf-8")
+
+    assert verify_bytes(data, sig_b64, base64.b64encode(b"too_short").decode("utf-8")) is False
+
+
 def test_verify_file_real(tmp_path):
     private_key = Ed25519PrivateKey.generate()
     public_key = private_key.public_key()
