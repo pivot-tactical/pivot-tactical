@@ -120,3 +120,59 @@ def test_remove_link_oserror_fallback(tmp_path, monkeypatch):
     assert len(rmtree_called) == 1
     assert rmtree_called[0][0] == link
     assert rmtree_called[0][1] is True
+
+
+def test_remove_link_rmdir_success(tmp_path, monkeypatch):
+    import os
+    import shutil
+
+    from pivot.updates.layout import _remove_link
+
+    link = tmp_path / "fake_link"
+    link.touch()
+
+    def mock_unlink(*args, **kwargs):
+        raise OSError("unlink failed")
+
+    rmdir_called = []
+
+    def mock_rmdir(path):
+        rmdir_called.append(path)
+
+    monkeypatch.setattr(os, "unlink", mock_unlink)
+    monkeypatch.setattr(os, "rmdir", mock_rmdir)
+
+    rmtree_called = []
+
+    def mock_rmtree(path, ignore_errors=False):
+        rmtree_called.append((path, ignore_errors))
+
+    monkeypatch.setattr(shutil, "rmtree", mock_rmtree)
+
+    _remove_link(link)
+
+    assert len(rmdir_called) == 1
+    assert rmdir_called[0] == link
+    assert len(rmtree_called) == 0
+
+
+def test_layout_properties(tmp_path):
+    layout = Layout(tmp_path / "versions")
+    assert layout.staging == tmp_path / "versions" / "_staging"
+    assert layout.marker == tmp_path / "versions" / "pending_update.json"
+
+
+def test_installed_versions_no_dir(tmp_path):
+    layout = Layout(tmp_path / "does_not_exist")
+    assert layout.installed_versions() == []
+
+
+def test_app_exe(tmp_path):
+    layout = Layout(tmp_path / "versions")
+    app_dir = layout.app_dir("1.0.0")
+    app_dir.mkdir(parents=True)
+    exe = app_dir / "app.exe"
+    exe.touch()
+
+    assert layout.app_exe("1.0.0", "app.exe") == exe
+    assert layout.app_exe("1.0.0", "missing.exe") is None
