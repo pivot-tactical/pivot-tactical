@@ -27,12 +27,29 @@ def test_group_renders_collapses_identical_receptions():
     assert distinct_renders(render_map) == {Reception.HASH, Reception.CLEAR}
 
 
+def test_distinct_renders_extracts_unique_renders_ignoring_silence():
+    assert distinct_renders({}) == set()
+
+    render_map = {
+        "p1": Reception.HASH,
+        "p2": Reception.HASH,
+        "c1": Reception.CLEAR,
+        "tx": Reception.SILENCE,
+    }
+    assert distinct_renders(render_map) == {Reception.HASH, Reception.CLEAR}
+
+    assert distinct_renders({"tx": Reception.SILENCE}) == set()
+
+
 def test_render_net_frame_produces_one_buffer_per_reception():
     frame = (0.3 * np.sin(2 * np.pi * 440 * np.arange(SR // 50) / SR)).astype(np.float32)
     conditions = BandProfile().conditions_at(14e6)
     engine = DspEngine(SR)
     rendered = render_net_frame(
-        {"tx": frame}, conditions, {Reception.CLEAR, Reception.HASH}, engine,
+        {"tx": frame},
+        conditions,
+        {Reception.CLEAR, Reception.HASH},
+        engine,
         rng=np.random.default_rng(0),
     )
     assert set(rendered) == {Reception.CLEAR, Reception.HASH}
@@ -45,8 +62,10 @@ def test_render_net_frame_collision():
     conditions = BandProfile().conditions_at(145e6)
     engine = DspEngine(SR)
     rendered = render_net_frame(
-        {"a": a, "b": b}, conditions,
-        {Reception.PLAIN_COLLISION, Reception.CRYPTO_JAM}, engine,
+        {"a": a, "b": b},
+        conditions,
+        {Reception.PLAIN_COLLISION, Reception.CRYPTO_JAM},
+        engine,
         rng=np.random.default_rng(0),
     )
     assert rendered[Reception.PLAIN_COLLISION].shape == a.shape
