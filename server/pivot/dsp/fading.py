@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from pivot.core.bands import BandConditions
 from pivot.dsp.filters import highpass, lowpass, slow_random
 
 
@@ -40,9 +41,7 @@ def flat_fading_gain(
 def apply_fading(
     signal_in: np.ndarray,
     sample_rate: int,
-    depth_db: float,
-    rate_hz: float,
-    selective: bool,
+    conditions: BandConditions,
     rng: np.random.Generator,
     crossover_hz: float = 1200.0,
 ) -> np.ndarray:
@@ -53,16 +52,16 @@ def apply_fading(
     gets its own decorrelated envelope, so the spectral tilt wanders — the
     audible signature of HF selective fading.
     """
-    if signal_in.size == 0 or depth_db <= 0.01:
+    if signal_in.size == 0 or conditions.fading_depth_db <= 0.01:
         return signal_in.astype(np.float32, copy=False)
 
     n = signal_in.size
-    if not selective:
-        gain = flat_fading_gain(n, sample_rate, depth_db, rate_hz, rng)
+    if not conditions.selective_fading:
+        gain = flat_fading_gain(n, sample_rate, conditions.fading_depth_db, conditions.fading_rate_hz, rng)
         return (signal_in * gain).astype(np.float32)
 
     low = lowpass(signal_in, crossover_hz, sample_rate)
     high = highpass(signal_in, crossover_hz, sample_rate)
-    g_low = flat_fading_gain(n, sample_rate, depth_db, rate_hz, rng)
-    g_high = flat_fading_gain(n, sample_rate, depth_db, rate_hz * 1.3, rng)
+    g_low = flat_fading_gain(n, sample_rate, conditions.fading_depth_db, conditions.fading_rate_hz, rng)
+    g_high = flat_fading_gain(n, sample_rate, conditions.fading_depth_db, conditions.fading_rate_hz * 1.3, rng)
     return (low * g_low + high * g_high).astype(np.float32)
