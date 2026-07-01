@@ -79,8 +79,9 @@ def export_zip(db: Database, settings, session_id: str) -> bytes:
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(f"{session_id}/transcript.txt", text)
         zf.writestr(f"{session_id}/events.csv", csv_data)
+        base_dir = Path(settings.recordings_dir).resolve()
         for e in events:
-            wav_path = Path(settings.recordings_dir) / e["audio_path"]
-            if wav_path.exists():
+            wav_path = (Path(settings.recordings_dir) / e["audio_path"]).resolve()
+            if wav_path.is_relative_to(base_dir) and wav_path.exists():
                 zf.write(wav_path, arcname=f"{session_id}/recordings/{Path(e['audio_path']).name}")
     return buf.getvalue()
