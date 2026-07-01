@@ -16,19 +16,24 @@ export function ModeDial({
   size?: "md" | "sm";
   title?: string;
 }) {
+  const ariaLabel = title ? `${title} (Currently ${mode})` : `Encryption mode: ${mode}`;
+
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={mode === "Cypher"}
+      aria-label={ariaLabel}
       className={`dial dial--${size} dial--${mode === "Cypher" ? "cypher" : "plain"}`}
       onClick={onToggle}
       disabled={disabled}
       title={title}
     >
-      <span className="dial__label dial__label--plain">◌ PLAIN</span>
-      <span className="dial__knob">
+      <span className="dial__label dial__label--plain" aria-hidden="true">◌ PLAIN</span>
+      <span className="dial__knob" aria-hidden="true">
         <span className="dial__pointer" />
       </span>
-      <span className="dial__label dial__label--cypher">🔒 CYPHER</span>
+      <span className="dial__label dial__label--cypher" aria-hidden="true">🔒 CYPHER</span>
     </button>
   );
 }

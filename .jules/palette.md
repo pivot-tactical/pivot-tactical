@@ -1,3 +1,6 @@
 ## 2024-06-25 - Missing Focus States & ARIA Labels on Icon Buttons
 **Learning:** The PIVOT UI relied heavily on mouse interaction patterns, lacking visible focus indicators for keyboard navigation across its custom button elements (`.btn`, `.ptt`, `.dial`). Additionally, several critical icon-only buttons in the Instructor Console (like remove radio or play event) lacked `aria-label` attributes, relying only on `title` which is insufficient for robust screen reader support.
 **Action:** Implemented a global `button:focus-visible` style utilizing the application's primary `--green` tactical color to ensure high-contrast, accessible keyboard navigation without disrupting mouse users. Added proper `aria-label` attributes to all icon-only action buttons.
+## 2026-07-01 - Added Switch Role and ARIA labels to ModeDial
+**Learning:** The `ModeDial` component in `frontend/src/components/ModeDial.tsx` visually behaves like a switch, but lacked the correct semantic HTML role and `aria-checked` state, making its state unclear to screen readers.
+**Action:** Applied `role="switch"`, an explicit `aria-checked` attribute mapped to the 'Cypher' mode state, and proper `aria-label` attributes based on props to the `ModeDial` button to provide semantic keyboard and screen reader accessibility. Hidden visual-only elements using `aria-hidden="true"`.
