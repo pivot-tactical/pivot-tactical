@@ -45,8 +45,7 @@ def _events_and_tz(db: Database, session_id: str):
     return name, events, tz
 
 
-def export_text(db: Database, session_id: str) -> str:
-    name, events, tz = _events_and_tz(db, session_id)
+def _generate_text(name: str, events: list, tz: str) -> str:
     lines = [f"PIVOT session transcript — {name}", f"Display timezone: {tz}", ""]
     for e in events:
         clock = format_clock(parse_iso_utc(e["timestamp_start"]), tz)
@@ -59,8 +58,12 @@ def export_text(db: Database, session_id: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def export_csv(db: Database, session_id: str) -> str:
-    _, events, _ = _events_and_tz(db, session_id)
+def export_text(db: Database, session_id: str) -> str:
+    name, events, tz = _events_and_tz(db, session_id)
+    return _generate_text(name, events, tz)
+
+
+def _generate_csv(events: list) -> str:
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=_CSV_FIELDS, extrasaction="ignore")
     writer.writeheader()
@@ -69,11 +72,16 @@ def export_csv(db: Database, session_id: str) -> str:
     return buf.getvalue()
 
 
+def export_csv(db: Database, session_id: str) -> str:
+    _, events, _ = _events_and_tz(db, session_id)
+    return _generate_csv(events)
+
+
 def export_zip(db: Database, settings, session_id: str) -> bytes:
     """Full session ZIP: logs + every WAV recording (§3.6.4, acceptance #21)."""
-    text = export_text(db, session_id)
-    csv_data = export_csv(db, session_id)
-    _, events, _ = _events_and_tz(db, session_id)
+    name, events, tz = _events_and_tz(db, session_id)
+    text = _generate_text(name, events, tz)
+    csv_data = _generate_csv(events)
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
