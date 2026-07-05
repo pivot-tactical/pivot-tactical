@@ -8,24 +8,23 @@ import type {
   Terminal,
 } from "./types";
 
-// Persisted in sessionStorage so the instructor stays logged in across a page
-// refresh and a server restart within the same tab, but is cleared when the
-// tab is closed. The token is short-lived and server-signed; the app
-// refreshes it while the console is open (see App.tsx).
-let instructorToken: string | null = sessionStorage.getItem("pivot_token");
+// Persisted as a boolean flag in sessionStorage so the UI knows an instructor
+// session is active across a page refresh and a server restart within the same
+// tab, but is cleared when the tab is closed. The actual token is now an
+// HttpOnly cookie handled automatically by the browser.
+let instructorSessionActive: boolean = sessionStorage.getItem("pivot_instructor") === "1";
 
 export function setToken(t: string | null) {
-  instructorToken = t;
-  if (t) sessionStorage.setItem("pivot_token", t);
-  else sessionStorage.removeItem("pivot_token");
+  instructorSessionActive = !!t;
+  if (t) sessionStorage.setItem("pivot_instructor", "1");
+  else sessionStorage.removeItem("pivot_instructor");
 }
 export function getToken() {
-  return instructorToken;
+  return instructorSessionActive ? "cookie" : null;
 }
 
 function headers(): Record<string, string> {
   const h: Record<string, string> = { "Content-Type": "application/json" };
-  if (instructorToken) h["Authorization"] = `Bearer ${instructorToken}`;
   return h;
 }
 
@@ -82,8 +81,7 @@ export interface UpdateStatus {
 }
 
 function tokenQuery(extra = ""): string {
-  const t = instructorToken ? `token=${encodeURIComponent(instructorToken)}` : "";
-  return [extra, t].filter(Boolean).join("&");
+  return extra;
 }
 
 export const api = {

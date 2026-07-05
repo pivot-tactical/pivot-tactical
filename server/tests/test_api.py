@@ -162,7 +162,7 @@ def test_instructor_login_and_authenticated_admin(raw_client):
     body = r.json()
     assert body["role"] == "instructor"
     assert body["must_change_password"] is True
-    token = body["token"]
+    token = raw_client.cookies.get("pivot_token")
 
     # The token authorises admin endpoints.
     headers = {"Authorization": f"Bearer {token}"}
@@ -172,19 +172,20 @@ def test_instructor_login_and_authenticated_admin(raw_client):
 def test_auth_refresh_slides_the_session(raw_client):
     r = raw_client.post("/api/login", json={"role": "instructor",
                                             "password": DEFAULT_INSTRUCTOR_PASSWORD})
-    token = r.json()["token"]
+    token = raw_client.cookies.get("pivot_token")
     headers = {"Authorization": f"Bearer {token}"}
 
     # A valid token can be refreshed for a fresh one that also authorises admin.
     refreshed = raw_client.post("/api/auth/refresh", headers=headers)
     assert refreshed.status_code == 200
-    new_token = refreshed.json()["token"]
+    new_token = raw_client.cookies.get("pivot_token")
     assert new_token and new_token != token
     assert raw_client.get(
         "/api/admin/terminals", headers={"Authorization": f"Bearer {new_token}"}
     ).status_code == 200
 
     # Without a token it is rejected — the browser then shows the login.
+    raw_client.cookies.clear()
     assert raw_client.post("/api/auth/refresh").status_code == 401
     assert raw_client.post(
         "/api/auth/refresh", headers={"Authorization": "Bearer bogus"}
@@ -265,9 +266,10 @@ def test_retained_versions_list_and_delete(client, settings):
 
 
 def test_change_password_and_relogin(raw_client):
-    token = raw_client.post(
+    login_res = raw_client.post(
         "/api/login", json={"role": "instructor", "password": DEFAULT_INSTRUCTOR_PASSWORD}
-    ).json()["token"]
+    )
+    token = raw_client.cookies.get("pivot_token")
     headers = {"Authorization": f"Bearer {token}"}
 
     # Change the password; the old token is invalidated.
