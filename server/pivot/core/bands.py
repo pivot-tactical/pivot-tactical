@@ -277,11 +277,22 @@ def net_key_for(freq_hz: float) -> int:
 
 
 # How hard full interference (+1.0) leans on the channel: enough headroom that
-# a clean VHF/UHF net (SNR ~25–30 dB) is driven down near the unusable floor.
-_INTERFERENCE_SNR_SPAN_DB = 30.0
+# a clean VHF/UHF net (SNR ~25–30 dB) is driven down *below* the unusable floor
+# (into negative SNR) so the voice is genuinely swamped, not merely dented.
+# Speech has a high crest factor — its syllable peaks ride ~12–18 dB above its
+# RMS — so a competing-noise SNR has to go well negative to actually mask it.
+_INTERFERENCE_SNR_SPAN_DB = 40.0
 # How much a full cleanup (−1.0) lifts a channel above its natural baseline —
 # enough to make even the noisiest low-HF net comfortably readable.
 _CLEANUP_SNR_BOOST_DB = 18.0
+# Jamming drowns the channel far below the usable floor. SNR here is the
+# signal-to-jam ratio: even a light jammer pulls it under (``_JAM_SNR_CEIL_DB``),
+# and a full-intensity jammer leaves the voice essentially inaudible under the
+# wall of noise (``… − _JAM_SNR_SPAN_DB``). The signal still propagates at full
+# strength — it is the competing jammer noise, not any attenuation of the voice,
+# that makes it impossible to copy (spec §4.2).
+_JAM_SNR_CEIL_DB = -8.0
+_JAM_SNR_SPAN_DB = 20.0
 
 
 @dataclass
@@ -415,8 +426,10 @@ class BandProfile:
         )
         if jammed:
             jam_intensity = max((j.intensity for j in self.jamming if j.covers(freq_hz)), default=1.0)
-            # Jamming overrides the baseline with heavy noise on this frequency.
-            snr = min(snr, 0.0) - 6.0 * jam_intensity
+            # Jamming overrides the baseline with heavy competing noise on this
+            # frequency, driving the SNR deeply negative so the (full-strength)
+            # voice is buried rather than merely quietened.
+            snr = min(snr, _JAM_SNR_CEIL_DB) - _JAM_SNR_SPAN_DB * jam_intensity
 
         return BandConditions(
             freq_hz=freq_hz,

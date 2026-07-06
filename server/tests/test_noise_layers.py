@@ -189,3 +189,69 @@ def test_clear_render_degrades_with_interference():
     hit = render_reception(Reception.CLEAR, voice, _conditions(145.5, interference=1.0), SR,
                            rng=np.random.default_rng(1))
     assert corr(clean) > corr(hit)
+
+
+def _voiced(seconds=2.0):
+    t = np.arange(int(seconds * SR)) / SR
+    return (0.5 * np.sin(2 * np.pi * 440 * t) * np.clip(np.sin(2 * np.pi * 3 * t), 0, 1)).astype(
+        np.float32
+    )
+
+
+def _abs_corr(x, voice):
+    a = x[: voice.size] - x[: voice.size].mean()
+    b = voice - voice.mean()
+    return abs(float(np.sum(a * b) / np.sqrt(np.sum(a * a) * np.sum(b * b))))
+
+
+def test_jamming_buries_the_voice():
+    """Acceptance: with jamming on, the full-strength voice is masked by
+    competing noise to the point of being essentially inaudible — not a still-
+    clean layer sitting quietly over the hash (spec §4.2)."""
+    from pivot.core.crypto import Reception
+    from pivot.dsp.engine import render_reception
+
+    voice = _voiced()
+    clean = render_reception(Reception.CLEAR, voice, _conditions(145.5), SR,
+                             rng=np.random.default_rng(1))
+    jammed = render_reception(Reception.CLEAR, voice, _conditions(145.5, jammed=True), SR,
+                              rng=np.random.default_rng(1))
+    hit = render_reception(Reception.CLEAR, voice, _conditions(145.5, interference=1.0), SR,
+                           rng=np.random.default_rng(1))
+
+    # The clean channel carries the voice; the jammed one barely correlates.
+    assert _abs_corr(clean, voice) > 0.4
+    assert _abs_corr(jammed, voice) < 0.1
+    # Jamming buries the voice at least as hard as the strongest interference.
+    assert _abs_corr(jammed, voice) <= _abs_corr(hit, voice)
+
+
+def test_masking_is_competing_noise_not_a_louder_blast():
+    """Burying the voice must come from competing noise, not from cranking the
+    gain: the receiver's AGC keeps a jammed render near the clean render's
+    loudness rather than an ear-splitting wall many times louder (spec §4.1.1)."""
+    from pivot.core.crypto import Reception
+    from pivot.dsp.engine import render_reception
+
+    voice = _voiced()
+    clean = render_reception(Reception.CLEAR, voice, _conditions(145.5), SR,
+                             rng=np.random.default_rng(2))
+    jammed = render_reception(Reception.CLEAR, voice, _conditions(145.5, jammed=True), SR,
+                              rng=np.random.default_rng(2))
+    assert rms(jammed) <= 2.0 * rms(clean)
+
+
+def test_add_noise_for_snr_agc_holds_output_level():
+    """``add_noise_for_snr`` levels the combined stream to the signal's own RMS:
+    a deeply negative SNR piles on masking noise without the output ever growing
+    louder than the signal it carries, and a clean channel is left untouched."""
+    from pivot.dsp.filters import rms as _rms
+    from pivot.dsp.noise import add_noise_for_snr, white_noise
+
+    voice = 0.3 * white_noise(SR, np.random.default_rng(0))  # unit-RMS -> sig ~0.3
+    noise = white_noise(SR, np.random.default_rng(1))
+    sig = _rms(voice)
+    for snr_db in (40.0, 0.0, -20.0, -40.0):
+        assert _rms(add_noise_for_snr(voice, noise, snr_db)) <= sig * 1.05
+    # A clean (high-SNR) channel comes back at essentially the signal's level.
+    assert _rms(add_noise_for_snr(voice, noise, 40.0)) == pytest.approx(sig, rel=0.05)
