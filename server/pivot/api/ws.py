@@ -37,7 +37,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     auth = getattr(ws.app.state, "auth", None)
     await ws.accept()
 
-    token = ws.query_params.get("token")
+    token = ws.cookies.get("pivot_token") or ws.query_params.get("token")
     if token and auth is not None and auth.validate(token):
         await _instructor_session(ws, manager)
     else:
