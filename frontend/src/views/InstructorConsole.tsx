@@ -135,9 +135,12 @@ export function InstructorConsole({
     sock.connect();
     socketRef.current = sock;
 
-    // Enable audio on the first user gesture (autoplay rules), pre-warming the
-    // mic too so the first key-up doesn't clip while getUserMedia spins up.
+    // Warm the mic + playback as soon as the console loads (login is a fresh
+    // gesture), so the browser's mic-permission prompt appears now, not on the
+    // first PTT. Retry on the first in-view gesture if it was blocked (that
+    // fallback also covers playback autoplay).
     const io = audio.current;
+    io.prewarm().catch(() => {});
     const enable = () => io.prewarm().catch(() => {});
     window.addEventListener("pointerdown", enable, { once: true });
     window.addEventListener("keydown", enable, { once: true });
