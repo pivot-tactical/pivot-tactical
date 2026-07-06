@@ -135,9 +135,10 @@ export function InstructorConsole({
     sock.connect();
     socketRef.current = sock;
 
-    // Enable audio on the first user gesture (autoplay rules).
+    // Enable audio on the first user gesture (autoplay rules), pre-warming the
+    // mic too so the first key-up doesn't clip while getUserMedia spins up.
     const io = audio.current;
-    const enable = () => io.init().catch(() => {});
+    const enable = () => io.prewarm().catch(() => {});
     window.addEventListener("pointerdown", enable, { once: true });
     window.addEventListener("keydown", enable, { once: true });
 

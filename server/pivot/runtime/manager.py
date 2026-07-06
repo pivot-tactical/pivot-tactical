@@ -365,10 +365,15 @@ class SessionManager:
         per-station recording remains clean and correct (§3.5.1).
         """
         radio = self.registry.get(radio_id)
-        if radio is None or not radio.on_air or pcm.size == 0:
+        if radio is None or pcm.size == 0:
             return
-        # Recording tap (clean, pre-DSP).
+        # Recording tap (clean, pre-DSP). Tapped from key-down — including the
+        # crypto-sync lead-in, before the station is on air — so the recording
+        # captures the whole transmission and is not clipped at the start
+        # (§3.5.1). push_tx_audio only accumulates while a keying is active.
         self.push_tx_audio(radio_id, pcm)
+        if not radio.on_air:
+            return  # nothing is rendered to listeners until the station is on air
 
         freq = radio.frequency_hz
         render_map = self.registry.render_map_for_net(freq)

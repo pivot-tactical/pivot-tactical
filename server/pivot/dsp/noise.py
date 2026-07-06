@@ -288,15 +288,29 @@ class NoiseTexture:
         return level * (0.9 * sweep.astype(np.float32) + rough) * surge
 
     def _jam(self, n: int) -> np.ndarray:
-        """Full jammer: an aggressive multi-rate AM warble over broadband
-        noise — unmistakably deliberate, nothing intelligible survives."""
+        """Full jammer: an aggressive multi-rate AM warble riding on a strong,
+        *continuous* broadband bed — unmistakably deliberate, and nothing
+        intelligible survives.
+
+        The bed is the masker: it never gaps, so a listener cannot hear the
+        wanted voice through the amplitude dips of the warble (the classic
+        "listening in the dips" that lets speech leak through a heavily
+        modulated jammer). The warble is a separate layer on top purely for the
+        deliberate-jammer character — even at its lowest the total level stays
+        high, because the steady bed underneath it does not dip."""
         sr = self.sample_rate
         t = (self._t + np.arange(n)) / sr
         am = 0.5 * (1.0 + np.sin(2.0 * np.pi * 90.0 * t)) * (
             0.5 + 0.5 * np.sin(2.0 * np.pi * 13.0 * t)
         )
-        carrier = white_noise(n, self.rng)
-        return (carrier * (0.15 + 0.85 * am)).astype(np.float32) * 1.8
+        # Continuous broadband bed (the actual masker) + a deeply-modulated
+        # warble on top (the audible menace). Independent carriers so the bed
+        # keeps hissing right through the warble's dips: the warble's peaks
+        # still tower over the bed (so it is plainly a deliberate jammer), but
+        # the trough never falls to a gap the voice could be heard through.
+        bed = white_noise(n, self.rng) * 0.4
+        warble = white_noise(n, self.rng) * (0.15 + 0.85 * am) * 1.7
+        return (bed + warble).astype(np.float32)
 
     # -- composite ----------------------------------------------------------- #
 

@@ -262,6 +262,35 @@ def test_route_tx_frame_ignored_when_not_on_air(manager):
     assert got == []
 
 
+def test_route_tx_frame_records_crypto_sync_lead_in(manager):
+    """Cypher lead-in: mic frames arriving before the station is on air (during
+    the crypto-sync delay) are still tapped for the recording, so the start of
+    the transmission is not clipped off the WAV (§3.5.1). Nothing is rendered to
+    listeners until on air, though."""
+    manager.start_session("EX")
+    manager.login("TX", "tx")
+    manager.login("RX", "rx")
+    manager.tune("tx", "14.250 MHz")
+    manager.tune("rx", "14.250 MHz")
+    manager.set_mode("tx", RadioMode.CYPHER)
+    rx_frames = []
+    manager.register_audio_sink("rx", rx_frames.append)
+
+    start = manager.ptt_start("tx")
+    assert start["sync_applies"] is True
+    assert manager.registry.get("tx").on_air is False  # still in crypto sync
+
+    frame = (0.3 * np.sin(2 * np.pi * 440 * np.arange(320) / 16000)).astype(np.float32)
+    manager.route_tx_frame("tx", frame)          # arrives DURING sync (not on air)
+    assert rx_frames == []                        # nothing rendered while syncing
+    manager.ptt_sync_complete("tx")
+    manager.route_tx_frame("tx", frame)          # arrives once on air
+
+    event = manager.ptt_end("tx")                # no explicit audio -> uses the tap
+    # Both 20 ms frames captured (sync lead-in + on-air), not just the on-air one.
+    assert event["duration_ms"] >= 39
+
+
 def test_instructor_radio_lifecycle(manager):
     r = manager.add_instructor_radio("Radio 1", "40.000 MHz")
     assert r["is_instructor"] is True

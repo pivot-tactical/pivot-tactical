@@ -70,7 +70,9 @@ export function Radio({
       rxLevel.current = Math.max(rxLevel.current, pcmLevel(buf));
       audio.current.play(buf);
     });
-    const enable = () => audio.current.init().catch(() => {});
+    // Pre-open the mic (and playback) on the first gesture so the very first
+    // key-up doesn't clip while getUserMedia spins up.
+    const enable = () => audio.current.prewarm().catch(() => {});
     window.addEventListener("pointerdown", enable, { once: true });
     window.addEventListener("keydown", enable, { once: true });
     return () => audio.current.close();

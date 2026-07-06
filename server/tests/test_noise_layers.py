@@ -241,6 +241,53 @@ def test_masking_is_competing_noise_not_a_louder_blast():
     assert rms(jammed) <= 2.0 * rms(clean)
 
 
+def test_jammer_leaves_no_gap_to_hear_voice_through():
+    """The jammer is a *continuous* masker: even its best short window barely
+    tracks the voice, so there is no amplitude dip a listener could hear the
+    speech through (regression for a heavily-modulated jammer that gaps)."""
+    from pivot.core.crypto import Reception
+    from pivot.dsp.engine import render_reception
+    from pivot.dsp.filters import bandpass
+
+    voice = _voiced(3.0)
+    out = render_reception(Reception.CLEAR, voice, _conditions(145.5, jammed=True), SR,
+                           rng=np.random.default_rng(1))
+    vb = bandpass(voice, 300.0, 3000.0, SR)
+    ob = bandpass(out[: voice.size], 300.0, 3000.0, SR)
+    W = int(0.04 * SR)
+    worst = 0.0
+    for i in range(vb.size // W):
+        a, b = vb[i * W:(i + 1) * W], ob[i * W:(i + 1) * W]
+        if rms(a) < 1e-3:
+            continue
+        aa, bb = a - a.mean(), b - b.mean()
+        d = np.sqrt(np.sum(aa * aa) * np.sum(bb * bb))
+        if d > 1e-9:
+            worst = max(worst, abs(float(np.sum(aa * bb) / d)))
+    assert worst < 0.35
+
+
+def test_jammed_render_masks_even_with_stale_shallow_snr():
+    """A recording captured before the deep-jam model still masks on playback:
+    the engine clamps the SNR whenever ``jammed`` is set, so a stored shallow
+    figure cannot let the voice back through (robust to old recordings)."""
+    from dataclasses import replace
+
+    from pivot.core.crypto import Reception
+    from pivot.dsp.engine import render_reception
+
+    voice = _voiced()
+    fresh = render_reception(Reception.CLEAR, voice, _conditions(145.5, jammed=True), SR,
+                             rng=np.random.default_rng(1))
+    stale = render_reception(
+        Reception.CLEAR, voice,
+        replace(_conditions(145.5, jammed=True), snr_db=-6.0),  # pre-fix profile
+        SR, rng=np.random.default_rng(1),
+    )
+    assert _abs_corr(fresh, voice) < 0.15
+    assert _abs_corr(stale, voice) < 0.15
+
+
 def test_add_noise_for_snr_agc_holds_output_level():
     """``add_noise_for_snr`` levels the combined stream to the signal's own RMS:
     a deeply negative SNR piles on masking noise without the output ever growing

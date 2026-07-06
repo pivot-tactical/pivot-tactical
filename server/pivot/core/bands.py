@@ -292,7 +292,7 @@ _CLEANUP_SNR_BOOST_DB = 18.0
 # strength — it is the competing jammer noise, not any attenuation of the voice,
 # that makes it impossible to copy (spec §4.2).
 _JAM_SNR_CEIL_DB = -8.0
-_JAM_SNR_SPAN_DB = 20.0
+_JAM_SNR_SPAN_DB = 24.0
 
 
 @dataclass

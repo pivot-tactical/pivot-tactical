@@ -6,7 +6,11 @@ import { InstructorConsole } from './InstructorConsole';
 // Mock audio
 vi.mock('../audio', () => ({
   AudioIO: vi.fn().mockImplementation(() => ({
-    startCapture: vi.fn(),
+    init: vi.fn().mockResolvedValue(undefined),
+    prewarm: vi.fn().mockResolvedValue(undefined),
+    startCapture: vi.fn().mockResolvedValue(undefined),
+    stopCapture: vi.fn(),
+    setVolume: vi.fn(),
     play: vi.fn(),
     resume: vi.fn(),
     pause: vi.fn(),
