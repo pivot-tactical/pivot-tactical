@@ -12,8 +12,6 @@ metadata, so there are no incremental steps yet. New migrations are appended to
 :data:`MIGRATIONS` as ``(target_version, callable)`` pairs.
 """
 
-from __future__ import annotations
-
 import json
 from collections.abc import Callable
 
