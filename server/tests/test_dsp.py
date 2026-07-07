@@ -184,3 +184,40 @@ def test_crypto_sync_tone_duration():
 def test_crypto_sync_tone_presets(preset):
     tone = crypto_sync_tone(SR, preset=preset)
     assert tone.size > 0 and np.isfinite(tone).all()
+
+# --- filters --------------------------------------------------------------- #
+
+def test_lowpass_attenuation():
+    """Verify that lowpass preserves frequencies below cutoff and attenuates above."""
+    import numpy as np
+    from pivot.dsp.filters import lowpass, rms
+    SR = 16_000
+    t = np.arange(SR) / SR
+    f_low = 300   # Well below cutoff
+    f_high = 3000 # Well above cutoff
+
+    # Generate pure tones
+    x_low = np.sin(2 * np.pi * f_low * t).astype(np.float32)
+    x_high = np.sin(2 * np.pi * f_high * t).astype(np.float32)
+
+    # Filter them with a 1000 Hz cutoff
+    cutoff = 1000.0
+    y_low = lowpass(x_low, cutoff, SR)
+    y_high = lowpass(x_high, cutoff, SR)
+
+    # Low frequency should be preserved (gain ~ 1.0)
+    gain_low = rms(y_low) / rms(x_low)
+    assert 0.9 < gain_low <= 1.1
+
+    # High frequency should be strongly attenuated (order=4 -> sharp cutoff)
+    gain_high = rms(y_high) / rms(x_high)
+    assert gain_high < 0.1
+
+def test_lowpass_empty():
+    """Verify that passing an empty array returns an empty array safely."""
+    import numpy as np
+    from pivot.dsp.filters import lowpass
+    SR = 16_000
+    x = np.array([], dtype=np.float32)
+    y = lowpass(x, 1000.0, SR)
+    assert y.size == 0
