@@ -5,8 +5,6 @@ operator's own headset** while the radio waits out the crypto sync delay — it 
 never broadcast on the net and is never re-rendered in AAR playback (§4.5).
 """
 
-from __future__ import annotations
-
 import numpy as np
 
 # Named presets so settings can offer "KY-57 style" etc. (§4.3).
