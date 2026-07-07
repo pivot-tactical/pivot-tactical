@@ -241,7 +241,9 @@ export const api = {
   recentEvents: (limit = 200) => jsonFetch<EventRow[]>(`/api/events/recent?limit=${limit}`),
   events: (sessionId: string) => jsonFetch<EventRow[]>(`/api/sessions/${sessionId}/events`),
   eventAudioUrl: (eventId: string, mode: "clean" | "dirty", view: "plain" | "cypher") =>
-    `/api/events/${eventId}/audio?${tokenQuery(`mode=${mode}&view=${view}`)}`,
+    // `_` cache-busts so a re-render (e.g. after a build that changes how
+    // jamming masks) is always fetched fresh, never served stale from cache.
+    `/api/events/${eventId}/audio?${tokenQuery(`mode=${mode}&view=${view}&_=${Date.now()}`)}`,
   exportUrl: (sessionId: string, fmt: "zip" | "text" | "csv") =>
     `/api/sessions/${sessionId}/export?${tokenQuery(`fmt=${fmt}`)}`,
 };
