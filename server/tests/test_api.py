@@ -741,3 +741,27 @@ def test_session_events_mocked(client, monkeypatch):
 
     assert r.status_code == 200
     assert r.json() == [{"event_id": "test_event"}]
+
+def test_admin_start_session(client, monkeypatch):
+    from unittest.mock import MagicMock
+    from pivot.api.deps import get_manager
+    mock_manager = MagicMock()
+    mock_manager.start_session.return_value = {"status": "started", "session_id": "test_123"}
+
+    monkeypatch.setitem(client.app.dependency_overrides, get_manager, lambda: mock_manager)
+
+    r = client.post("/api/admin/session/start", json={"name": "test_session"})
+    assert r.status_code == 200
+    assert r.json() == {"status": "started", "session_id": "test_123"}
+    mock_manager.start_session.assert_called_once_with("test_session")
+
+def test_admin_start_session_validation_error(client, monkeypatch):
+    from unittest.mock import MagicMock
+    from pivot.api.deps import get_manager
+    mock_manager = MagicMock()
+    monkeypatch.setitem(client.app.dependency_overrides, get_manager, lambda: mock_manager)
+
+    # Name too short
+    r = client.post("/api/admin/session/start", json={"name": ""})
+    assert r.status_code == 422
+    mock_manager.start_session.assert_not_called()
