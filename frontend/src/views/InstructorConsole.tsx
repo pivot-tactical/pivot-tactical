@@ -658,6 +658,13 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
   const [applyErr, setApplyErr] = useState<string | null>(null);
   const [restartErr, setRestartErr] = useState<string | null>(null);
   const [showDowngrade, setShowDowngrade] = useState(false);
+  // Re-open the version lists while an update is staged, to swap the pending
+  // version for a different pick before restarting.
+  const [showChoose, setShowChoose] = useState(false);
+  // The version awaiting restart: the server's fresh staged_tag is the truth;
+  // local `staged` covers the moment right after a manual apply, and
+  // auto_staged is a fallback for older payload shapes.
+  const stagedTag = staged || upd?.staged_tag || upd?.auto_staged || null;
   // Versions actually stored on disk (instant rollback / deletable), loaded
   // lazily when the downgrade pane is opened. Distinct from older *releases*,
   // which re-download.
@@ -681,7 +688,11 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
 
   function absorb(result: UpdateStatus) {
     setUpd(result);
-    if (result.auto_staged) setStaged(result.auto_staged);
+    // staged_tag is the truth (read fresh from the pending marker server-side):
+    // the exact version awaiting restart, whether it was chosen manually or
+    // auto-staged. auto_staged is kept as a fallback for older payloads only.
+    if (result.staged_tag) setStaged(result.staged_tag);
+    else if (result.auto_staged) setStaged(result.auto_staged);
     if (result.auto_update_error) setApplyErr(result.auto_update_error);
   }
 
@@ -726,8 +737,10 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
     setApplyErr(null);
     try {
       await api.applyUpdate(a.tag, a.asset_url, a.sha256_url, a.sig_url, a.asset_name);
-      // Verified + staged; the swap finishes on the next restart.
+      // Verified + staged; the swap finishes on the next restart. This replaces
+      // any previously staged version (the last explicit choice wins).
       setStaged(a.tag);
+      setShowChoose(false);
     } catch (e: any) {
       setApplyErr(e?.message ?? "Download failed");
     } finally {
@@ -746,6 +759,7 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
     try {
       const res = await api.rollbackUpdate(tag);
       setStaged(res.tag);
+      setShowChoose(false);
     } catch (e: any) {
       setApplyErr(e?.message ?? "Rollback failed");
     } finally {
@@ -919,7 +933,6 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
 
         {/* One primary status line — single source of truth for the headline. */}
         {upd && (() => {
-          const stagedTag = staged || (upd.auto_staged ?? null);
           if (stagedTag)
             return <p className="mt" style={{ fontWeight: 600 }}>{stagedTag} ready — restart PIVOT to apply ✓</p>;
           if (upd.auto_state === "downloading")
@@ -947,13 +960,26 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
           return null;
         })()}
 
-        {/* Per-release rows: only shown when there is something to install and
-            nothing is already staged (the staged headline covers that case). */}
-        {upd && !staged && !upd.auto_staged && upd.reachable && upd.available.map((a) => (
+        {/* Something is staged: the choice isn't locked in until the restart, so
+            offer to pick a different version — staging the new pick replaces the
+            pending one (the server never auto-overwrites it the other way). */}
+        {upd && stagedTag && (
+          <button className="btn btn--ghost mt" onClick={() => setShowChoose((s) => !s)}>
+            {showChoose ? "Keep the staged version" : "Choose a different version…"}
+          </button>
+        )}
+
+        {/* Per-release rows: shown when nothing is staged yet, or when the
+            instructor wants to replace the staged version with another one. */}
+        {upd && (!stagedTag || showChoose) && upd.reachable && upd.available.map((a) => (
           <div className="row between mt" key={a.tag}>
-            <span className="mono">{a.tag}{a.prerelease ? " · prerelease" : ""}</span>
+            <span className="mono">
+              {a.tag}{a.prerelease ? " · prerelease" : ""}{a.tag === stagedTag ? " · staged" : ""}
+            </span>
             {applying === a.tag ? (
               <span className="muted">Downloading…</span>
+            ) : a.tag === stagedTag ? (
+              <span className="muted">Staged — restart to apply</span>
             ) : a.has_asset ? (
               <button className="btn btn--primary" onClick={() => applyUpdate(a)}
                 disabled={applying !== null}>
@@ -969,7 +995,7 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
         {/* Downgrade / recovery: instant rollback to the retained previous build
             (no re-download), plus the full version list so a bad update never
             blocks training. */}
-        {upd && !staged && !upd.auto_staged && (
+        {upd && (!stagedTag || showChoose) && (
           <div className="mt">
             <button className="btn btn--ghost" onClick={() => setShowDowngrade((s) => !s)}>
               {showDowngrade ? "Hide downgrade options" : "Downgrade / recovery…"}
@@ -1018,9 +1044,13 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
                 </p>
                 {(upd.releases || []).filter((r) => r.standing === "older").map((a) => (
                   <div className="row between mt" key={a.tag}>
-                    <span className="mono">{a.tag}{a.prerelease ? " · prerelease" : ""}</span>
+                    <span className="mono">
+                      {a.tag}{a.prerelease ? " · prerelease" : ""}{a.tag === stagedTag ? " · staged" : ""}
+                    </span>
                     {applying === a.tag ? (
                       <span className="muted">Downloading…</span>
+                    ) : a.tag === stagedTag ? (
+                      <span className="muted">Staged — restart to apply</span>
                     ) : a.has_asset ? (
                       <button className="btn" onClick={() => applyUpdate(a)} disabled={applying !== null}>
                         Install this version
@@ -1048,7 +1078,7 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
         {/* Restart from the browser: applies a staged update on the way back up,
             and is useful on its own. */}
         {(() => {
-          const hasStaged = !!(staged || upd?.auto_staged);
+          const hasStaged = !!stagedTag;
           return (
             <div className="row gap mt" style={{ alignItems: "center" }}>
               <button

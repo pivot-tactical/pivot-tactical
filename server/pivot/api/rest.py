@@ -423,7 +423,7 @@ def admin_check_updates(manager=Depends(get_manager)) -> dict:
     """
     service = getattr(manager, "update_service", None)
     if service is not None:
-        return _shape_update_status(service.snapshot())
+        return _shape_update_status(service.snapshot(), manager)
     return _live_update_check(manager)
 
 
@@ -446,21 +446,31 @@ def admin_refresh_updates(manager=Depends(get_manager)) -> dict:
 
     service = getattr(manager, "update_service", None)
     if service is not None:
-        return _shape_update_status(service.refresh())
+        return _shape_update_status(service.refresh(), manager)
     return _live_update_check(manager)
 
 
-def _shape_update_status(snap: dict) -> dict:
+def _shape_update_status(snap: dict, manager) -> dict:
     """Add backward-compatible derived fields the UI reads (auto_staged/error).
 
     The service snapshot models auto-update outcome as ``auto_state`` /
     ``auto_message``; the existing console also understands ``auto_staged`` and
     ``auto_update_error``, so surface both for a clean transition.
+
+    ``staged_tag`` — the version actually pending a restart — is re-read fresh
+    from the pending marker here rather than trusted from the cached snapshot:
+    an instructor may have staged a specific version manually since the
+    service's last poll, and the pane must show *that* version, not a stale
+    guess (and never the newest release when something else was chosen).
     """
+    from pivot.updates.manager import UpdateManager
+    from pivot.version import version_info
+
     out = dict(snap)
-    if snap.get("auto_state") == "applied":
-        avail = snap.get("available") or []
-        out["auto_staged"] = avail[0]["tag"] if avail else snap.get("auto_message", "")
+    mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
+    out["staged_tag"] = mgr.staged_tag()
+    if snap.get("auto_state") == "applied" and out["staged_tag"]:
+        out["auto_staged"] = out["staged_tag"]
     elif snap.get("auto_state") == "error":
         out["auto_update_error"] = snap.get("auto_message", "Auto-update failed.")
     return out
@@ -495,6 +505,7 @@ def _live_update_check(manager) -> dict:
         "available": [],
         "retained": mgr.retained_versions(),
         "previous": mgr.previous_version(),
+        "staged_tag": mgr.staged_tag(),
     }
     try:
         raw = github.fetch_releases(repo, token)
@@ -524,13 +535,17 @@ def _live_update_check(manager) -> dict:
     result["releases"] = [to_dict(r) for r in mgr.list_releases(raw)]
     result["available"] = [to_dict(r) for r in available]
 
-    # Auto-update: download + stage the newest available release on the channel.
-    if bool(cfg.get("auto_update", False)) and available:
+    # Auto-update: download + stage the newest available release on the channel
+    # — but never over an update that is already staged. A pending version
+    # (possibly a specific one the instructor chose, §3.7.4) wins until a
+    # restart applies it; the newest is only auto-staged onto a clean slate.
+    if bool(cfg.get("auto_update", False)) and available and not mgr.staged_tag():
         newest = available[0]
         if newest.asset_url:
             try:
                 mgr.download_and_stage(newest, token)
                 result["auto_staged"] = newest.tag
+                result["staged_tag"] = newest.tag
             except Exception as exc:
                 result["auto_update_error"] = str(exc)
 
