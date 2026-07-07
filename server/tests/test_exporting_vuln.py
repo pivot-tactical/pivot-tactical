@@ -5,7 +5,6 @@ from pathlib import Path
 from pivot.core.crypto import Audibility, RadioMode, SyncStatus
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
-from pivot.db.models import TranscriptionStatus
 from pivot.exporting import export_zip
 
 def test_export_zip_path_traversal(database, settings, tmp_path):

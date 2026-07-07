@@ -9,10 +9,14 @@ decorrelated envelopes, producing a moving spectral notch.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
-from pivot.core.bands import BandConditions
 from pivot.dsp.filters import highpass, lowpass, slow_random
+
+if TYPE_CHECKING:
+    from pivot.core.bands import BandConditions
 
 
 def flat_fading_gain(
