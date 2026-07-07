@@ -694,3 +694,27 @@ def test_maybe_start_transcription_no_whisper():
     cfg = MagicMock()
     worker = _maybe_start_transcription(manager, cfg)
     assert worker is None
+
+def test_auth_refresh_mocked(settings):
+    from unittest.mock import MagicMock
+    from fastapi.testclient import TestClient
+    from pivot.api.app import create_app
+    from pivot.api.deps import get_auth, require_instructor
+
+    app = create_app(settings)
+
+    mock_auth = MagicMock()
+    mock_auth.issue_token.return_value = "new_mocked_token"
+    mock_auth.is_default.return_value = True
+
+    app.dependency_overrides[require_instructor] = lambda: None
+    app.dependency_overrides[get_auth] = lambda: mock_auth
+
+    with TestClient(app) as c:
+        response = c.post("/api/auth/refresh")
+
+        assert response.status_code == 200
+        assert response.json() == {"token": None, "must_change_password": True}
+        assert c.cookies.get("pivot_token") == "new_mocked_token"
+        mock_auth.issue_token.assert_called_once()
+        mock_auth.is_default.assert_called_once()
