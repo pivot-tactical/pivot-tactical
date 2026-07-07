@@ -295,3 +295,34 @@ def test_soft_clip_bounds_and_linearity():
     x_small = np.array([-0.1, 0.0, 0.1], dtype=np.float32)
     y_small = soft_clip(x_small)
     assert np.allclose(x_small, y_small, atol=0.01)
+
+def test_flat_fading_gain_bypasses():
+    rng = np.random.default_rng(0)
+    # Case 1: n == 0
+    gain_empty = flat_fading_gain(0, SR, 20.0, 1.0, rng)
+    assert gain_empty.shape == (0,)
+
+    # Case 2: depth_db <= 0.01
+    gain_flat = flat_fading_gain(100, SR, 0.0, 1.0, rng)
+    assert gain_flat.shape == (100,)
+    assert np.array_equal(gain_flat, np.ones(100, dtype=np.float32))
+
+def test_flat_fading_gain_distribution():
+    """Verify the output gain distribution matches expected flat fading properties."""
+    rng = np.random.default_rng(42)
+    n = SR * 30  # 30 seconds of audio to get a good distribution
+    depth_db = 30.0
+
+    gain = flat_fading_gain(n, SR, depth_db, 10.0, rng)
+    gain_db = 20.0 * np.log10(gain + 1e-9)
+
+    # 1. Bounds check (clamped between -depth_db and +3dB)
+    assert np.min(gain_db) >= -depth_db - 0.1
+    assert np.max(gain_db) <= 3.0 + 0.1
+
+    # 2. It should have significant dips (approaching -depth_db)
+    assert np.min(gain_db) < -depth_db / 2.0
+
+    # 3. Mean should be slightly negative, standard deviation should scale with depth
+    assert np.mean(gain_db) < 0.0
+    assert 5.0 < np.std(gain_db) < 15.0
