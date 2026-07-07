@@ -138,8 +138,9 @@ def test_plain_collision_mixes_voices():
     b = speech_like(seed=2)
     cond = BandProfile().conditions_at(145e6)
     engine = DspEngine(SR)
-    out = engine.render(Reception.PLAIN_COLLISION, voices=[a, b], conditions=cond,
-                        rng=np.random.default_rng(0))
+    out = engine.render(
+        Reception.PLAIN_COLLISION, voices=[a, b], conditions=cond, rng=np.random.default_rng(0)
+    )
     assert out.shape == a.shape
     # The mix correlates with neither source as strongly as a clean render would.
     assert norm_corr(out, a) < 0.9 and norm_corr(out, b) < 0.9
@@ -184,3 +185,22 @@ def test_crypto_sync_tone_duration():
 def test_crypto_sync_tone_presets(preset):
     tone = crypto_sync_tone(SR, preset=preset)
     assert tone.size > 0 and np.isfinite(tone).all()
+
+
+def test_soft_clip_bounds_and_linearity():
+    from pivot.dsp.filters import soft_clip
+
+    # Test extreme values are soft-clipped within [-1, 1] bounds
+    x = np.array([-10.0, -2.0, -1.0, 0.0, 1.0, 2.0, 10.0], dtype=np.float32)
+    y = soft_clip(x)
+
+    assert y.dtype == np.float32
+    assert np.all(y >= -1.0)
+    assert np.all(y <= 1.0)
+    assert np.isclose(y[0], -1.0, atol=1e-4)
+    assert np.isclose(y[-1], 1.0, atol=1e-4)
+
+    # Test small signals remain largely unmodified (linear region)
+    x_small = np.array([-0.1, 0.0, 0.1], dtype=np.float32)
+    y_small = soft_clip(x_small)
+    assert np.allclose(x_small, y_small, atol=0.01)

@@ -14,6 +14,7 @@ import numpy as np
 
 from pivot.core.bands import BandConditions, net_key_for
 from pivot.core.crypto import Reception
+from pivot.dsp.digital import DigitalVoice
 from pivot.dsp.fading import apply_fading
 from pivot.dsp.filters import bandpass, normalise_rms, soft_clip
 from pivot.dsp.hash_gen import encrypted_hash
@@ -48,6 +49,9 @@ class DspEngine:
     _textures: dict[int, NoiseTexture] = field(default_factory=dict, repr=False)
     _texture_use: dict[int, int] = field(default_factory=dict, repr=False)
     _use_counter: int = 0
+    _digital: dict[int, DigitalVoice] = field(default_factory=dict, repr=False)
+    _digital_use: dict[int, int] = field(default_factory=dict, repr=False)
+    _digital_counter: int = 0
 
     def _rng(self, rng: np.random.Generator | None) -> np.random.Generator:
         return rng if rng is not None else np.random.default_rng()
@@ -71,6 +75,28 @@ class DspEngine:
         self._use_counter += 1
         self._texture_use[key] = self._use_counter
         return texture
+
+    def _digital_voice(
+        self, conditions: BandConditions, rng: np.random.Generator | None
+    ) -> DigitalVoice:
+        """The net's persistent digital-voice decoder state, or a fresh seeded
+        one when ``rng`` is given — same lifecycle as :meth:`_texture`, so the
+        vocoder filters and frame-error bursts stay continuous across the live
+        router's 20 ms frames."""
+        if rng is not None:
+            return DigitalVoice(self.sample_rate, rng)
+        key = net_key_for(conditions.freq_hz)
+        dv = self._digital.get(key)
+        if dv is None:
+            dv = DigitalVoice(self.sample_rate)
+            self._digital[key] = dv
+            if len(self._digital) > _MAX_TEXTURES:
+                oldest = min(self._digital, key=lambda k: self._digital_use.get(k, 0))
+                self._digital.pop(oldest, None)
+                self._digital_use.pop(oldest, None)
+        self._digital_counter += 1
+        self._digital_use[key] = self._digital_counter
+        return dv
 
     # -- band chain shared by clear & hash --------------------------------- #
 
@@ -127,6 +153,18 @@ class DspEngine:
         rng = self._rng(rng)
         return soft_clip(self._band_chain(np.asarray(voice, dtype=np.float32), conditions, rng))
 
+    def render_digital(self, voice, conditions, rng=None):
+        """Cypher-to-cypher decode: MELP-style digital voice (§3.4.1, §4.4).
+
+        The listener hears the vocoder's reconstruction, never the channel:
+        no analog band chain, no noise bed. Channel quality instead drives the
+        per-frame decode simulation inside :class:`DigitalVoice` — clean a few
+        dB below where analog copy fails, then dropouts and duck-garble past
+        the digital cliff (and near-silence under jamming).
+        """
+        dv = self._digital_voice(conditions, rng)
+        return soft_clip(dv.render(np.asarray(voice, dtype=np.float32), conditions))
+
     def render_hash(self, voice, conditions, rng=None):
         rng = self._rng(rng)
         hashed = encrypted_hash(np.asarray(voice, dtype=np.float32), self.sample_rate, rng)
@@ -168,7 +206,7 @@ class DspEngine:
     ) -> np.ndarray:
         """Render a buffer for ``reception``.
 
-        For ``CLEAR``/``HASH`` pass ``voice``; for ``PLAIN_COLLISION`` pass
+        For ``CLEAR``/``DIGITAL``/``HASH`` pass ``voice``; for ``PLAIN_COLLISION`` pass
         ``voices``; for ``CRYPTO_JAM`` pass ``voice`` (only its length is used).
         ``with_transients`` adds a PTT click and squelch tail around the buffer —
         used for whole-event AAR playback (§3.2.4, §4.1.1).
@@ -178,6 +216,8 @@ class DspEngine:
             return np.zeros(n, dtype=np.float32)
         if reception is Reception.CLEAR:
             out = self.render_clear(_require(voice, "voice"), conditions, rng)
+        elif reception is Reception.DIGITAL:
+            out = self.render_digital(_require(voice, "voice"), conditions, rng)
         elif reception is Reception.HASH:
             out = self.render_hash(_require(voice, "voice"), conditions, rng)
         elif reception is Reception.PLAIN_COLLISION:

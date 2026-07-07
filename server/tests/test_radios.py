@@ -175,7 +175,7 @@ def test_render_map_groups_listeners():
     rmap = reg.render_map_for_net(14_250_000)
     assert rmap["p1"] is Reception.HASH
     assert rmap["p2"] is Reception.HASH
-    assert rmap["c1"] is Reception.CLEAR
+    assert rmap["c1"] is Reception.DIGITAL  # cypher decode = MELP digital voice
     assert rmap["tx"] is Reception.SILENCE  # keyed
 
 
@@ -250,4 +250,4 @@ def test_render_map_mixed_reception():
     rmap = reg.render_map_for_net(14_250_000)
     assert rmap["tx_cypher"] is Reception.SILENCE
     assert rmap["rx_plain"] is Reception.HASH
-    assert rmap["rx_cypher"] is Reception.CLEAR
+    assert rmap["rx_cypher"] is Reception.DIGITAL

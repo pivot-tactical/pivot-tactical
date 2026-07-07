@@ -220,3 +220,27 @@ def test_noise_stops_after_session_ends(manager):
     sink.frames.clear()
     manager.render_idle_noise_tick(FRAME, primed)
     assert sink.frames == [], "hash must stop after session ends"
+
+def test_idle_noise_amplitude():
+    from pivot.dsp.noise import (
+        idle_noise_amplitude,
+        IDLE_NOISE_RMS_NOISY,
+        IDLE_NOISE_RMS_CLEAN,
+        _IDLE_SNR_FLOOR_DB,
+        _IDLE_SNR_CEIL_DB,
+    )
+
+    # Below floor SNR
+    assert idle_noise_amplitude(_IDLE_SNR_FLOOR_DB - 10.0) == IDLE_NOISE_RMS_NOISY
+
+    # Above ceiling SNR
+    assert idle_noise_amplitude(_IDLE_SNR_CEIL_DB + 10.0) == IDLE_NOISE_RMS_CLEAN
+
+    # Midway
+    mid_snr = (_IDLE_SNR_FLOOR_DB + _IDLE_SNR_CEIL_DB) / 2.0
+    mid_expected = (IDLE_NOISE_RMS_NOISY + IDLE_NOISE_RMS_CLEAN) / 2.0
+    assert idle_noise_amplitude(mid_snr) == pytest.approx(mid_expected)
+
+    # Jammed
+    assert idle_noise_amplitude(_IDLE_SNR_CEIL_DB + 10.0, jammed=True) == IDLE_NOISE_RMS_NOISY
+    assert idle_noise_amplitude(_IDLE_SNR_FLOOR_DB - 10.0, jammed=True) == IDLE_NOISE_RMS_NOISY
