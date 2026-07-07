@@ -4,8 +4,6 @@ Trainee endpoints are open (callsign only). Instructor/admin endpoints require a
 valid instructor bearer token (:func:`pivot.api.deps.require_instructor`).
 """
 
-from __future__ import annotations
-
 import logging
 import uuid
 

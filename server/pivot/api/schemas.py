@@ -1,6 +1,5 @@
 """Pydantic request/response models for the REST + WS API (spec §6)."""
 
-from __future__ import annotations
 
 import urllib.parse
 

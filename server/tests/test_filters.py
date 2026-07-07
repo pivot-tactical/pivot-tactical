@@ -9,6 +9,7 @@ from pivot.dsp.filters import (
     lowpass,
     normalise_rms,
     rms,
+    slow_random,
 )
 
 SR = 16000
@@ -135,3 +136,42 @@ def test_filters_handle_empty_arrays():
     assert lowpass(empty, 1000, SR).size == 0
     assert bandpass(empty, 800, 1200, SR).size == 0
     assert bandstop(empty, 800, 1200, SR).size == 0
+
+def test_slow_random_empty():
+    rng = np.random.default_rng(42)
+    out = slow_random(0, 16000, 1.0, rng)
+    assert out.size == 0
+    assert out.dtype == np.float32
+
+def test_slow_random_shape_and_type():
+    rng = np.random.default_rng(42)
+    out = slow_random(16000, 16000, 1.0, rng)
+    assert out.shape == (16000,)
+    assert out.dtype == np.float32
+
+def test_slow_random_reproducibility():
+    rng1 = np.random.default_rng(42)
+    out1 = slow_random(16000, 16000, 1.0, rng1)
+
+    rng2 = np.random.default_rng(42)
+    out2 = slow_random(16000, 16000, 1.0, rng2)
+
+    assert np.array_equal(out1, out2)
+
+def test_slow_random_different_rates():
+    rng1 = np.random.default_rng(42)
+    fast = slow_random(16000, 16000, 10.0, rng1)
+
+    rng2 = np.random.default_rng(42)
+    slow = slow_random(16000, 16000, 0.1, rng2)
+
+    fast_diff = np.mean(np.abs(np.diff(fast)))
+    slow_diff = np.mean(np.abs(np.diff(slow)))
+    assert fast_diff > slow_diff * 10
+
+def test_slow_random_bounds():
+    rng = np.random.default_rng(42)
+    out = slow_random(16000, 16000, 1.0, rng)
+    assert not np.allclose(out, 0)
+    assert np.max(out) < 10.0
+    assert np.min(out) > -10.0

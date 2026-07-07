@@ -790,3 +790,42 @@ def test_export_session(client, monkeypatch):
 def test_export_session_auth(raw_client):
     r = raw_client.post("/api/sessions/session123/export")
     assert r.status_code == 401
+def test_instructor_logout(raw_client):
+    from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD
+
+    # 1. Login
+    r = raw_client.post("/api/login", json={"role": "instructor", "password": DEFAULT_INSTRUCTOR_PASSWORD})
+    assert r.status_code == 200
+    token = raw_client.cookies.get("pivot_token")
+    assert token is not None
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Verify we have access
+    assert raw_client.get("/api/admin/terminals", headers=headers).status_code == 200
+
+    # 2. Logout
+    r = raw_client.post("/api/logout", headers=headers)
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+
+    # 3. Verify token cookie is cleared from the client session
+    assert not raw_client.cookies.get("pivot_token")
+
+    # 4. Verify the revoked token can no longer access admin endpoints
+    assert raw_client.get("/api/admin/terminals", headers=headers).status_code == 401
+
+    # 5. Verify the token can't be refreshed either
+    assert raw_client.post("/api/auth/refresh", headers=headers).status_code == 401
+def test_admin_start_session_mocked(client, monkeypatch):
+    from pivot.api.deps import get_manager
+    mock_manager = MagicMock()
+    mock_manager.start_session.return_value = {"session_id": 123, "name": "MockSession"}
+
+    monkeypatch.setitem(client.app.dependency_overrides, get_manager, lambda: mock_manager)
+
+    response = client.post("/api/admin/session/start", json={"name": "MockSession"})
+
+    assert response.status_code == 200
+    assert response.json() == {"session_id": 123, "name": "MockSession"}
+    mock_manager.start_session.assert_called_once_with("MockSession")
