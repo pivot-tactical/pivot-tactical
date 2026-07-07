@@ -585,19 +585,19 @@ function LiveLogTab({ entries }: { entries: LogEntry[] }) {
               <span className="mono muted">{ev.timestamp_start.slice(11, 19)}</span>
               <span className="mono">{ev.trainee_name}</span>
               <span className="mono">{ev.frequency}</span>
-              {ev.jammed && (
-                <span
-                  className="event__jammed"
-                  title={`This transmission was captured while its channel was jammed${
-                    ev.snr_db != null ? ` (SNR ${Math.round(ev.snr_db)} dB)` : ""
-                  }. "Play with noise" re-renders it as a wall of jammer noise.`}
-                >
-                  JAMMED
-                </span>
-              )}
               <span title={ev.tx_mode}>{ev.tx_mode === "Cypher" ? "🔒" : "◌"}</span>
               <span className={`event__aud aud--${ev.audibility.split("-")[0].toLowerCase()}`}>{ev.audibility}</span>
               <span className={`logtext ${low ? "text--amber" : ""} ${!ev.transcription ? "text--none" : ""}`}>
+                {ev.jammed && (
+                  <span
+                    className="event__jammed"
+                    title={`Captured while its channel was jammed${
+                      ev.snr_db != null ? ` (SNR ${Math.round(ev.snr_db)} dB)` : ""
+                    }. "Play with noise" re-renders it as a wall of jammer noise.`}
+                  >
+                    JAMMED
+                  </span>
+                )}
                 {ev.transcription || (ev.transcription_status === "Pending" ? "transcribing…" : "—")}
               </span>
             </div>
