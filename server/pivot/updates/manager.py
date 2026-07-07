@@ -170,8 +170,8 @@ class Release:
     body: str = ""
     asset_url: str = ""
     asset_name: str = ""
-    sha256_url: str = ""   # URL of the .sha256 sidecar published alongside the asset
-    sig_url: str = ""      # URL of the .sig Ed25519 signature sidecar (authenticity)
+    sha256_url: str = ""  # URL of the .sha256 sidecar published alongside the asset
+    sig_url: str = ""  # URL of the .sig Ed25519 signature sidecar (authenticity)
 
     @property
     def semver(self) -> SemVer | None:
@@ -226,6 +226,7 @@ class UpdatePlan:
 
 def order_releases(releases: list[Release]) -> list[Release]:
     """Newest first by semantic version; unparseable tags sort last (§3.7.3)."""
+
     def key(r: Release):
         sv = r.semver
         return (0, sv) if sv is not None else (1, SemVer(0, 0, 0))
@@ -330,14 +331,20 @@ class UpdateManager:
 
     def list_releases(self, raw: list[dict] | None = None) -> list[Release]:
         """Return channel-filtered, newest-first releases (§3.7.3)."""
-        data = raw if raw is not None else (self._releases_provider() if self._releases_provider else [])
+        data = (
+            raw
+            if raw is not None
+            else (self._releases_provider() if self._releases_provider else [])
+        )
         releases = [Release.from_github(d, self.asset_pattern) for d in data]
         releases = filter_channel(releases, self.include_prereleases)
         return order_releases(releases)
 
     def available_updates(self, raw: list[dict] | None = None) -> list[Release]:
         cur = SemVer.parse(self.current_version)
-        return [r for r in self.list_releases(raw) if classify_release(r, cur) is ReleaseStanding.NEWER]
+        return [
+            r for r in self.list_releases(raw) if classify_release(r, cur) is ReleaseStanding.NEWER
+        ]
 
     def plan(self, target: Release, schema_versions: tuple[int, int] | None = None) -> UpdatePlan:
         """Build an :class:`UpdatePlan`, warning on a schema-boundary downgrade."""
@@ -441,9 +448,7 @@ class UpdateManager:
         checksum mismatch.
         """
         if not release.asset_url:
-            raise ValueError(
-                f"No asset available for this platform ({self.asset_pattern})"
-            )
+            raise ValueError(f"No asset available for this platform ({self.asset_pattern})")
         staging = self.versions_dir / "_staging" / release.tag
         staging.mkdir(parents=True, exist_ok=True)
         dest = staging / release.asset_name
@@ -478,11 +483,25 @@ class UpdateManager:
         if extracted.exists():
             shutil.rmtree(extracted, ignore_errors=True)
         extracted.mkdir(parents=True, exist_ok=True)
+        extracted_res = extracted.resolve()
         if asset_path.name.endswith(".tar.gz"):
             with tarfile.open(asset_path) as tf:
-                tf.extractall(extracted)
+                for member in tf.getmembers():
+                    if not (extracted_res / member.name).resolve().is_relative_to(extracted_res):
+                        raise ValueError(f"Path traversal detected in archive: {member.name}")
+                if hasattr(tarfile, "data_filter"):
+                    tf.extractall(extracted, filter="data")
+                else:
+                    tf.extractall(extracted)
         elif asset_path.name.endswith(".zip"):
             with zipfile.ZipFile(asset_path) as zf:
+                for member in zf.infolist():
+                    if (
+                        not (extracted_res / member.filename)
+                        .resolve()
+                        .is_relative_to(extracted_res)
+                    ):
+                        raise ValueError(f"Path traversal detected in archive: {member.filename}")
                 zf.extractall(extracted)
 
         bundle = self._bundle_root(extracted)
