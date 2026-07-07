@@ -694,3 +694,50 @@ def test_maybe_start_transcription_no_whisper():
     cfg = MagicMock()
     worker = _maybe_start_transcription(manager, cfg)
     assert worker is None
+
+def test_auth_refresh_mocked(settings):
+    from unittest.mock import MagicMock
+    from fastapi.testclient import TestClient
+    from pivot.api.app import create_app
+    from pivot.api.deps import get_auth, require_instructor
+
+    app = create_app(settings)
+
+    mock_auth = MagicMock()
+    mock_auth.issue_token.return_value = "new_mocked_token"
+    mock_auth.is_default.return_value = True
+
+    app.dependency_overrides[require_instructor] = lambda: None
+    app.dependency_overrides[get_auth] = lambda: mock_auth
+
+    with TestClient(app) as c:
+        response = c.post("/api/auth/refresh")
+
+        assert response.status_code == 200
+        assert response.json() == {"token": None, "must_change_password": True}
+        assert c.cookies.get("pivot_token") == "new_mocked_token"
+        mock_auth.issue_token.assert_called_once()
+        mock_auth.is_default.assert_called_once()
+
+
+def test_session_events_mocked(client, monkeypatch):
+    from unittest.mock import MagicMock
+    from pivot.api.deps import get_manager
+
+    mock_manager = MagicMock()
+    mock_db_session = MagicMock()
+    mock_manager.db.session.return_value.__enter__.return_value = mock_db_session
+
+    mock_event = MagicMock()
+    mock_event.to_dict.return_value = {"event_id": "test_event"}
+
+    def mock_list_events(s, session_id):
+        return [mock_event]
+
+    monkeypatch.setattr("pivot.api.rest.repo.list_events", mock_list_events)
+    monkeypatch.setitem(client.app.dependency_overrides, get_manager, lambda: mock_manager)
+
+    r = client.get("/api/sessions/test-session/events")
+
+    assert r.status_code == 200
+    assert r.json() == [{"event_id": "test_event"}]

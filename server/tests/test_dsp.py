@@ -138,8 +138,9 @@ def test_plain_collision_mixes_voices():
     b = speech_like(seed=2)
     cond = BandProfile().conditions_at(145e6)
     engine = DspEngine(SR)
-    out = engine.render(Reception.PLAIN_COLLISION, voices=[a, b], conditions=cond,
-                        rng=np.random.default_rng(0))
+    out = engine.render(
+        Reception.PLAIN_COLLISION, voices=[a, b], conditions=cond, rng=np.random.default_rng(0)
+    )
     assert out.shape == a.shape
     # The mix correlates with neither source as strongly as a clean render would.
     assert norm_corr(out, a) < 0.9 and norm_corr(out, b) < 0.9
@@ -200,3 +201,97 @@ def test_squelch_tail_duration_and_bounds():
     assert tail.size == int(SR * 10.0 / 1000.0)
     assert np.isfinite(tail).all()
     assert np.max(np.abs(tail)) > 0.0
+
+# --- ptt click ------------------------------------------------------------- #
+
+
+def test_ptt_click_length_and_decay():
+    click = ptt_click(SR)
+    # Expected length: max(1, int(16000 * 0.012)) = 192
+    assert click.size == 192
+    assert np.isfinite(click).all()
+    # verify decay by checking that energy in first half is much greater than second half
+    half = click.size // 2
+    assert np.sum(click[:half] ** 2) > 10 * np.sum(click[half:] ** 2)
+
+
+def test_ptt_click_level():
+    click1 = ptt_click(SR, level=0.5)
+    click2 = ptt_click(SR, level=1.0)
+    assert np.allclose(click1 * 2, click2)
+# --- fading ---------------------------------------------------------------- #
+import dataclasses
+from pivot.dsp.fading import apply_fading, flat_fading_gain
+
+def test_flat_fading_gain():
+    rng = np.random.default_rng(0)
+    # Generate gain
+    gain = flat_fading_gain(SR, SR, 20.0, 1.0, rng)
+    assert gain.shape == (SR,)
+    assert np.all(gain >= 0)
+    assert np.max(gain) <= 10**(3.0/20.0) + 1e-5 # max is 3dB boost
+    assert np.min(gain) < 0.5 # should have significant dips
+
+def test_apply_fading_empty_signal():
+    cond = BandProfile().conditions_at(145e6)
+    rng = np.random.default_rng(0)
+    out = apply_fading(np.array([], dtype=np.float32), SR, cond, rng)
+    assert out.size == 0
+
+def test_apply_fading_bypassed_when_depth_is_zero():
+    voice = speech_like()
+    cond = BandProfile().conditions_at(145e6)
+    cond = dataclasses.replace(cond, fading_depth_db=0.0)
+    rng = np.random.default_rng(0)
+    out = apply_fading(voice, SR, cond, rng)
+    assert np.array_equal(out, voice)
+
+def test_apply_fading_non_selective():
+    voice = speech_like(seconds=4.0)
+    cond = BandProfile().conditions_at(145e6)
+    cond = dataclasses.replace(cond, fading_depth_db=20.0, selective_fading=False)
+    rng = np.random.default_rng(0)
+    out = apply_fading(voice, SR, cond, rng)
+    assert out.shape == voice.shape
+    assert not np.array_equal(out, voice)
+
+    rms_diff = np.sqrt(np.mean((out - voice)**2))
+    assert rms_diff > 0.05
+
+    env_in = envelope_follower(voice, SR)
+    env_out = envelope_follower(out, SR)
+    assert norm_corr(env_out, env_in) < 0.98
+
+def test_apply_fading_selective():
+    voice = speech_like(seconds=4.0)
+    cond = BandProfile().conditions_at(14e6) # HF band
+    cond = dataclasses.replace(cond, fading_depth_db=20.0, selective_fading=True)
+    rng = np.random.default_rng(0)
+    out = apply_fading(voice, SR, cond, rng)
+    assert out.shape == voice.shape
+    assert not np.array_equal(out, voice)
+
+    rms_diff = np.sqrt(np.mean((out - voice)**2))
+    assert rms_diff > 0.05
+
+    env_in = envelope_follower(voice, SR)
+    env_out = envelope_follower(out, SR)
+    assert norm_corr(env_out, env_in) < 0.98
+
+def test_soft_clip_bounds_and_linearity():
+    from pivot.dsp.filters import soft_clip
+
+    # Test extreme values are soft-clipped within [-1, 1] bounds
+    x = np.array([-10.0, -2.0, -1.0, 0.0, 1.0, 2.0, 10.0], dtype=np.float32)
+    y = soft_clip(x)
+
+    assert y.dtype == np.float32
+    assert np.all(y >= -1.0)
+    assert np.all(y <= 1.0)
+    assert np.isclose(y[0], -1.0, atol=1e-4)
+    assert np.isclose(y[-1], 1.0, atol=1e-4)
+
+    # Test small signals remain largely unmodified (linear region)
+    x_small = np.array([-0.1, 0.0, 0.1], dtype=np.float32)
+    y_small = soft_clip(x_small)
+    assert np.allclose(x_small, y_small, atol=0.01)

@@ -4,8 +4,6 @@ Keeps SQLAlchemy query details out of the API/session layers. All timestamps are
 written as ISO-8601 UTC strings (spec §3.8).
 """
 
-from __future__ import annotations
-
 import json
 import uuid
 

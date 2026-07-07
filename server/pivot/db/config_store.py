@@ -6,7 +6,6 @@ and the admin API read/write through this store so there are no config files to 
 (design principle §1.1).
 """
 
-from __future__ import annotations
 
 import json
 from typing import Any
