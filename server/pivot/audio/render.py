@@ -39,9 +39,16 @@ class AarCryptoView(StrEnum):
 
 
 def reception_for_playback(tx_mode: RadioMode, view: AarCryptoView) -> Reception:
-    """Decide the render type for Dirty playback (spec §4.5 rules)."""
+    """Decide the render type for Dirty playback (spec §4.5 rules).
+
+    A cypher transmission heard in Cypher view replays as the *digital* decode
+    (MELP vocoder reconstruction, §3.4.1) — the same thing a cypher-capable set
+    on the net heard live — not as analog voice through the band chain.
+    """
     if tx_mode is RadioMode.CYPHER and view is AarCryptoView.PLAIN:
         return Reception.HASH
+    if tx_mode is RadioMode.CYPHER:
+        return Reception.DIGITAL
     return Reception.CLEAR
 
 
