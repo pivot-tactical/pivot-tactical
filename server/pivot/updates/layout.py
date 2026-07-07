@@ -75,9 +75,15 @@ def _make_link(target: Path, link: Path) -> None:
         try:
             os.symlink(target, link, target_is_directory=True)
             return
-        except OSError:
+        except OSError as e:
+            link_str = str(link)
+            target_str = str(target)
+            if '"' in link_str or '"' in target_str:
+                raise ValueError(
+                    "Paths containing double quotes are not supported for mklink"
+                ) from e
             subprocess.run(
-                ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+                f'cmd.exe /c mklink /J "{link_str}" "{target_str}"',
                 check=True,
                 creationflags=0x08000000,  # CREATE_NO_WINDOW
             )
@@ -120,7 +126,7 @@ class Layout:
         # and is_dir() on it then raises WinError 448 — which would otherwise
         # crash pruning/discovery just for walking past it.
         tags = [
-            p.name[len(_APP_PREFIX):]
+            p.name[len(_APP_PREFIX) :]
             for p in self.versions.iterdir()
             if p.name.startswith(_APP_PREFIX) and p.is_dir()
         ]
@@ -134,7 +140,7 @@ class Layout:
         except (OSError, RuntimeError):
             return None
         name = target.name
-        return name[len(_APP_PREFIX):] if name.startswith(_APP_PREFIX) else None
+        return name[len(_APP_PREFIX) :] if name.startswith(_APP_PREFIX) else None
 
     def app_exe(self, tag: str, exe_name: str) -> Path | None:
         exe = self.app_dir(tag) / exe_name
