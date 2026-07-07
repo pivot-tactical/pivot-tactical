@@ -122,6 +122,11 @@ outside it and are never touched.
 - **Per-radio crypto.** Plain/Cypher is a property of each radio, persists across
   retuning, and never auto-resets. A cypher-capable set decodes plain too; only a
   plain receiver hearing a cypher transmission gets the undecodable hash.
+  Cypher-to-cypher voice is **digital** (MELP-style vocoder, AN/PRC-160
+  baseline): noticeably cleaner than analog on a noisy channel and readable a
+  few dB further into the noise — but past its cliff it fails digitally,
+  clipping out and garbling ("Donald Duck") instead of fading into hiss, and
+  jamming still defeats it.
 
 ---
 

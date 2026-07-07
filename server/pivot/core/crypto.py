@@ -38,7 +38,9 @@ class Reception(StrEnum):
     """What a listener hears for a given moment of audio."""
 
     SILENCE = "silence"                 # nothing on frequency, or listener is keyed
-    CLEAR = "clear"                     # clean voice through the band DSP chain
+    CLEAR = "clear"                     # analog voice through the band DSP chain
+    DIGITAL = "digital"                 # decoded digital voice (Cypher TX → Cypher RX):
+                                        # the MELP vocoder's reconstruction (§3.4.1)
     HASH = "hash"                       # encrypted garble (Cypher TX → Plain RX)
     PLAIN_COLLISION = "plain_collision" # two+ plain voices overlapping/chaotic
     CRYPTO_JAM = "crypto_jam"           # cypher collision jam during overlap
@@ -71,14 +73,21 @@ def single_reception(tx_mode: RadioMode, rx_mode: RadioMode) -> Reception:
     +-----------+-----------+----------------------------------------+
     | TX mode   | RX mode   | Result                                 |
     +===========+===========+========================================+
-    | Plain     | Plain     | clear voice                            |
-    | Plain     | Cypher    | clear voice (cypher set decodes plain) |
-    | Cypher    | Cypher    | clear voice (decoded)                  |
+    | Plain     | Plain     | clear analog voice                     |
+    | Plain     | Cypher    | clear analog voice (cypher set decodes |
+    |           |           | plain, which is an analog signal)      |
+    | Cypher    | Cypher    | decoded digital voice (MELP vocoder)   |
     | Cypher    | Plain     | encrypted hash — undecodable           |
     +-----------+-----------+----------------------------------------+
+
+    Cypher-to-cypher is DIGITAL, not CLEAR: the link carries a vocoder
+    bitstream, so the receiver reproduces the MELP reconstruction — cleaner
+    than analog on a noisy channel, failing digitally past the cliff (§4.4).
     """
     if tx_mode is RadioMode.CYPHER and rx_mode is RadioMode.PLAIN:
         return Reception.HASH
+    if tx_mode is RadioMode.CYPHER and rx_mode is RadioMode.CYPHER:
+        return Reception.DIGITAL
     return Reception.CLEAR
 
 
