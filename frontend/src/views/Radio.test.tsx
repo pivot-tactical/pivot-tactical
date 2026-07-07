@@ -35,6 +35,7 @@ vi.mock('../components/VolumeSlider', () => ({
 const mockAudioIO = {
   setVolume: vi.fn(),
   init: vi.fn().mockResolvedValue(undefined),
+  prewarm: vi.fn().mockResolvedValue(undefined),
   startCapture: vi.fn().mockResolvedValue(undefined),
   stopCapture: vi.fn(),
   play: vi.fn(),

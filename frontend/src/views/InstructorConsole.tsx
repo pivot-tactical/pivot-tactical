@@ -135,9 +135,13 @@ export function InstructorConsole({
     sock.connect();
     socketRef.current = sock;
 
-    // Enable audio on the first user gesture (autoplay rules).
+    // Warm the mic + playback as soon as the console loads (login is a fresh
+    // gesture), so the browser's mic-permission prompt appears now, not on the
+    // first PTT. Retry on the first in-view gesture if it was blocked (that
+    // fallback also covers playback autoplay).
     const io = audio.current;
-    const enable = () => io.init().catch(() => {});
+    io.prewarm().catch(() => {});
+    const enable = () => io.prewarm().catch(() => {});
     window.addEventListener("pointerdown", enable, { once: true });
     window.addEventListener("keydown", enable, { once: true });
 
@@ -584,6 +588,16 @@ function LiveLogTab({ entries }: { entries: LogEntry[] }) {
               <span title={ev.tx_mode}>{ev.tx_mode === "Cypher" ? "🔒" : "◌"}</span>
               <span className={`event__aud aud--${ev.audibility.split("-")[0].toLowerCase()}`}>{ev.audibility}</span>
               <span className={`logtext ${low ? "text--amber" : ""} ${!ev.transcription ? "text--none" : ""}`}>
+                {ev.jammed && (
+                  <span
+                    className="event__jammed"
+                    title={`Captured while its channel was jammed${
+                      ev.snr_db != null ? ` (SNR ${Math.round(ev.snr_db)} dB)` : ""
+                    }. "Play with noise" re-renders it as a wall of jammer noise.`}
+                  >
+                    JAMMED
+                  </span>
+                )}
                 {ev.transcription || (ev.transcription_status === "Pending" ? "transcribing…" : "—")}
               </span>
             </div>

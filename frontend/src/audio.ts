@@ -119,12 +119,17 @@ export class AudioIO {
     node: AudioWorkletNode;
     mute: GainNode;
   } | null = null;
-  // In-flight/established capture. Several radios keyed at once share the one
-  // mic, so concurrent startCapture calls must join this rather than open a
-  // second stream. The epoch is bumped by stopCapture so an open still in
-  // flight knows it has been released.
+  // The mic is opened once and kept warm for the whole session, not reopened
+  // per transmission: opening it (getUserMedia + worklet spin-up) takes long
+  // enough that doing it on every key-up clipped the first fraction of a second
+  // off each transmission. Instead the stream stays hot and we merely gate
+  // whether its frames are forwarded to the net (`sending`). Concurrent opens
+  // (several radios keyed at once) join `micPromise`; `micEpoch` lets an open
+  // still in flight notice it has since been closed.
   private micPromise: Promise<void> | null = null;
   private micEpoch = 0;
+  private sending = false;
+  private onFrame: ((pcm: ArrayBuffer) => void) | null = null;
   // Per-radio output gain for the headset volume sliders. The instructor mixes
   // several radios into this one player, so gain is applied per frame keyed by
   // the source radio_id; a trainee has a single radio and uses the default.
@@ -157,7 +162,11 @@ export class AudioIO {
     this.player.connect(this.ctx.destination);
   }
 
-  async startCapture(onFrame: (pcm: ArrayBuffer) => void): Promise<void> {
+  // Open the mic stream + worklet once and keep it warm. Idempotent: a mic
+  // already open resolves immediately, and concurrent callers join the same
+  // open rather than racing a second getUserMedia.
+  private async openMic(): Promise<void> {
+    if (this.mic) return;
     if (this.micPromise) return this.micPromise;
     const epoch = this.micEpoch;
     const p: Promise<void> = (async () => {
@@ -166,14 +175,18 @@ export class AudioIO {
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: true },
       });
       if (this.micEpoch !== epoch) {
-        // stopCapture ran while the mic was being opened (a quick tap):
-        // release the stream instead of leaving an orphaned capture.
+        // close() ran while the mic was being opened: release the stream
+        // instead of leaving an orphaned capture.
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
       const src = this.ctx!.createMediaStreamSource(stream);
       const node = new AudioWorkletNode(this.ctx!, "pivot-mic");
-      node.port.onmessage = (e) => onFrame(floatToPcm16(e.data as Float32Array));
+      // Frames flow continuously while the mic is warm; forward them to the net
+      // only while actually keyed (§6.3).
+      node.port.onmessage = (e) => {
+        if (this.sending && this.onFrame) this.onFrame(floatToPcm16(e.data as Float32Array));
+      };
       // Route through a muted gain so the graph pulls the worklet without us
       // hearing our own mic.
       const mute = this.ctx!.createGain();
@@ -188,15 +201,29 @@ export class AudioIO {
     return p;
   }
 
+  // Pre-open the mic so the first key-up is instant. Call on the first user
+  // gesture (alongside init()). A denied permission surfaces later at the real
+  // PTT, so it is swallowed here.
+  async prewarm(): Promise<void> {
+    try {
+      await this.openMic();
+    } catch {
+      /* permission denied: handled when the operator actually keys up */
+    }
+  }
+
+  // Key up: start forwarding mic frames to the net, opening the mic first if it
+  // was not already pre-warmed.
+  async startCapture(onFrame: (pcm: ArrayBuffer) => void): Promise<void> {
+    this.onFrame = onFrame;
+    this.sending = true;
+    await this.openMic();
+  }
+
+  // Key down: stop forwarding, but keep the mic warm for the next transmission
+  // so the following key-up does not pay the open latency again.
   stopCapture(): void {
-    this.micEpoch++;
-    this.micPromise = null;
-    if (!this.mic) return;
-    this.mic.stream.getTracks().forEach((t) => t.stop());
-    this.mic.src.disconnect();
-    this.mic.node.disconnect();
-    this.mic.mute.disconnect();
-    this.mic = null;
+    this.sending = false;
   }
 
   play(pcm: ArrayBuffer, radioId?: string): void {
@@ -211,7 +238,17 @@ export class AudioIO {
   }
 
   close(): void {
-    this.stopCapture();
+    this.sending = false;
+    this.onFrame = null;
+    this.micEpoch++;        // signal any in-flight openMic to release its stream
+    this.micPromise = null;
+    if (this.mic) {
+      this.mic.stream.getTracks().forEach((t) => t.stop());
+      this.mic.src.disconnect();
+      this.mic.node.disconnect();
+      this.mic.mute.disconnect();
+      this.mic = null;
+    }
     this.ctx?.close();
     this.ctx = null;
     this.player = null;

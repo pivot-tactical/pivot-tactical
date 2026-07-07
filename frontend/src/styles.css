@@ -207,6 +207,21 @@ body {
 .event__freq small { color: var(--muted); }
 .event__mode { text-align: center; }
 .event__aud { font-size: 11px; }
+.event__jammed {
+  display: inline-block;
+  vertical-align: middle;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  color: var(--red);
+  border: 1px solid var(--red);
+  border-radius: 3px;
+  padding: 0 5px;
+  margin-right: 7px;
+  white-space: nowrap;
+}
 .aud--heard { color: var(--green); }
 .aud--unheard { color: var(--muted); }
 .aud--plain { color: var(--amber); }

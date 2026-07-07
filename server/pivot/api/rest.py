@@ -235,7 +235,12 @@ def event_audio(
             raise HTTPException(
                 status_code=422, detail=f"could not render recording: {exc}"
             ) from exc
-    return Response(content=wav, media_type="audio/wav")
+    # Never cache: the same event/mode URL is re-rendered on demand, and a build
+    # that changes the DSP (e.g. how jamming masks) must not have an old render
+    # served from the browser cache for a URL it saw on a previous version.
+    return Response(
+        content=wav, media_type="audio/wav", headers={"Cache-Control": "no-store"}
+    )
 
 
 @router.post("/sessions/{session_id}/export", dependencies=[Depends(require_instructor)])

@@ -70,7 +70,13 @@ export function Radio({
       rxLevel.current = Math.max(rxLevel.current, pcmLevel(buf));
       audio.current.play(buf);
     });
-    const enable = () => audio.current.init().catch(() => {});
+    // Warm the mic (and playback) as soon as we're logged in: the login click
+    // is a fresh user gesture, so the browser's mic-permission prompt appears
+    // now rather than on the first PTT, and no transmission waits on
+    // getUserMedia. Retry on the first in-view gesture if it was blocked (that
+    // fallback also covers playback autoplay).
+    audio.current.prewarm().catch(() => {});
+    const enable = () => audio.current.prewarm().catch(() => {});
     window.addEventListener("pointerdown", enable, { once: true });
     window.addEventListener("keydown", enable, { once: true });
     return () => audio.current.close();

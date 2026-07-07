@@ -24,6 +24,14 @@ from pivot.dsp.tone import ptt_click, squelch_tail
 # long session of tuning around never grows the engine unboundedly.
 _MAX_TEXTURES = 64
 
+# A jammed channel must be impossible to copy however the profile was produced.
+# The band model already drives the SNR deeply negative when jamming is on, but
+# recordings captured before that model change carry a shallow figure; clamping
+# the render SNR here guarantees the voice is masked on playback of those too.
+# Jamming has no partial intensity in practice (it is set as bare frequency
+# spans), so a flat floor loses nothing.
+_JAM_RENDER_SNR_FLOOR_DB = -30.0
+
 
 @dataclass
 class DspEngine:
@@ -84,7 +92,10 @@ class DspEngine:
         )
         texture = texture if texture is not None else self._texture(conditions, rng)
         noise = texture.render(x.size, conditions)
-        out = add_noise_for_snr(x, noise, conditions.snr_db)
+        snr_db = conditions.snr_db
+        if conditions.jammed:
+            snr_db = min(snr_db, _JAM_RENDER_SNR_FLOOR_DB)
+        out = add_noise_for_snr(x, noise, snr_db)
         return out
 
     def render_idle_noise(self, n_samples, conditions, rng=None):

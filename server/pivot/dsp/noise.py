@@ -288,15 +288,29 @@ class NoiseTexture:
         return level * (0.9 * sweep.astype(np.float32) + rough) * surge
 
     def _jam(self, n: int) -> np.ndarray:
-        """Full jammer: an aggressive multi-rate AM warble over broadband
-        noise — unmistakably deliberate, nothing intelligible survives."""
+        """Full jammer: an aggressive multi-rate AM warble riding on a strong,
+        *continuous* broadband bed — unmistakably deliberate, and nothing
+        intelligible survives.
+
+        The bed is the masker: it never gaps, so a listener cannot hear the
+        wanted voice through the amplitude dips of the warble (the classic
+        "listening in the dips" that lets speech leak through a heavily
+        modulated jammer). The warble is a separate layer on top purely for the
+        deliberate-jammer character — even at its lowest the total level stays
+        high, because the steady bed underneath it does not dip."""
         sr = self.sample_rate
         t = (self._t + np.arange(n)) / sr
         am = 0.5 * (1.0 + np.sin(2.0 * np.pi * 90.0 * t)) * (
             0.5 + 0.5 * np.sin(2.0 * np.pi * 13.0 * t)
         )
-        carrier = white_noise(n, self.rng)
-        return (carrier * (0.15 + 0.85 * am)).astype(np.float32) * 1.8
+        # Continuous broadband bed (the actual masker) + a deeply-modulated
+        # warble on top (the audible menace). Independent carriers so the bed
+        # keeps hissing right through the warble's dips: the warble's peaks
+        # still tower over the bed (so it is plainly a deliberate jammer), but
+        # the trough never falls to a gap the voice could be heard through.
+        bed = white_noise(n, self.rng) * 0.4
+        warble = white_noise(n, self.rng) * (0.15 + 0.85 * am) * 1.7
+        return (bed + warble).astype(np.float32)
 
     # -- composite ----------------------------------------------------------- #
 
@@ -326,10 +340,20 @@ def add_noise_for_snr(
     noise: np.ndarray,
     snr_db: float,
 ) -> np.ndarray:
-    """Mix unit-RMS ``noise`` into ``voice`` to achieve ``snr_db``.
+    """Mix unit-RMS ``noise`` into ``voice`` at the target ``snr_db``.
 
-    The voice level is measured; noise is scaled so signal-to-noise equals the
-    band's SNR. Lower SNR (low HF, jamming, bad atmospherics) buries the voice.
+    The signal is always carried at full strength; what a worse channel changes
+    is how much *competing* noise rides with it. The voice level is measured and
+    the noise scaled so signal-to-noise equals the band's SNR, so a low SNR (low
+    HF, severe interference, jamming) means the noise dominates and *masks* the
+    voice — the voice is not turned down, it is buried under the competing hash.
+
+    The combined stream is then held near the signal's own level, standing in
+    for a receiver's AGC: a swamped channel comes back as a wall of noise at
+    ordinary loudness (matching the idle floor) rather than an ever-louder blast
+    as the noise is piled on — and, crucially, never as a still-clean voice
+    sitting quietly on top of the noise. Levelling preserves the signal-to-noise
+    ratio, so it changes loudness, not intelligibility.
     """
     from pivot.dsp.filters import rms
 
@@ -337,7 +361,11 @@ def add_noise_for_snr(
     if sig_rms < 1e-9:
         return voice
     noise_rms_target = sig_rms / (10.0 ** (snr_db / 20.0))
-    return (voice + noise * noise_rms_target).astype(np.float32)
+    mixed = voice + noise * noise_rms_target
+    mixed_rms = rms(mixed)
+    if mixed_rms > sig_rms:
+        mixed = mixed * (sig_rms / mixed_rms)
+    return mixed.astype(np.float32)
 
 
 # Open-squelch idle "hash": the ambient receiver noise floor heard on a tuned
