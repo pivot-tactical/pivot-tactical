@@ -23,8 +23,6 @@ Pink+Gaussian weighting is strongest at low HF and fades toward UHF — the
 QRM carrier tones are added only in the HF region.
 """
 
-from __future__ import annotations
-
 import math
 from dataclasses import dataclass
 

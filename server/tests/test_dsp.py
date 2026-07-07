@@ -223,14 +223,44 @@ def test_ptt_click_level():
 import dataclasses
 from pivot.dsp.fading import apply_fading, flat_fading_gain
 
-def test_flat_fading_gain():
+def test_flat_fading_gain_empty():
     rng = np.random.default_rng(0)
-    # Generate gain
-    gain = flat_fading_gain(SR, SR, 20.0, 1.0, rng)
+    gain = flat_fading_gain(0, SR, 20.0, 1.0, rng)
+    assert gain.size == 0
+    assert np.array_equal(gain, np.array([], dtype=np.float32))
+
+def test_flat_fading_gain_zero_depth():
+    rng = np.random.default_rng(0)
+    gain = flat_fading_gain(SR, SR, 0.01, 1.0, rng)
     assert gain.shape == (SR,)
+    assert np.allclose(gain, 1.0)
+    assert gain.dtype == np.float32
+
+def test_flat_fading_gain_determinism():
+    rng1 = np.random.default_rng(42)
+    gain1 = flat_fading_gain(SR, SR, 20.0, 1.0, rng1)
+
+    rng2 = np.random.default_rng(42)
+    gain2 = flat_fading_gain(SR, SR, 20.0, 1.0, rng2)
+
+    assert np.array_equal(gain1, gain2)
+
+def test_flat_fading_gain_distribution():
+    rng = np.random.default_rng(0)
+    # Generate long enough gain to check distribution stats
+    depth = 20.0
+    # Increase duration to ensure we hit deep fades (which are rare by nature of the distribution)
+    gain = flat_fading_gain(SR * 30, SR, depth, 1.0, rng)
+    assert gain.shape == (SR * 30,)
     assert np.all(gain >= 0)
-    assert np.max(gain) <= 10**(3.0/20.0) + 1e-5 # max is 3dB boost
-    assert np.min(gain) < 0.5 # should have significant dips
+
+    gain_db = 20.0 * np.log10(gain + 1e-9)
+    assert np.max(gain_db) <= 3.0 + 1e-5 # max is 3dB boost
+
+    # Check that significant dips occur, approaching -depth (at least half depth)
+    assert np.min(gain_db) < -depth * 0.5
+    # Ensure it's clipped at -depth
+    assert np.min(gain_db) >= -depth - 1e-5
 
 def test_apply_fading_empty_signal():
     cond = BandProfile().conditions_at(145e6)

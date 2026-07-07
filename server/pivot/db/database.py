@@ -5,8 +5,6 @@ and ``synchronous=NORMAL`` so events can be flushed promptly on each keying
 (§8.3 reliability) without throttling live audio.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
