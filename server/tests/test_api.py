@@ -331,6 +331,15 @@ def test_sessions_events_and_export(client, settings):
     r = client.post(f"/api/sessions/{session_id}/export?fmt=csv")
     assert r.status_code == 200 and "trainee_name" in r.text
 
+    # Text export.
+    r = client.post(f"/api/sessions/{session_id}/export?fmt=text")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain")
+    assert "ALPHA" in r.text
+
+    # Invalid format.
+    r = client.post(f"/api/sessions/{session_id}/export?fmt=pdf")
+    assert r.status_code == 422
+
 
 def test_recent_events_survive_restart(client, settings):
     """The console seeds its log from /api/events/recent, which reads the DB —
