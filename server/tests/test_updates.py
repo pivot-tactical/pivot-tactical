@@ -575,3 +575,57 @@ def test_offline_import_verification(tmp_path):
     mgr = UpdateManager("1.0.0", versions_dir=tmp_path)
     assert mgr.verify_import_package(pkg, digest) is True
     assert mgr.verify_import_package(pkg, "00") is False
+
+def test_stage_prevents_path_traversal_tar(tmp_path):
+    import tarfile
+    from pivot.updates.manager import UpdateManager, Release
+
+    from pivot.updates.layout import Layout
+    layout = Layout(tmp_path / "app")
+    manager = UpdateManager(layout, versions_dir=tmp_path / "versions")
+
+    # Create fake release
+    release = Release(
+        tag="1.0.0",
+        name="1.0.0",
+        asset_name="pivot-linux-amd64.tar.gz",
+        asset_url="http://example.com/asset",
+    )
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    archive = tmp_path / "pivot-linux-amd64.tar.gz"
+
+    with tarfile.open(archive, "w:gz") as tf:
+        with open(tmp_path / "evil.txt", "w") as f:
+            f.write("evil")
+        tf.add(tmp_path / "evil.txt", arcname="../evil.txt")
+
+    import pytest
+    with pytest.raises(ValueError, match="Path traversal detected"):
+        manager.stage(archive, release)
+
+def test_stage_prevents_path_traversal_zip(tmp_path):
+    import zipfile
+    from pivot.updates.manager import UpdateManager, Release
+
+    from pivot.updates.layout import Layout
+    layout = Layout(tmp_path / "app")
+    manager = UpdateManager(layout, versions_dir=tmp_path / "versions")
+
+    # Create fake release
+    release = Release(
+        tag="1.0.0",
+        name="1.0.0",
+        asset_name="pivot-win64.zip",
+        asset_url="http://example.com/asset",
+    )
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    archive = tmp_path / "pivot-win64.zip"
+
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("../evil.txt", "evil")
+
+    import pytest
+    with pytest.raises(ValueError, match="Path traversal detected"):
+        manager.stage(archive, release)
