@@ -28,8 +28,8 @@ def test_plain_to_cypher_is_clear_permissive():
     assert single_reception(P, C) is Reception.CLEAR
 
 
-def test_cypher_to_cypher_is_clear():
-    assert single_reception(C, C) is Reception.CLEAR
+def test_cypher_to_cypher_is_digital():
+    assert single_reception(C, C) is Reception.DIGITAL
 
 
 def test_cypher_to_plain_is_hash():
@@ -63,7 +63,7 @@ def test_listener_with_no_transmitters_hears_silence():
 
 def test_resolve_single_transmitter_uses_matrix():
     assert resolve_listener(P, [C]) is Reception.HASH
-    assert resolve_listener(C, [C]) is Reception.CLEAR
+    assert resolve_listener(C, [C]) is Reception.DIGITAL
     assert resolve_listener(C, [P]) is Reception.CLEAR
 
 
