@@ -66,28 +66,6 @@ def band_noise(
     return normalise_rms(mix)
 
 
-def qrm_tones(
-    n: int,
-    sample_rate: int,
-    rng: np.random.Generator,
-    n_tones: int = 3,
-    level: float = 0.15,
-) -> np.ndarray:
-    """Low-level interfering carrier tones ('QRM'), HF only (§4.1.1).
-
-    A handful of faint, slowly-drifting heterodyne tones in the voice band.
-    """
-    if n == 0:
-        return np.zeros(0, dtype=np.float32)
-    t = np.arange(n) / sample_rate
-    out = np.zeros(n, dtype=np.float64)
-    for _ in range(n_tones):
-        f0 = rng.uniform(500.0, 2500.0)
-        drift = rng.uniform(-0.5, 0.5)  # Hz/s heterodyne drift
-        amp = level * rng.uniform(0.5, 1.0)
-        phase = rng.uniform(0, 2 * np.pi)
-        out += amp * np.sin(2 * np.pi * (f0 * t + 0.5 * drift * t * t) + phase)
-    return out.astype(np.float32)
 
 
 # --------------------------------------------------------------------------- #
