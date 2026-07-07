@@ -108,3 +108,28 @@ def test_resolve_timezone_key_error_fallback():
 
     with patch("pivot.core.timebase.ZoneInfo", side_effect=mock_zoneinfo):
         assert resolve_timezone("Some/Zone").key == "UTC"
+
+def test_get_version_info_without_buildinfo(monkeypatch):
+    from pivot.version import get_version_info, __version__
+    monkeypatch.setattr("pivot.version._read_buildinfo", lambda: None)
+    monkeypatch.setattr("pivot.version._discover_git_sha", lambda: "abcdef1")
+    info = get_version_info()
+    assert info.version == __version__
+    assert info.git_sha == "abcdef1"
+    assert info.build_date == "dev"
+
+def test_get_version_info_with_buildinfo_no_override(monkeypatch):
+    from pivot.version import get_version_info, __version__
+    monkeypatch.setattr("pivot.version._read_buildinfo", lambda: ("1234567", "2026-01-01", None))
+    info = get_version_info()
+    assert info.version == __version__
+    assert info.git_sha == "1234567"
+    assert info.build_date == "2026-01-01"
+
+def test_get_version_info_with_buildinfo_override(monkeypatch):
+    from pivot.version import get_version_info
+    monkeypatch.setattr("pivot.version._read_buildinfo", lambda: ("1234567", "2026-01-01", "1.0.0-dev.42"))
+    info = get_version_info()
+    assert info.version == "1.0.0-dev.42"
+    assert info.git_sha == "1234567"
+    assert info.build_date == "2026-01-01"
