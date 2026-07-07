@@ -15,8 +15,6 @@ This is live, in-memory state (mirrors the transient ``radio_state`` table,
 answers "who is on this net, who is keyed, and what does each listener hear".
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from datetime import datetime
 
