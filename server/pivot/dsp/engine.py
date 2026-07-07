@@ -12,13 +12,6 @@ from typing import TypedDict
 import numpy as np
 from typing_extensions import Unpack
 
-
-class RenderOptions(TypedDict, total=False):
-    """Optional rendering kwargs for DspEngine.render and render_reception."""
-
-    rng: np.random.Generator | None
-    with_transients: bool
-
 from pivot.core.bands import BandConditions, net_key_for
 from pivot.core.crypto import Reception
 from pivot.dsp.digital import DigitalVoice
@@ -27,6 +20,13 @@ from pivot.dsp.filters import bandpass, normalise_rms, soft_clip
 from pivot.dsp.hash_gen import encrypted_hash
 from pivot.dsp.noise import NoiseTexture, add_noise_for_snr, idle_noise_amplitude
 from pivot.dsp.tone import ptt_click, squelch_tail
+
+
+class RenderOptions(TypedDict, total=False):
+    """Optional rendering kwargs for DspEngine.render and render_reception."""
+
+    rng: np.random.Generator | None
+    with_transients: bool
 
 # Per-net noise textures kept alive at once; oldest-touched are evicted so a
 # long session of tuning around never grows the engine unboundedly.
