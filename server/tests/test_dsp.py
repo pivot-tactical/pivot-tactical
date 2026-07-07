@@ -14,7 +14,7 @@ from pivot.core.crypto import Reception
 from pivot.dsp.engine import DspEngine, render_reception
 from pivot.dsp.hash_gen import encrypted_hash, envelope_follower
 from pivot.dsp.noise import band_noise, pink_noise, white_noise
-from pivot.dsp.tone import crypto_sync_tone, ptt_click
+from pivot.dsp.tone import crypto_sync_tone, ptt_click, squelch_tail
 
 SR = 16_000
 
@@ -186,6 +186,21 @@ def test_crypto_sync_tone_presets(preset):
     tone = crypto_sync_tone(SR, preset=preset)
     assert tone.size > 0 and np.isfinite(tone).all()
 
+def test_ptt_click_duration_and_bounds():
+    click = ptt_click(SR, level=0.5)
+    assert click.size == int(SR * 0.012)
+    assert np.isfinite(click).all()
+    assert np.max(np.abs(click)) > 0.0
+
+    # check minimum size
+    short_click = ptt_click(10)
+    assert short_click.size == 1
+
+def test_squelch_tail_duration_and_bounds():
+    tail = squelch_tail(SR, tail_ms=10.0, level=0.08)
+    assert tail.size == int(SR * 10.0 / 1000.0)
+    assert np.isfinite(tail).all()
+    assert np.max(np.abs(tail)) > 0.0
 
 # --- ptt click ------------------------------------------------------------- #
 
