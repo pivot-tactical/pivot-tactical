@@ -741,3 +741,23 @@ def test_session_events_mocked(client, monkeypatch):
 
     assert r.status_code == 200
     assert r.json() == [{"event_id": "test_event"}]
+
+def test_logout(raw_client):
+    from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD
+
+    # 1. Login to get a token
+    r = raw_client.post("/api/login", json={"role": "instructor", "password": DEFAULT_INSTRUCTOR_PASSWORD})
+    assert r.status_code == 200
+    assert raw_client.cookies.get("pivot_token") is not None
+
+    # 2. Logout to revoke token and delete cookie
+    r2 = raw_client.post("/api/logout")
+    assert r2.status_code == 200
+    assert r2.json() == {"ok": True}
+
+    # Verify cookie is deleted
+    assert raw_client.cookies.get("pivot_token") is None
+
+    # 3. Verify token is no longer valid for authenticated routes
+    r3 = raw_client.get("/api/admin/terminals")
+    assert r3.status_code == 401
