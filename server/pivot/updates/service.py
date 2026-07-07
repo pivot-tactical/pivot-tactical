@@ -10,7 +10,11 @@ Policy when auto-update **is** enabled:
 * apply the newest release on the selected channel,
 * but **only when no training session is running** (§3.7.1 — out-of-band). If a
   session is live, the apply is deferred; it happens at the next tick after the
-  session ends (the runtime nudges the service via :meth:`trigger`).
+  session ends (the runtime nudges the service via :meth:`trigger`),
+* and **only when nothing is already staged**. A pending update awaiting restart
+  — in particular one the instructor deliberately chose from the version list
+  (§3.7.4) — is never silently replaced by the newest release; the choice wins
+  until a restart applies (or clears) it.
 
 All the moving parts are injected (config, session-active flag, release fetch,
 apply) so the policy is unit-tested without a network or a real updater.
@@ -88,6 +92,7 @@ class UpdateService:
             "available": [],
             "retained": [],
             "previous": None,
+            "staged_tag": None,
             "auto_state": "idle",
             "auto_message": "",
         }
@@ -157,6 +162,7 @@ class UpdateService:
         cur = SemVer.parse(self._version)
         releases = mgr.list_releases(raw)
         available = mgr.available_updates(raw)
+        staged = mgr.staged_tag()
 
         update = {
             "reachable": True,
@@ -171,11 +177,23 @@ class UpdateService:
             # Retained versions for instant offline rollback (§3.7.7).
             "retained": mgr.retained_versions(),
             "previous": mgr.previous_version(),
+            # The pending update awaiting restart, if any — the single source of
+            # truth for "what version will this install become", so the UI never
+            # has to guess it from the release list.
+            "staged_tag": staged,
         }
 
-        # Auto-update policy: newest available, only out-of-band.
+        # Auto-update policy: newest available, only out-of-band, and never over
+        # an update that is already staged.
         if auto and available:
-            if self._session_active():
+            if staged is not None:
+                # Something is staged awaiting restart — possibly a *specific*
+                # version the instructor chose deliberately (§3.7.4). Auto-update
+                # must not replace that choice with the newest release; it waits
+                # until a restart applies (or clears) the pending update.
+                update["auto_state"] = "idle"
+                update["auto_message"] = f"{staged} staged — restart to apply."
+            elif self._session_active():
                 update["auto_state"] = "deferred_session_active"
                 update["auto_message"] = "Update deferred — a session is running."
             else:
@@ -186,11 +204,14 @@ class UpdateService:
                              "auto_message": f"Downloading {target.tag}…"})
                 try:
                     result = self._apply(target, cfg)
-                    update["auto_state"] = "applied" if result.get("applied") else "error"
+                    applied_ok = bool(result.get("applied"))
+                    update["auto_state"] = "applied" if applied_ok else "error"
                     update["auto_message"] = result.get("message", "") or (
-                        f"Updating to {target.tag}." if result.get("applied")
+                        f"Updating to {target.tag}." if applied_ok
                         else "Auto-update failed."
                     )
+                    if applied_ok:
+                        update["staged_tag"] = mgr.staged_tag() or target.tag
                 except Exception as exc:
                     update["auto_state"] = "error"
                     update["auto_message"] = str(exc)

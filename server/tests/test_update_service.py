@@ -79,6 +79,54 @@ def test_auto_update_applies_when_no_session(tmp_path):
     assert snap["auto_state"] == "applied"
 
 
+def _stage(tmp_path, tag: str):
+    """Write a pending update marker as a manual 'install this version' does."""
+    from pivot.updates.manager import UpdateManager
+
+    app_dir = tmp_path / f"app-{tag}"
+    app_dir.mkdir(parents=True, exist_ok=True)
+    mgr = UpdateManager("1.0.0", versions_dir=tmp_path)
+    mgr.write_pending_marker(mgr.pending_marker_path, tag, app_dir)
+    return mgr
+
+
+def test_auto_update_never_replaces_a_staged_version(tmp_path):
+    """A pending update awaiting restart — e.g. a *specific* version the
+    instructor deliberately chose — must not be clobbered by auto-staging the
+    newest release on the next routine check / 'Check now' (§3.7.4)."""
+    mgr = _stage(tmp_path, "1.0.5")  # user picked 1.0.5; newest is 1.1.0
+    applied = []
+    svc = _service(tmp_path, config={"github_repo": "o/r", "auto_update": True},
+                   apply_fn=lambda r, c: applied.append(r.tag) or {"applied": True})
+    snap = svc.refresh()
+    assert applied == []                      # no download of the newest
+    assert mgr.staged_tag() == "1.0.5"        # the user's choice survives
+    assert snap["staged_tag"] == "1.0.5"      # and the UI is told the truth
+    assert snap["auto_state"] == "idle"
+    assert "1.0.5" in snap["auto_message"]
+
+
+def test_snapshot_reports_staged_tag_without_auto_update(tmp_path):
+    """staged_tag surfaces the pending version even with auto-update off, so a
+    reloaded console still shows what will apply on restart."""
+    _stage(tmp_path, "1.0.5")
+    svc = _service(tmp_path, config={"github_repo": "o/r"})
+    snap = svc.refresh()
+    assert snap["staged_tag"] == "1.0.5"
+
+
+def test_auto_update_stages_newest_onto_clean_slate_and_reports_it(tmp_path):
+    """With nothing staged, the routine check stages the newest and staged_tag
+    reflects the release that was actually applied."""
+    applied = []
+    svc = _service(tmp_path, config={"github_repo": "o/r", "auto_update": True},
+                   apply_fn=lambda r, c: applied.append(r.tag) or {"applied": True})
+    snap = svc.refresh()
+    assert applied == ["1.1.0"]
+    assert snap["staged_tag"] == "1.1.0"
+    assert snap["auto_state"] == "applied"
+
+
 def test_auto_update_deferred_during_session(tmp_path):
     applied = []
 

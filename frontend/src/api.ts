@@ -78,6 +78,10 @@ export interface UpdateStatus {
   available: ReleaseInfo[];
   retained?: string[];      // versions kept on disk for instant rollback
   previous?: string | null; // the most recent retained version
+  // The version actually staged and awaiting a restart, if any — the single
+  // source of truth for what this install becomes on restart. Read fresh from
+  // the pending marker on every check, so it reflects a manual selection too.
+  staged_tag?: string | null;
 }
 
 function tokenQuery(extra = ""): string {
