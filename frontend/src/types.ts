@@ -57,6 +57,10 @@ export interface EventRow {
   tx_mode: RadioMode;
   audibility: string;
   sync_status: string;
+  // Captured channel state (what "Play with noise" re-renders under): jammed
+  // reflects whether jamming was active on this station's channel when it keyed.
+  jammed: boolean;
+  snr_db: number | null;
   timestamp_start: string;
   duration_ms: number;
   transcription: string | null;

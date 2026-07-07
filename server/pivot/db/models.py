@@ -10,6 +10,7 @@ purely persisted concept.
 from __future__ import annotations
 
 import enum
+import json
 
 from sqlalchemy import (
     Enum as SAEnum,
@@ -177,12 +178,21 @@ class EventRow(Base):
 
     def to_dict(self) -> dict:
         """Flat dict for the AAR API and CSV export (§3.6.4)."""
+        # Surface the captured channel state so the log can show *what conditions
+        # this recording will re-render under* — e.g. whether jamming was on at
+        # the instant it was transmitted (Dirty playback replays exactly this).
+        try:
+            profile = json.loads(self.dsp_profile_json) if self.dsp_profile_json else {}
+        except (ValueError, TypeError):
+            profile = {}
         return {
             "event_id": self.event_id,
             "session_id": self.session_id,
             "trainee_name": self.trainee_name,
             "frequency": self.frequency,
             "band_region": self.band_region,
+            "jammed": bool(profile.get("jammed", False)),
+            "snr_db": profile.get("snr_db"),
             "tx_mode": self.tx_mode.value if isinstance(self.tx_mode, RadioMode) else self.tx_mode,
             "audibility": self.audibility.value
             if isinstance(self.audibility, Audibility)
