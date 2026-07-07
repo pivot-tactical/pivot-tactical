@@ -68,6 +68,8 @@ def render_net_frame(
         match reception:
             case Reception.CLEAR:
                 out[reception] = engine.render_clear(single, conditions, rng)
+            case Reception.DIGITAL:
+                out[reception] = engine.render_digital(single, conditions, rng)
             case Reception.HASH:
                 out[reception] = engine.render_hash(single, conditions, rng)
             case Reception.PLAIN_COLLISION:
