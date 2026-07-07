@@ -6,8 +6,6 @@ frequency, render exactly what a listener with a given
 live router and the AAR Dirty re-render (§4.5).
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 
 import numpy as np
