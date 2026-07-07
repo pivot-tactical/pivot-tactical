@@ -17,8 +17,6 @@ yield clear voice is Cypher transmitted into a Plain receiver, which renders as
 the encrypted hash (§3.4.2).
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -30,7 +28,7 @@ class RadioMode(StrEnum):
     PLAIN = "Plain"
     CYPHER = "Cypher"
 
-    def toggled(self) -> RadioMode:
+    def toggled(self) -> "RadioMode":
         return RadioMode.CYPHER if self is RadioMode.PLAIN else RadioMode.PLAIN
 
 

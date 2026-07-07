@@ -769,3 +769,15 @@ def test_instructor_logout(raw_client):
 
     # 5. Verify the token can't be refreshed either
     assert raw_client.post("/api/auth/refresh", headers=headers).status_code == 401
+def test_admin_start_session_mocked(client, monkeypatch):
+    from pivot.api.deps import get_manager
+    mock_manager = MagicMock()
+    mock_manager.start_session.return_value = {"session_id": 123, "name": "MockSession"}
+
+    monkeypatch.setitem(client.app.dependency_overrides, get_manager, lambda: mock_manager)
+
+    response = client.post("/api/admin/session/start", json={"name": "MockSession"})
+
+    assert response.status_code == 200
+    assert response.json() == {"session_id": 123, "name": "MockSession"}
+    mock_manager.start_session.assert_called_once_with("MockSession")

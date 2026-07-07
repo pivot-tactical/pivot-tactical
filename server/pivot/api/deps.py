@@ -5,8 +5,6 @@ token (see :mod:`pivot.auth`) rather than loopback-only access — the instructo
 operates from a browser over the LAN. Trainees are unauthenticated.
 """
 
-from __future__ import annotations
-
 from fastapi import Header, HTTPException, Request
 
 from pivot.auth import AuthService
