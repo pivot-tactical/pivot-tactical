@@ -741,3 +741,60 @@ def test_session_events_mocked(client, monkeypatch):
 
     assert r.status_code == 200
     assert r.json() == [{"event_id": "test_event"}]
+
+def test_logout_clears_cookie_and_revokes_token(client, monkeypatch):
+    from unittest.mock import MagicMock
+    from pivot.api.deps import get_auth
+
+    mock_auth = MagicMock()
+    monkeypatch.setitem(client.app.dependency_overrides, get_auth, lambda: mock_auth)
+
+    client.cookies.clear()
+    client.cookies.set("pivot_token", "test_cookie_token")
+
+    response = client.post("/api/logout")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+    mock_auth.revoke.assert_called_once_with("test_cookie_token")
+
+    set_cookie = response.headers.get("set-cookie")
+    assert set_cookie is not None
+    assert 'pivot_token=""' in set_cookie
+    assert "Max-Age=0" in set_cookie
+    assert "HttpOnly" in set_cookie
+
+
+def test_logout_with_authorization_header(client, monkeypatch):
+    from unittest.mock import MagicMock
+    from pivot.api.deps import get_auth
+
+    mock_auth = MagicMock()
+    monkeypatch.setitem(client.app.dependency_overrides, get_auth, lambda: mock_auth)
+
+    client.cookies.clear()
+
+    response = client.post("/api/logout", headers={"Authorization": "Bearer test_header_token"})
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+    mock_auth.revoke.assert_called_once_with("test_header_token")
+
+
+def test_logout_no_token(client, monkeypatch):
+    from unittest.mock import MagicMock
+    from pivot.api.deps import get_auth
+
+    mock_auth = MagicMock()
+    monkeypatch.setitem(client.app.dependency_overrides, get_auth, lambda: mock_auth)
+
+    client.cookies.clear()
+
+    response = client.post("/api/logout")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+    mock_auth.revoke.assert_called_once_with(None)
