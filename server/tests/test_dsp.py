@@ -14,7 +14,7 @@ from pivot.core.crypto import Reception
 from pivot.dsp.engine import DspEngine, render_reception
 from pivot.dsp.hash_gen import encrypted_hash, envelope_follower
 from pivot.dsp.noise import band_noise, pink_noise, white_noise
-from pivot.dsp.tone import crypto_sync_tone
+from pivot.dsp.tone import crypto_sync_tone, ptt_click
 
 SR = 16_000
 
@@ -138,8 +138,9 @@ def test_plain_collision_mixes_voices():
     b = speech_like(seed=2)
     cond = BandProfile().conditions_at(145e6)
     engine = DspEngine(SR)
-    out = engine.render(Reception.PLAIN_COLLISION, voices=[a, b], conditions=cond,
-                        rng=np.random.default_rng(0))
+    out = engine.render(
+        Reception.PLAIN_COLLISION, voices=[a, b], conditions=cond, rng=np.random.default_rng(0)
+    )
     assert out.shape == a.shape
     # The mix correlates with neither source as strongly as a clean render would.
     assert norm_corr(out, a) < 0.9 and norm_corr(out, b) < 0.9
@@ -184,3 +185,22 @@ def test_crypto_sync_tone_duration():
 def test_crypto_sync_tone_presets(preset):
     tone = crypto_sync_tone(SR, preset=preset)
     assert tone.size > 0 and np.isfinite(tone).all()
+
+
+# --- ptt click ------------------------------------------------------------- #
+
+
+def test_ptt_click_length_and_decay():
+    click = ptt_click(SR)
+    # Expected length: max(1, int(16000 * 0.012)) = 192
+    assert click.size == 192
+    assert np.isfinite(click).all()
+    # verify decay by checking that energy in first half is much greater than second half
+    half = click.size // 2
+    assert np.sum(click[:half] ** 2) > 10 * np.sum(click[half:] ** 2)
+
+
+def test_ptt_click_level():
+    click1 = ptt_click(SR, level=0.5)
+    click2 = ptt_click(SR, level=1.0)
+    assert np.allclose(click1 * 2, click2)
