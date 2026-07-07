@@ -7,8 +7,17 @@ live router and the AAR Dirty re-render (§4.5).
 """
 
 from dataclasses import dataclass, field
+from typing import TypedDict
 
 import numpy as np
+from typing_extensions import Unpack
+
+
+class RenderOptions(TypedDict, total=False):
+    """Optional rendering kwargs for DspEngine.render and render_reception."""
+
+    rng: np.random.Generator | None
+    with_transients: bool
 
 from pivot.core.bands import BandConditions, net_key_for
 from pivot.core.crypto import Reception
@@ -199,8 +208,7 @@ class DspEngine:
         *,
         voices: list[np.ndarray] | None = None,
         conditions: BandConditions,
-        rng: np.random.Generator | None = None,
-        with_transients: bool = False,
+        **kwargs: Unpack[RenderOptions],
     ) -> np.ndarray:
         """Render a buffer for ``reception``.
 
@@ -209,6 +217,8 @@ class DspEngine:
         ``with_transients`` adds a PTT click and squelch tail around the buffer —
         used for whole-event AAR playback (§3.2.4, §4.1.1).
         """
+        rng = kwargs.get("rng")
+
         if reception is Reception.SILENCE:
             n = voice.size if voice is not None else 0
             return np.zeros(n, dtype=np.float32)
@@ -226,7 +236,7 @@ class DspEngine:
         else:  # pragma: no cover - exhaustive
             raise ValueError(f"unhandled reception: {reception}")
 
-        if with_transients:
+        if kwargs.get("with_transients", False):
             out = self._wrap_transients(out, conditions)
         return out
 
@@ -242,8 +252,7 @@ def render_reception(
     voice: np.ndarray,
     conditions: BandConditions,
     sample_rate: int = 16_000,
-    rng: np.random.Generator | None = None,
-    with_transients: bool = False,
+    **kwargs: Unpack[RenderOptions],
 ) -> np.ndarray:
     """Convenience for the common single-stream case (AAR re-render, §4.5)."""
     engine = DspEngine(sample_rate=sample_rate)
@@ -251,8 +260,7 @@ def render_reception(
         reception,
         voice,
         conditions=conditions,
-        rng=rng,
-        with_transients=with_transients,
+        **kwargs,
     )
 
 
