@@ -137,6 +137,44 @@ def test_filters_handle_empty_arrays():
     assert bandpass(empty, 800, 1200, SR).size == 0
     assert bandstop(empty, 800, 1200, SR).size == 0
 
+def test_bandstop_short_input():
+    # Test fallback to sosfilt for short arrays in _safe_filtfilt
+    # _safe_filtfilt padlen default is 3 * (2 * sos.shape[0] + 1)
+    # For order=2, sos.shape[0] should be 1, so padlen = 9
+    # If len <= 9, it falls back to sosfilt. Let's use len=8.
+    short_input = np.ones(8, dtype=np.float32)
+    filtered = bandstop(short_input, low_hz=800, high_hz=1200, sample_rate=SR, order=2)
+    assert filtered.shape == (8,)
+    # Just checking it returns an array of the same shape without crashing
+
+def test_bandstop_frequency_rejection():
+    """Verify correct frequency rejection for bandstop (notch) filter."""
+    t = np.arange(SR) / SR
+    # Passband low, stopband, passband high
+    f_pass1 = 500
+    f_stop = 1500
+    f_pass2 = 3000
+
+    s_pass1 = np.sin(2 * np.pi * f_pass1 * t)
+    s_stop = np.sin(2 * np.pi * f_stop * t)
+    s_pass2 = np.sin(2 * np.pi * f_pass2 * t)
+
+    signal = s_pass1 + s_stop + s_pass2
+
+    # Notch out 1000 - 2000 Hz
+    filtered = bandstop(signal, low_hz=1000, high_hz=2000, sample_rate=SR, order=4)
+
+    fft_in = np.abs(np.fft.rfft(signal))
+    fft_out = np.abs(np.fft.rfft(filtered))
+
+    # Verify passband low is preserved (> 90%)
+    assert fft_out[f_pass1] > fft_in[f_pass1] * 0.90
+
+    # Verify stopband is attenuated (< 5%)
+    assert fft_out[f_stop] < fft_in[f_stop] * 0.05
+
+    # Verify passband high is preserved (> 90%)
+    assert fft_out[f_pass2] > fft_in[f_pass2] * 0.90
 def test_slow_random_empty():
     rng = np.random.default_rng(42)
     out = slow_random(0, 16000, 1.0, rng)
