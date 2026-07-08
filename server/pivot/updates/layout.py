@@ -79,7 +79,7 @@ def _make_link(target: Path, link: Path) -> None:
             link_str = str(link)
             target_str = str(target)
             if '"' in link_str or '"' in target_str:
-                raise ValueError("Paths cannot contain quotes")
+                raise ValueError("Paths cannot contain quotes") from None
 
             # cmd.exe /c requires manual quoting. Passing a single string bypasses
             # subprocess.list2cmdline which fails to quote shell operators (like &).
