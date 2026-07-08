@@ -6,8 +6,6 @@ routers, and serves the built React frontend so trainees reach the UI at
 ``http://[server-ip]:8080`` (spec §2.1).
 """
 
-from __future__ import annotations
-
 import importlib.util
 import os
 import sys
@@ -55,7 +53,6 @@ def _start_update_service(manager: SessionManager, cfg: Settings):
     """
     from pivot.updates import github
     from pivot.updates.service import UpdateService
-    from pivot.version import version_info
 
     def config_provider() -> dict:
         return manager.get_config()
