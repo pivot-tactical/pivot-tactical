@@ -76,8 +76,16 @@ def _make_link(target: Path, link: Path) -> None:
             os.symlink(target, link, target_is_directory=True)
             return
         except OSError:
+            link_str = str(link)
+            target_str = str(target)
+            if '"' in link_str or '"' in target_str:
+                raise ValueError("Paths cannot contain quotes")
+
+            # cmd.exe /c requires manual quoting. Passing a single string bypasses
+            # subprocess.list2cmdline which fails to quote shell operators (like &).
+            cmd_line = f'cmd /c mklink /J "{link_str}" "{target_str}"'
             subprocess.run(
-                ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+                cmd_line,
                 check=True,
                 creationflags=0x08000000,  # CREATE_NO_WINDOW
             )
