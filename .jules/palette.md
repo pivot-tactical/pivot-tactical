@@ -4,3 +4,9 @@
 ## 2026-07-01 - Added Switch Role and ARIA labels to ModeDial
 **Learning:** The `ModeDial` component in `frontend/src/components/ModeDial.tsx` visually behaves like a switch, but lacked the correct semantic HTML role and `aria-checked` state, making its state unclear to screen readers.
 **Action:** Applied `role="switch"`, an explicit `aria-checked` attribute mapped to the 'Cypher' mode state, and proper `aria-label` attributes based on props to the `ModeDial` button to provide semantic keyboard and screen reader accessibility. Hidden visual-only elements using `aria-hidden="true"`.
+## 2024-07-09 - Inline Validation for Trainee Login
+**Learning:** The trainee login form disabled the "Join Net" button without providing context when an invalid character was typed, which could leave users confused about why they couldn't proceed. A disabled button without an explanation is a UX anti-pattern.
+**Action:** Added inline validation feedback explicitly listing allowed characters, applied `aria-invalid` to the input, and utilized `aria-describedby` to ensure screen readers also announce the error state, significantly improving form accessibility.
+## 2024-07-09 - Inline Validation constraints
+**Learning:** Adding custom inline styles like `style={{ marginTop: "-8px" }}` to tweak the display violates strict project boundaries regarding using only existing classes, and adding `title` to disabled buttons is actually an anti-pattern as many browsers suppress mouse events on them.
+**Action:** Removed inline styles relying on the existing `.login__hint` class instead, and removed the broken tooltip on the disabled button.

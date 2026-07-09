@@ -78,9 +78,20 @@ export function Login({
                 autoFocus
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && valid && onTrainee(name.trim())}
+                aria-invalid={name.trim().length > 0 && !valid}
+                aria-describedby="callsign-error"
               />
             </label>
-            <button className="btn btn--primary" disabled={!valid} onClick={() => onTrainee(name.trim())}>
+            {name.trim().length > 0 && !valid && (
+              <p id="callsign-error" className="login__hint">
+                Only letters, numbers, spaces, and hyphens allowed.
+              </p>
+            )}
+            <button
+              className="btn btn--primary"
+              disabled={!valid}
+              onClick={() => onTrainee(name.trim())}
+            >
               Join Net
             </button>
             <button className="btn btn--ghost login__switch" onClick={() => { setMode("instructor"); setError(""); }}>
