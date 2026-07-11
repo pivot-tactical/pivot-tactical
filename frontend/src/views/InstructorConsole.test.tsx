@@ -188,11 +188,16 @@ describe('InstructorConsole', () => {
     expect(screen.getByText('helo wrld')).toBeInTheDocument();
   });
 
-  it('an already-edited transcript highlights the changed words and shows an edited badge', async () => {
+  it('an already-edited transcript highlights changes (char-level for fixes, whole word for rewords) with an edited badge', async () => {
+    // "grid 123456 to cat" -> "grid 123556 to dog":
+    //  - a single-digit fix (123456 -> 123556) should highlight only the digit,
+    //    NOT the whole number token;
+    //  - an unrelated reword (cat -> dog) should highlight the whole word;
+    //  - unchanged words (grid, to) should not be highlighted at all.
     (api.recentEvents as any).mockResolvedValueOnce([
       makeEvent({
-        transcription: 'hello WORLD over',
-        transcription_original: 'helo world over',
+        transcription: 'grid 123556 to dog',
+        transcription_original: 'grid 123456 to cat',
         transcription_edited: true,
       }),
     ]);
@@ -203,12 +208,20 @@ describe('InstructorConsole', () => {
       container = r.container;
     });
 
-    // The "edited" badge is shown.
+    // The "edited" badge is shown, and the full corrected text is rendered.
     expect(await screen.findByText(/edited/)).toBeInTheDocument();
-    // Changed words ("hello", "WORLD") are highlighted; unchanged "over" is not.
+    const cell = container!.querySelector('.transcript') as HTMLElement;
+    expect(cell.textContent).toContain('grid 123556 to dog');
+
     const marks = Array.from(container!.querySelectorAll('.transcript__edit')).map((m) => m.textContent);
-    expect(marks).toContain('hello');
-    expect(marks).toContain('WORLD');
-    expect(marks).not.toContain('over');
+    const highlighted = marks.join('|');
+    // Character-level: the changed digit is marked, but not the whole number.
+    expect(highlighted).toContain('5');
+    expect(marks).not.toContain('123556');
+    // Whole-word: the reworded token is marked in full.
+    expect(marks).toContain('dog');
+    // Unchanged words are never highlighted.
+    expect(highlighted).not.toContain('grid');
+    expect(marks).not.toContain('to');
   });
 });

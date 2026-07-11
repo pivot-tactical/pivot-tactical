@@ -736,37 +736,86 @@ function TranscriptCell({ ev, onEventUpdate }: {
   );
 }
 
-// Word-level diff of a hand-corrected transcript against the machine one: every
-// token of the edited text is tagged unchanged (part of the longest common
-// subsequence) or changed (inserted/reworded), so the console can highlight
-// exactly what the instructor altered. A null original means the whole line was
-// entered by hand, so all of it is a change.
-function diffWords(original: string | null, edited: string): { text: string; changed: boolean }[] {
-  const a = original ? original.split(/\s+/).filter(Boolean) : [];
-  const b = edited.split(/\s+/).filter(Boolean);
+// Diff of a hand-corrected transcript against the machine one, hybrid word +
+// character (§3.5.3). Words are aligned first (a word is the meaningful unit of
+// a transcript, and aligning on words keeps a reworded phrase from fragmenting).
+// A word the instructor *replaced* is then refined to the character level so a
+// one-digit or suffix fix highlights only the characters that changed — but only
+// when the two words are similar enough; a wholesale reword highlights the whole
+// word instead of scattering marks across it. A null original means the line was
+// typed from scratch, so all of it is a change.
+
+// Longest-common-subsequence alignment of two token arrays into ordered ops.
+function lcsOps<T extends string>(a: T[], b: T[]): { t: "eq" | "del" | "ins"; v: T }[] {
   const n = a.length, m = b.length;
-  // LCS length table.
   const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i--)
     for (let j = m - 1; j >= 0; j--)
       dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-  const out: { text: string; changed: boolean }[] = [];
+  const out: { t: "eq" | "del" | "ins"; v: T }[] = [];
   let i = 0, j = 0;
-  while (j < m) {
-    if (i < n && a[i] === b[j]) { out.push({ text: b[j], changed: false }); i++; j++; }
-    else if (i < n && dp[i + 1][j] >= dp[i][j + 1]) { i++; }   // deletion from the original
-    else { out.push({ text: b[j], changed: true }); j++; }      // added/reworded by hand
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ t: "eq", v: b[j] }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: "del", v: a[i] }); i++; }
+    else { out.push({ t: "ins", v: b[j] }); j++; }
   }
+  while (i < n) { out.push({ t: "del", v: a[i] }); i++; }
+  while (j < m) { out.push({ t: "ins", v: b[j] }); j++; }
   return out;
 }
 
+// Render one word `to` that replaced machine word `from` (or was inserted when
+// `from` is null): highlight the characters that differ, or the whole word when
+// the two are too dissimilar to refine cleanly.
+function renderWord(from: string | null, to: string, key: React.Key): React.ReactNode {
+  const whole = <mark key={key} className="transcript__edit">{to}</mark>;
+  if (from == null) return whole;
+  const chars = lcsOps([...from], [...to]).filter((o) => o.t !== "del");
+  const unchanged = chars.filter((c) => c.t === "eq").length;
+  // Refine only when at least half the correction's characters are shared with
+  // the machine word — otherwise it's a reword, not a typo fix.
+  if (unchanged / Math.max(from.length, to.length) < 0.5) return whole;
+  // Coalesce adjacent same-kind characters into as few marks as possible.
+  const nodes: React.ReactNode[] = [];
+  let buf = "", changed = chars.length > 0 && chars[0].t === "ins", part = 0;
+  const flush = () => {
+    if (!buf) return;
+    nodes.push(
+      changed
+        ? <mark key={`${key}-${part}`} className="transcript__edit">{buf}</mark>
+        : <span key={`${key}-${part}`}>{buf}</span>
+    );
+    buf = ""; part++;
+  };
+  for (const c of chars) {
+    const isChanged = c.t === "ins";
+    if (isChanged !== changed) { flush(); changed = isChanged; }
+    buf += c.v;
+  }
+  flush();
+  return <span key={key}>{nodes}</span>;
+}
+
 function renderDiff(original: string | null, edited: string): React.ReactNode {
-  return diffWords(original, edited).map((tk, idx) => (
-    <span key={idx}>
-      {idx > 0 ? " " : ""}
-      {tk.changed ? <mark className="transcript__edit">{tk.text}</mark> : tk.text}
-    </span>
-  ));
+  const a = original ? original.split(/\s+/).filter(Boolean) : [];
+  const b = edited.split(/\s+/).filter(Boolean);
+  const ops = lcsOps(a, b);
+  const words: React.ReactNode[] = [];
+  let k = 0;
+  while (k < ops.length) {
+    if (ops[k].t === "eq") { words.push(ops[k].v); k++; continue; }
+    // A maximal run of deletes/inserts is one replace block; pair each new word
+    // with the machine word it replaced (by position) for character refinement.
+    const dels: string[] = [], inss: string[] = [];
+    while (k < ops.length && ops[k].t !== "eq") {
+      if (ops[k].t === "del") dels.push(ops[k].v); else inss.push(ops[k].v);
+      k++;
+    }
+    inss.forEach((w, idx) =>
+      words.push(renderWord(idx < dels.length ? dels[idx] : null, w, `w${words.length}`))
+    );
+  }
+  return words.map((n, idx) => <span key={idx}>{idx > 0 ? " " : ""}{n}</span>);
 }
 
 function MonitorTab({ terminals }: { terminals: Terminal[] }) {
