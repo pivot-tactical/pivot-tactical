@@ -195,6 +195,19 @@ export function InstructorConsole({
     };
   }, []);
 
+  // Merge a (possibly partial) event update into the running log — shared by the
+  // live `transcription_updated` feed and the instructor's own manual edits, so
+  // a correction shows immediately without waiting on the socket round-trip.
+  const updateEvent = useCallback((ev: Partial<EventRow> & { event_id: string }) => {
+    setEntries((prev) =>
+      prev.map((e) =>
+        e.kind === "event" && e.event.event_id === ev.event_id
+          ? { kind: "event", event: { ...e.event, ...ev } }
+          : e
+      )
+    );
+  }, []);
+
   // Settings → Restart server flips us into the reconnecting state; the socket
   // close handler then starts polling for the server to come back.
   function enterRestarting() {
@@ -243,7 +256,7 @@ export function InstructorConsole({
       </nav>
 
       <main className="console__body">
-        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} entries={entries} netScenarios={netScenarios} rxLevels={rxLevels} />}
+        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} entries={entries} netScenarios={netScenarios} rxLevels={rxLevels} onEventUpdate={updateEvent} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
         {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} socket={socketRef.current} onRestart={enterRestarting} sessionActive={sessionActive} />}
       </main>
@@ -269,9 +282,10 @@ function scenarioFor(netScenarios: NetScenario[], hz: number): NetScenario | und
 // handler; the meters poll and decay it at animation rate without re-renders.
 type RxLevels = { current: Record<string, number> };
 
-function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxLevels }: {
+function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxLevels, onEventUpdate }: {
   radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
   entries: LogEntry[]; netScenarios: NetScenario[]; rxLevels: RxLevels;
+  onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
 }) {
   // TX phase per keyed radio (absent = IDLE). Several radios can be keyed at
   // once — the one mic feeds them all, and each runs its own PTT/crypto-sync
@@ -384,7 +398,7 @@ function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxL
       {/* Below the radios, right-aligned — out of the way, but never scrolled
           out of sight like a grid tile would be when a row is exactly full. */}
       <button className="instr-radios__add" onClick={addRadio}>+ Add Radio</button>
-      <LiveLogTab entries={entries} />
+      <LiveLogTab entries={entries} onEventUpdate={onEventUpdate} />
     </div>
   );
 }
@@ -547,7 +561,10 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
   );
 }
 
-function LiveLogTab({ entries }: { entries: LogEntry[] }) {
+function LiveLogTab({ entries, onEventUpdate }: {
+  entries: LogEntry[];
+  onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
+}) {
   const [audio] = useState(() => new Audio());
   // Two independent playbacks of the one stored recording: "clean" is the raw
   // pre-DSP capture (no noise); "dirty" re-renders it through the original DSP
@@ -575,7 +592,6 @@ function LiveLogTab({ entries }: { entries: LogEntry[] }) {
             );
           }
           const ev = entry.event;
-          const low = ev.transcription_confidence != null && ev.transcription_confidence < 0.8;
           return (
             <div className="logrow" key={ev.event_id}>
               <span className="event__play-group">
@@ -587,25 +603,170 @@ function LiveLogTab({ entries }: { entries: LogEntry[] }) {
               <span className="mono">{ev.frequency}</span>
               <span title={ev.tx_mode}>{ev.tx_mode === "Cypher" ? "🔒" : "◌"}</span>
               <span className={`event__aud aud--${ev.audibility.split("-")[0].toLowerCase()}`}>{ev.audibility}</span>
-              <span className={`logtext ${low ? "text--amber" : ""} ${!ev.transcription ? "text--none" : ""}`}>
-                {ev.jammed && (
-                  <span
-                    className="event__jammed"
-                    title={`Captured while its channel was jammed${
-                      ev.snr_db != null ? ` (SNR ${Math.round(ev.snr_db)} dB)` : ""
-                    }. "Play with noise" re-renders it as a wall of jammer noise.`}
-                  >
-                    JAMMED
-                  </span>
-                )}
-                {ev.transcription || (ev.transcription_status === "Pending" ? "transcribing…" : "—")}
-              </span>
+              <TranscriptCell ev={ev} onEventUpdate={onEventUpdate} />
             </div>
           );
         })}
       </div>
     </section>
   );
+}
+
+// One transcript, single-click-to-edit (§3.5.3). Displayed it shows the current
+// text; a machine transcription below the amber-confidence threshold is tinted,
+// and a hand-corrected one diffs against the preserved machine text so the words
+// the instructor changed are highlighted. Clicking swaps in a freeform box;
+// Enter (or Save) confirms, Escape (or Cancel) reverts.
+function TranscriptCell({ ev, onEventUpdate }: {
+  ev: EventRow;
+  onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // Don't offer editing until the machine transcription has settled — editing a
+  // row still being transcribed would race the worker's result.
+  const pending = ev.transcription_status === "Pending";
+  const low = !ev.transcription_edited &&
+    ev.transcription_confidence != null && ev.transcription_confidence < 0.8;
+
+  function begin() {
+    if (pending) return;
+    setDraft(ev.transcription ?? "");
+    setEditing(true);
+  }
+  useEffect(() => {
+    if (editing) {
+      const ta = taRef.current;
+      ta?.focus();
+      ta?.select();
+    }
+  }, [editing]);
+
+  async function confirm() {
+    const text = draft.trim();
+    // No-op edit: just close the box.
+    if (text === (ev.transcription ?? "").trim()) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      const updated = await api.editTranscription(ev.event_id, text);
+      onEventUpdate(updated);
+      setEditing(false);
+    } catch {
+      // Leave the box open so the instructor can retry without losing the text.
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const jammedBadge = ev.jammed && (
+    <span
+      className="event__jammed"
+      title={`Captured while its channel was jammed${
+        ev.snr_db != null ? ` (SNR ${Math.round(ev.snr_db)} dB)` : ""
+      }. "Play with noise" re-renders it as a wall of jammer noise.`}
+    >
+      JAMMED
+    </span>
+  );
+
+  if (editing) {
+    return (
+      <span className="logtext transcript transcript--editing">
+        {jammedBadge}
+        <textarea
+          ref={taRef}
+          className="input transcript__box"
+          rows={2}
+          value={draft}
+          disabled={saving}
+          aria-label="Edit transcript"
+          placeholder="Type what was said…"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter confirms (Shift+Enter inserts a newline); Escape cancels.
+            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); confirm(); }
+            else if (e.key === "Escape") { e.preventDefault(); setEditing(false); }
+          }}
+        />
+        <span className="transcript__actions">
+          <button className="btn btn--primary btn--tiny" onClick={confirm} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button className="btn btn--tiny" onClick={() => setEditing(false)} disabled={saving}>
+            Cancel
+          </button>
+        </span>
+      </span>
+    );
+  }
+
+  const hasText = !!ev.transcription;
+  const body = (
+    <>
+      {jammedBadge}
+      {ev.transcription_edited && (
+        <span className="transcript__badge" title="Manually edited — highlighted words differ from the machine transcription.">✎ edited</span>
+      )}
+      {ev.transcription_edited && hasText
+        ? renderDiff(ev.transcription_original, ev.transcription!)
+        : (ev.transcription || (pending ? "transcribing…" : "—"))}
+    </>
+  );
+
+  // While the machine transcription is still pending there's nothing to correct
+  // yet, so it's shown as plain (non-editable) text; every settled row is
+  // single-click-to-edit.
+  if (pending) {
+    return <span className="logtext transcript text--none">{body}</span>;
+  }
+  return (
+    <span
+      className={`logtext transcript ${low ? "text--amber" : ""} ${!hasText ? "text--none" : ""}`}
+      role="button"
+      tabIndex={0}
+      title="Click to edit the transcript"
+      onClick={begin}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); begin(); } }}
+    >
+      {body}
+    </span>
+  );
+}
+
+// Word-level diff of a hand-corrected transcript against the machine one: every
+// token of the edited text is tagged unchanged (part of the longest common
+// subsequence) or changed (inserted/reworded), so the console can highlight
+// exactly what the instructor altered. A null original means the whole line was
+// entered by hand, so all of it is a change.
+function diffWords(original: string | null, edited: string): { text: string; changed: boolean }[] {
+  const a = original ? original.split(/\s+/).filter(Boolean) : [];
+  const b = edited.split(/\s+/).filter(Boolean);
+  const n = a.length, m = b.length;
+  // LCS length table.
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out: { text: string; changed: boolean }[] = [];
+  let i = 0, j = 0;
+  while (j < m) {
+    if (i < n && a[i] === b[j]) { out.push({ text: b[j], changed: false }); i++; j++; }
+    else if (i < n && dp[i + 1][j] >= dp[i][j + 1]) { i++; }   // deletion from the original
+    else { out.push({ text: b[j], changed: true }); j++; }      // added/reworded by hand
+  }
+  return out;
+}
+
+function renderDiff(original: string | null, edited: string): React.ReactNode {
+  return diffWords(original, edited).map((tk, idx) => (
+    <span key={idx}>
+      {idx > 0 ? " " : ""}
+      {tk.changed ? <mark className="transcript__edit">{tk.text}</mark> : tk.text}
+    </span>
+  ));
 }
 
 function MonitorTab({ terminals }: { terminals: Terminal[] }) {

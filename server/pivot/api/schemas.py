@@ -131,6 +131,17 @@ class NetScenarioRequest(BaseModel):
     jammed: bool | None = None
 
 
+class TranscriptionEditRequest(BaseModel):
+    """Instructor's manual transcript correction for one event (§3.5.3).
+
+    ``text`` is the corrected transcript; an empty string clears it. Radio
+    transmissions are short, so a generous cap guards against pathological input
+    without getting in the way.
+    """
+
+    text: str = Field(max_length=4096)
+
+
 class ScenarioRequest(BaseModel):
     """Instructor scenario controls (§3.1.5). All fields optional; set what you
     want to change in one call."""

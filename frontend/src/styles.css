@@ -349,6 +349,24 @@ body {
 .event__play-group { display: flex; gap: 4px; }
 .event__play-group .event__play { flex: 1; min-width: 0; padding: 4px 2px; }
 
+/* Manual transcript edit (§3.5.3): the display cell is click-to-edit, so give it
+   a hover cue; the editing cell breaks out of the row's single-line ellipsis. */
+.transcript[role="button"] { cursor: text; border-radius: 4px; }
+.transcript[role="button"]:hover { background: var(--panel-2); }
+.transcript[role="button"]:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+.transcript--editing { white-space: normal; overflow: visible; display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
+.transcript__box { flex: 1 1 100%; min-width: 0; resize: vertical; font: inherit; padding: 5px 8px; }
+.transcript__actions { display: flex; gap: 6px; }
+.btn--tiny { padding: 4px 10px; font-size: 12px; }
+/* Words the instructor changed, highlighted against the machine transcription. */
+.transcript__edit { background: rgba(54, 211, 107, 0.22); color: #d7ffe6; border-radius: 3px; padding: 0 2px; }
+.transcript__badge {
+  display: inline-block; vertical-align: middle; font-size: 10px; font-weight: 700;
+  line-height: 1.5; letter-spacing: 0.04em; color: var(--green);
+  border: 1px solid var(--green); border-radius: 3px; padding: 0 5px; margin-right: 7px;
+  white-space: nowrap;
+}
+
 /* Session start/stop divider: a full-width line across the log. */
 .logrow--session { display: flex; align-items: center; gap: 10px; padding: 6px; }
 .logrow--session .logrow__session-label {

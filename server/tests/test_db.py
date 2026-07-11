@@ -116,6 +116,121 @@ def test_set_transcription(database):
         assert e.transcription_status is TranscriptionStatus.DONE
 
 
+def _make_event(s, **overrides):
+    """Insert a minimal event and return its id (test helper)."""
+    sess = repo.start_session(s, "S")
+    kwargs = dict(
+        session_id=sess.id,
+        trainee_name="ALPHA",
+        frequency="145.500 MHz",
+        band_region="VHF",
+        tx_mode=RadioMode.PLAIN,
+        audibility=Audibility.HEARD,
+        sync_status=SyncStatus.COMPLETED,
+        timestamp_start="2026-06-05T12:00:00+00:00",
+        duration_ms=1500,
+        audio_path="x.wav",
+        dsp_profile={},
+    )
+    kwargs.update(overrides)
+    return repo.create_event(s, **kwargs).event_id
+
+
+def test_edit_transcription_preserves_machine_text(database):
+    """A manual edit keeps the machine transcription for diffing and flags the row."""
+    with database.session() as s:
+        eid = _make_event(s)
+        repo.set_transcription(
+            s, eid, text_value="SITREP FOLOWS", confidence=0.42, status=TranscriptionStatus.DONE
+        )
+    with database.session() as s:
+        row = repo.edit_transcription(s, eid, "SITREP FOLLOWS OVER")
+        assert row is not None
+    with database.session() as s:
+        e = repo.get_event(s, eid)
+        assert e.transcription == "SITREP FOLLOWS OVER"
+        assert e.transcription_original == "SITREP FOLOWS"  # machine text preserved
+        assert bool(e.transcription_edited) is True
+        assert e.transcription_status is TranscriptionStatus.DONE
+        d = e.to_dict()
+        assert d["transcription_original"] == "SITREP FOLOWS"
+        assert d["transcription_edited"] is True
+
+
+def test_edit_transcription_reedit_keeps_original(database):
+    """Editing twice keeps the *machine* text as the diff baseline, not the last edit."""
+    with database.session() as s:
+        eid = _make_event(s)
+        repo.set_transcription(
+            s, eid, text_value="MACHINE", confidence=0.5, status=TranscriptionStatus.DONE
+        )
+    with database.session() as s:
+        repo.edit_transcription(s, eid, "FIRST EDIT")
+    with database.session() as s:
+        repo.edit_transcription(s, eid, "SECOND EDIT")
+    with database.session() as s:
+        e = repo.get_event(s, eid)
+        assert e.transcription == "SECOND EDIT"
+        assert e.transcription_original == "MACHINE"
+
+
+def test_edit_transcription_revert_clears_flag(database):
+    """Restoring the machine text drops the edited marker (a full revert)."""
+    with database.session() as s:
+        eid = _make_event(s)
+        repo.set_transcription(
+            s, eid, text_value="MACHINE", confidence=0.5, status=TranscriptionStatus.DONE
+        )
+    with database.session() as s:
+        repo.edit_transcription(s, eid, "CHANGED")
+    with database.session() as s:
+        repo.edit_transcription(s, eid, "MACHINE")
+    with database.session() as s:
+        e = repo.get_event(s, eid)
+        assert e.transcription == "MACHINE"
+        assert e.transcription_original is None
+        assert bool(e.transcription_edited) is False
+
+
+def test_edit_transcription_on_skipped_event(database):
+    """The instructor can type a transcript for an event the machine skipped."""
+    with database.session() as s:
+        eid = _make_event(s)
+        repo.set_transcription(
+            s, eid, text_value=None, confidence=None, status=TranscriptionStatus.SKIPPED
+        )
+    with database.session() as s:
+        repo.edit_transcription(s, eid, "MANUAL ENTRY")
+    with database.session() as s:
+        e = repo.get_event(s, eid)
+        assert e.transcription == "MANUAL ENTRY"
+        assert e.transcription_original is None  # nothing machine-made to preserve
+        assert bool(e.transcription_edited) is True
+        assert e.transcription_status is TranscriptionStatus.DONE
+
+
+def test_set_transcription_never_clobbers_a_manual_edit(database):
+    """A late machine transcription must not overwrite a hand-corrected row."""
+    with database.session() as s:
+        eid = _make_event(s)
+    with database.session() as s:
+        repo.edit_transcription(s, eid, "HUMAN TRUTH")
+    with database.session() as s:
+        # Simulate the worker landing after the edit.
+        repo.set_transcription(
+            s, eid, text_value="ROBOT GUESS", confidence=0.9, status=TranscriptionStatus.DONE
+        )
+    with database.session() as s:
+        e = repo.get_event(s, eid)
+        assert e.transcription == "HUMAN TRUTH"
+        assert bool(e.transcription_edited) is True
+
+
+def test_edit_transcription_unknown_event_returns_none(database):
+    with database.session() as s:
+        assert repo.edit_transcription(s, "no-such-id", "x") is None
+
+
 def test_delete_session_cascades_events(database):
     with database.session() as s:
         sess = repo.start_session(s, "S")
@@ -181,6 +296,24 @@ def test_migration_boundary_check():
     assert crosses_migration_boundary(2, 1) is True
     assert crosses_migration_boundary(1, 1) is False
     assert crosses_migration_boundary(1, 2) is False
+
+
+def test_v3_migration_adds_transcript_edit_columns_idempotently():
+    """The v3 step adds the manual-edit columns to a pre-existing events table
+    and is safe to run twice (§3.5.3)."""
+    from sqlalchemy import create_engine, text
+
+    from pivot.db.migrations import _migrate_v3_transcript_edits
+
+    engine = create_engine("sqlite://")  # in-memory
+    with engine.begin() as conn:
+        # An "old" events table without the manual-edit columns.
+        conn.execute(text("CREATE TABLE events (event_id TEXT PRIMARY KEY, transcription TEXT)"))
+        _migrate_v3_transcript_edits(conn)
+        _migrate_v3_transcript_edits(conn)  # idempotent — second run is a no-op
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(events)"))}
+        assert "transcription_original" in cols
+        assert "transcription_edited" in cols
 
 
 def test_list_sessions_with_event_count(database):

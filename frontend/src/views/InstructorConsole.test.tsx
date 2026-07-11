@@ -2,6 +2,30 @@ import { render, screen, cleanup, act, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { InstructorConsole } from './InstructorConsole';
+import { api } from '../api';
+
+// A fully-formed EventRow for the running log, overridable per test.
+function makeEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    event_id: 'evt-1',
+    trainee_name: 'ALPHA',
+    frequency: '14.250 MHz',
+    band_region: 'HF',
+    tx_mode: 'Plain',
+    audibility: 'Heard',
+    sync_status: 'Completed',
+    jammed: false,
+    snr_db: 20,
+    timestamp_start: '2026-06-05T12:00:00+00:00',
+    duration_ms: 1500,
+    transcription: 'helo wrld',
+    transcription_confidence: 0.4,
+    transcription_status: 'Done',
+    transcription_original: null,
+    transcription_edited: false,
+    ...overrides,
+  };
+}
 
 // Mock audio
 vi.mock('../audio', () => ({
@@ -39,6 +63,8 @@ vi.mock('../api', () => ({
     bandProfile: vi.fn().mockResolvedValue({ crypto_enabled: true }),
     terminals: vi.fn().mockResolvedValue({ session_active: false, terminals: [] }),
     refreshUpdates: vi.fn().mockResolvedValue({ standing: 'current' }),
+    editTranscription: vi.fn(),
+    eventAudioUrl: vi.fn().mockReturnValue('blob:audio'),
   },
   getToken: vi.fn().mockReturnValue('mock-token'),
 }));
@@ -117,5 +143,72 @@ describe('InstructorConsole', () => {
     });
 
     expect(screen.getByText('Instructor Password')).toBeInTheDocument();
+  });
+
+  it('single-click on a transcript opens a freeform edit box and saves the correction', async () => {
+    (api.recentEvents as any).mockResolvedValueOnce([makeEvent()]);
+    (api.editTranscription as any).mockResolvedValueOnce(
+      makeEvent({ transcription: 'hello world', transcription_original: 'helo wrld', transcription_edited: true })
+    );
+
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+
+    // Single click turns the transcript into an editable box.
+    const cell = await screen.findByText('helo wrld');
+    await act(async () => { fireEvent.click(cell); });
+    const box = screen.getByLabelText('Edit transcript') as HTMLTextAreaElement;
+    expect(box).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.change(box, { target: { value: 'hello world' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+
+    expect(api.editTranscription).toHaveBeenCalledWith('evt-1', 'hello world');
+  });
+
+  it('Escape cancels an edit without calling the API', async () => {
+    (api.recentEvents as any).mockResolvedValueOnce([makeEvent()]);
+
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+
+    const cell = await screen.findByText('helo wrld');
+    await act(async () => { fireEvent.click(cell); });
+    const box = screen.getByLabelText('Edit transcript');
+    await act(async () => {
+      fireEvent.change(box, { target: { value: 'something else' } });
+      fireEvent.keyDown(box, { key: 'Escape' });
+    });
+
+    expect(api.editTranscription).not.toHaveBeenCalled();
+    expect(screen.getByText('helo wrld')).toBeInTheDocument();
+  });
+
+  it('an already-edited transcript highlights the changed words and shows an edited badge', async () => {
+    (api.recentEvents as any).mockResolvedValueOnce([
+      makeEvent({
+        transcription: 'hello WORLD over',
+        transcription_original: 'helo world over',
+        transcription_edited: true,
+      }),
+    ]);
+
+    let container: HTMLElement;
+    await act(async () => {
+      const r = render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+      container = r.container;
+    });
+
+    // The "edited" badge is shown.
+    expect(await screen.findByText(/edited/)).toBeInTheDocument();
+    // Changed words ("hello", "WORLD") are highlighted; unchanged "over" is not.
+    const marks = Array.from(container!.querySelectorAll('.transcript__edit')).map((m) => m.textContent);
+    expect(marks).toContain('hello');
+    expect(marks).toContain('WORLD');
+    expect(marks).not.toContain('over');
   });
 });
