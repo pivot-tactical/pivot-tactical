@@ -11,7 +11,7 @@ from typing import Protocol
 
 import numpy as np
 
-from pivot.audio.recording import duration_ms, event_audio_path, read_recording
+from pivot.audio.recording import duration_ms, read_recording
 from pivot.config import Settings
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
@@ -113,9 +113,10 @@ class TranscriptionWorker:
             event = repo.get_event(s, event_id)
             if event is None:
                 return TranscriptionStatus.FAILED
-            audio_path = event_audio_path(
-                self.settings.recordings_dir, event.session_id, event_id
-            )
+            # Resolve from the path stored on the row (the source of truth) rather
+            # than rebuilding it from ids — recording names are human-readable and
+            # no longer derivable from session/event ids alone.
+            audio_path = self.settings.recordings_dir / event.audio_path
 
         if not audio_path.exists():
             self._store(event_id, None, None, TranscriptionStatus.FAILED)

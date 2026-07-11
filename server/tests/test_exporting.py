@@ -6,6 +6,7 @@ from pathlib import Path
 from pivot.core.crypto import Audibility, RadioMode, SyncStatus
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
+from pivot.audio.recording import session_dir_name
 from pivot.db.models import TranscriptionStatus
 from pivot.exporting import export_csv, export_text, export_zip
 
@@ -88,6 +89,7 @@ def test_export_zip(database, settings, tmp_path):
         cfg.set("display_timezone", "UTC")
         sess = repo.start_session(s, "Test Session")
         sid = sess.id
+        started_at = sess.started_at
         event = repo.create_event(
             s,
             session_id=sid,
@@ -118,11 +120,14 @@ def test_export_zip(database, settings, tmp_path):
 
     zip_bytes = export_zip(database, settings, sid)
 
+    # The archive's top folder is named for humans, not the session UUID.
+    root = session_dir_name("Test Session", started_at)
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         names = zf.namelist()
-        assert f"{sid}/transcript.txt" in names
-        assert f"{sid}/events.csv" in names
-        assert f"{sid}/recordings/test.wav" in names
+        assert sid not in root
+        assert f"{root}/transcript.txt" in names
+        assert f"{root}/events.csv" in names
+        assert f"{root}/recordings/test.wav" in names
 
-        wav_data = zf.read(f"{sid}/recordings/test.wav")
+        wav_data = zf.read(f"{root}/recordings/test.wav")
         assert wav_data == b"dummy wav data"

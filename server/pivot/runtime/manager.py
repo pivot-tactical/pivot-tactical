@@ -108,6 +108,9 @@ class SessionManager:
             resumed = repo.active_session(s)
             self.current_session_id: str | None = resumed.id if resumed else None
             self.current_session_name: str | None = resumed.name if resumed else None
+            self.current_session_started_at: str | None = (
+                resumed.started_at if resumed else None
+            )
         self.terminals: dict[str, TerminalInfo] = {}
         self._active_tx: dict[str, _TxAccumulator] = {}
         self._subscribers: set[asyncio.Queue] = set()
@@ -171,6 +174,7 @@ class SessionManager:
             row = repo.start_session(s, name)
             self.current_session_id = row.id
             self.current_session_name = row.name
+            self.current_session_started_at = row.started_at
             result = {"id": row.id, "name": row.name, "started_at": row.started_at}
         self.broadcast("session_started", result)
         return result
@@ -185,6 +189,7 @@ class SessionManager:
             )
         self.current_session_id = None
         self.current_session_name = None
+        self.current_session_started_at = None
         self._active_tx.clear()
         if result:
             self.broadcast("session_ended", result)
@@ -757,20 +762,23 @@ class SessionManager:
             return None  # events only logged within a session
         from pivot.audio.recording import (
             duration_ms,
-            event_audio_path,
             relative_audio_path,
             write_recording,
         )
         from pivot.db.models import TranscriptionStatus
 
         conditions = self.band_profile.conditions_at(acc.frequency_hz)
-        rel_path = relative_audio_path(self.current_session_id, acc.event_id)
+        rel_path = relative_audio_path(
+            self.current_session_name,
+            self.current_session_started_at or acc.started_at,
+            acc.started_at,
+            acc.trainee_name,
+            acc.event_id,
+        )
         dur = 0
         has_audio = clean is not None and clean.size > 0
         if has_audio:
-            path = event_audio_path(
-                self.settings.recordings_dir, self.current_session_id, acc.event_id
-            )
+            path = self.settings.recordings_dir / rel_path
             write_recording(path, clean, RECORDING_SAMPLE_RATE)
             dur = duration_ms(clean, RECORDING_SAMPLE_RATE)
 
