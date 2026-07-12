@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -95,10 +96,18 @@ class UpdateService:
             "staged_tag": None,
             "auto_state": "idle",
             "auto_message": "",
+            # Live byte progress of an in-flight download (auto or manual), or
+            # None when nothing is downloading. Shape: {tag, received, total}
+            # with total None when the server sends no Content-Length.
+            "download_progress": None,
         }
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        # Throttle for download-progress broadcasts (a 100 MB build streams in
+        # ~100 chunks — coalesce to a broadcast every ~0.4s / ~2 MB).
+        self._progress_last_ts = 0.0
+        self._progress_last_recv = 0
 
     # -- public API -------------------------------------------------------- #
 
@@ -119,6 +128,44 @@ class UpdateService:
     def trigger(self) -> None:
         """Ask the loop to re-check now (e.g. a session just ended)."""
         self._wake.set()
+
+    def note_staged(self, tag: str | None) -> None:
+        """Record a version staged out-of-band (manual apply / rollback).
+
+        The manual apply and rollback endpoints write the on-disk pending marker
+        directly, without going through this service. Without this hook the
+        cached snapshot's ``staged_tag`` would stay stale until the next poll, and
+        the partial ``checking``/``error`` broadcasts (and, on a LAN-only site,
+        the *never-succeeding* GitHub check) would keep telling the console the
+        previously-staged version is the one awaiting restart — clobbering the
+        instructor's deliberate choice (§3.7.4). Updating the cache here keeps the
+        "ready to restart" headline honest immediately, offline included.
+        """
+        update: dict = {"staged_tag": tag, "download_progress": None}
+        if tag is not None:
+            update["auto_state"] = "idle"
+            update["auto_message"] = f"{tag} staged — restart to apply."
+        self._merge(update)
+
+    def note_download_progress(self, tag: str, received: int, total: int | None) -> None:
+        """Publish in-flight download progress (throttled) for the console.
+
+        Called from the streaming download on both the auto and manual apply
+        paths, so the Updates pane can show a real progress bar for the version
+        actually being fetched — not just static "Downloading…" text.
+        """
+        complete = total is not None and received >= total
+        now = time.monotonic()
+        if not (
+            received == 0
+            or complete
+            or (now - self._progress_last_ts) >= 0.4
+            or (received - self._progress_last_recv) >= (2 << 20)
+        ):
+            return
+        self._progress_last_ts = now
+        self._progress_last_recv = received
+        self._merge({"download_progress": {"tag": tag, "received": received, "total": total}})
 
     # -- loop -------------------------------------------------------------- #
 
@@ -143,8 +190,17 @@ class UpdateService:
         repo = str(cfg.get("github_repo") or "")
         token = str(cfg.get("github_token") or "") or None
 
+        # Read what's actually staged from the on-disk marker up front, so every
+        # broadcast below — including the "checking" and network-error ones —
+        # carries the *current* staged version. Otherwise a version staged
+        # out-of-band (a manual pick, a rollback) would be masked by the stale
+        # cached value, and on a LAN-only site where the GitHub check never
+        # succeeds the console would be stuck showing the wrong one (§3.7.4).
+        mgr = UpdateManager(self._version, self._versions_dir, include_prereleases=include_pre)
+        staged = mgr.staged_tag()
+
         self._merge({"checking": True, "channel": channel, "auto_update": auto,
-                     "updater": self._updater_kind()})
+                     "updater": self._updater_kind(), "staged_tag": staged})
 
         try:
             raw = self._fetch(repo, token)
@@ -155,14 +211,12 @@ class UpdateService:
             # OS proxy/cert store; this stdlib urllib request does not) (§3.7.3).
             log.warning("update check for %r failed: %s", repo, exc)
             self._merge({"reachable": False, "error": str(exc), "checking": False,
-                         "last_checked": to_iso_utc(utc_now())})
+                         "last_checked": to_iso_utc(utc_now()), "staged_tag": staged})
             return self.snapshot()
 
-        mgr = UpdateManager(self._version, self._versions_dir, include_prereleases=include_pre)
         cur = SemVer.parse(self._version)
         releases = mgr.list_releases(raw)
         available = mgr.available_updates(raw)
-        staged = mgr.staged_tag()
 
         update = {
             "reachable": True,
@@ -181,6 +235,9 @@ class UpdateService:
             # truth for "what version will this install become", so the UI never
             # has to guess it from the release list.
             "staged_tag": staged,
+            # A completed check means no download is in flight; the auto-apply
+            # branch below repopulates this live while it downloads.
+            "download_progress": None,
         }
 
         # Auto-update policy: newest available, only out-of-band, and never over
@@ -235,7 +292,10 @@ class UpdateService:
                     "message": f"{release.tag} already staged — restart to apply."}
 
         token = str(cfg.get("github_token") or "") or None
-        mgr.download_and_stage(release, token)
+        mgr.download_and_stage(
+            release, token,
+            progress_cb=lambda rec, tot: self.note_download_progress(release.tag, rec, tot),
+        )
         return {"applied": True, "via": "staged",
                 "message": f"{release.tag} staged — restart to apply."}
 

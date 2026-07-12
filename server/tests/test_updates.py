@@ -302,7 +302,7 @@ def _patch_download(monkeypatch, archive: bytes, sig_b64: str):
 
     sha = hashlib.sha256(archive).hexdigest()
 
-    def fake_download(url, dest, token=None, timeout=600.0):
+    def fake_download(url, dest, token=None, timeout=600.0, progress_cb=None):
         dest.write_bytes(archive)
 
     def fake_get(url, token=None):
@@ -404,7 +404,7 @@ def test_download_and_stage_skips_redownload_when_already_staged(tmp_path, monke
     sha = hashlib.sha256(archive).hexdigest()
     downloads = {"n": 0}
 
-    def fake_download(url, dest, token=None, timeout=600.0):
+    def fake_download(url, dest, token=None, timeout=600.0, progress_cb=None):
         downloads["n"] += 1
         dest.write_bytes(archive)
 

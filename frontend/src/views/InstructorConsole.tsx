@@ -855,6 +855,36 @@ function fmtBytes(n: number): string {
   return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
+// Live download progress for an update in flight. Shows a determinate bar +
+// percentage when the server reported a size, else an indeterminate bar (the
+// native <progress> renders indeterminate when `value` is undefined).
+function DownloadBar({ tag, progress }: {
+  tag: string;
+  progress?: { received: number; total: number | null } | null;
+}) {
+  const received = progress?.received ?? 0;
+  const total = progress?.total ?? null;
+  const pct = total && total > 0 ? Math.min(100, Math.round((received / total) * 100)) : null;
+  return (
+    <div className="mt">
+      <p style={{ fontWeight: 600, margin: 0 }}>
+        ⟳ Downloading {tag}…{" "}
+        <span className="mono" style={{ fontWeight: 400 }}>
+          {pct !== null
+            ? `${pct}% (${fmtBytes(received)} / ${fmtBytes(total!)})`
+            : received > 0 ? fmtBytes(received) : ""}
+        </span>
+      </p>
+      <progress
+        className="dl-progress mt"
+        style={{ width: "100%" }}
+        max={100}
+        value={pct ?? undefined}
+      />
+    </div>
+  );
+}
+
 function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessionActive }: {
   mustChangePassword: boolean; onTimezone: (tz: string) => void; socket: PivotSocket | null;
   onRestart: () => void; sessionActive: boolean;
@@ -868,6 +898,14 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
   const [checking, setChecking] = useState(false);
   const [applying, setApplying] = useState<string | null>(null);
   const [staged, setStaged] = useState<string | null>(null);
+  // The version the instructor deliberately picked this session (a manual apply
+  // or rollback). Lets the headline positively confirm *their* choice is what a
+  // restart will run — distinct from a version auto-update staged on its own.
+  const [chosen, setChosen] = useState<string | null>(null);
+  // Live byte progress of the download the instructor just kicked off, polled
+  // from the cached status while the (synchronous) apply runs.
+  const [dlProgress, setDlProgress] =
+    useState<{ tag: string; received: number; total: number | null } | null>(null);
   const [applyErr, setApplyErr] = useState<string | null>(null);
   const [restartErr, setRestartErr] = useState<string | null>(null);
   const [showDowngrade, setShowDowngrade] = useState(false);
@@ -878,6 +916,10 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
   // local `staged` covers the moment right after a manual apply, and
   // auto_staged is a fallback for older payload shapes.
   const stagedTag = staged || upd?.staged_tag || upd?.auto_staged || null;
+  // The tag currently downloading via a manual "install" (a plain apply, not a
+  // rollback/delete op, which are keyed "rollback:"/"delete:"). Suppresses the
+  // "ready" headline while a fresh pick is still coming down the wire.
+  const applyingTag = applying && !applying.includes(":") ? applying : null;
   // Versions actually stored on disk (instant rollback / deletable), loaded
   // lazily when the downgrade pane is opened. Distinct from older *releases*,
   // which re-download.
@@ -948,16 +990,33 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
     }
     setApplying(a.tag);
     setApplyErr(null);
+    setDlProgress(null);
+    // The apply is one synchronous request (download + verify + stage). Poll the
+    // cached status alongside it for live byte progress, so the pane shows a real
+    // bar rather than a static "Downloading…". The poll only reads progress — it
+    // never touches the staged headline, so an in-flight poll can't revert it.
+    const poll = window.setInterval(async () => {
+      try {
+        const s = await api.checkUpdates();
+        if (s.download_progress && s.download_progress.tag === a.tag) {
+          setDlProgress(s.download_progress);
+        }
+      } catch { /* transient poll error — ignore */ }
+    }, 700);
     try {
       await api.applyUpdate(a.tag, a.asset_url, a.sha256_url, a.sig_url, a.asset_name);
       // Verified + staged; the swap finishes on the next restart. This replaces
-      // any previously staged version (the last explicit choice wins).
+      // any previously staged version (the last explicit choice wins). Record it
+      // as the deliberate pick so the headline confirms *this* version is ready.
+      setChosen(a.tag);
       setStaged(a.tag);
       setShowChoose(false);
     } catch (e: any) {
       setApplyErr(e?.message ?? "Download failed");
     } finally {
+      window.clearInterval(poll);
       setApplying(null);
+      setDlProgress(null);
     }
   }
 
@@ -971,6 +1030,7 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
     setApplyErr(null);
     try {
       const res = await api.rollbackUpdate(tag);
+      setChosen(res.tag);
       setStaged(res.tag);
       setShowChoose(false);
     } catch (e: any) {
@@ -1146,10 +1206,23 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
 
         {/* One primary status line — single source of truth for the headline. */}
         {upd && (() => {
+          // A manual "install" is downloading right now: show its live progress,
+          // not the previously-staged version's "ready" line (that pick isn't
+          // the one awaiting restart until this download finishes staging).
+          if (applyingTag)
+            return <DownloadBar tag={applyingTag} progress={dlProgress} />;
           if (stagedTag)
-            return <p className="mt" style={{ fontWeight: 600 }}>{stagedTag} ready — restart PIVOT to apply ✓</p>;
+            // Confirm the instructor's deliberate pick distinctly from a version
+            // auto-update chose, so choosing a different one gives clear feedback.
+            return stagedTag === chosen
+              ? <p className="mt" style={{ fontWeight: 600 }}>
+                  ✓ Version {stagedTag} selected and staged — restart PIVOT to run it.
+                </p>
+              : <p className="mt" style={{ fontWeight: 600 }}>{stagedTag} ready — restart PIVOT to apply ✓</p>;
           if (upd.auto_state === "downloading")
-            return <p className="muted mt">⟳ {upd.auto_message || "Downloading update…"}</p>;
+            return upd.download_progress
+              ? <DownloadBar tag={upd.download_progress.tag} progress={upd.download_progress} />
+              : <p className="muted mt">⟳ {upd.auto_message || "Downloading update…"}</p>;
           if (upd.auto_state === "deferred_session_active")
             return <p className="mt" style={{ fontWeight: 600 }}>{upd.auto_message || "Update deferred until the session ends."}</p>;
           if (upd.auto_state === "error")

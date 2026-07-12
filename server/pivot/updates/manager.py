@@ -27,6 +27,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -112,8 +113,21 @@ def _http_get(url: str, token: str | None = None, timeout: float = 30.0) -> byte
     return _with_http_retry(_fetch)
 
 
-def _http_download(url: str, dest: Path, token: str | None = None, timeout: float = 600.0) -> None:
-    """Stream a potentially large file to disk, retrying transient failures."""
+def _http_download(
+    url: str,
+    dest: Path,
+    token: str | None = None,
+    timeout: float = 600.0,
+    progress_cb: Callable[[int, int | None], None] | None = None,
+) -> None:
+    """Stream a potentially large file to disk, retrying transient failures.
+
+    ``progress_cb(received, total)`` — when supplied — is called as bytes land so
+    the instructor console can show real download progress (§3.7.5). ``total`` is
+    the ``Content-Length`` when the server reports one, else ``None`` (the UI then
+    shows an indeterminate bar). Each retry re-opens from scratch, so the callback
+    restarts from ``0``.
+    """
     req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
@@ -122,9 +136,17 @@ def _http_download(url: str, dest: Path, token: str | None = None, timeout: floa
         # Re-open from scratch each attempt so a connection dropped mid-stream
         # doesn't leave a truncated file behind to be staged.
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            length = resp.getheader("Content-Length")
+            total = int(length) if length and length.isdigit() else None
+            received = 0
+            if progress_cb is not None:
+                progress_cb(0, total)
             with dest.open("wb") as fh:
                 while chunk := resp.read(1 << 20):
                     fh.write(chunk)
+                    received += len(chunk)
+                    if progress_cb is not None:
+                        progress_cb(received, total)
 
     _with_http_retry(_fetch)
 
@@ -441,18 +463,24 @@ class UpdateManager:
     def pending_marker_path(self) -> Path:
         return self.versions_dir / "pending_update.json"
 
-    def download(self, release: Release, token: str | None = None) -> Path:
+    def download(
+        self,
+        release: Release,
+        token: str | None = None,
+        progress_cb: Callable[[int, int | None], None] | None = None,
+    ) -> Path:
         """Download the release asset to a staging folder and verify SHA-256.
 
         Returns the path to the downloaded archive. Raises on network error or
-        checksum mismatch.
+        checksum mismatch. ``progress_cb(received, total)`` is forwarded to the
+        streaming download so the UI can show real progress (§3.7.5).
         """
         if not release.asset_url:
             raise ValueError(f"No asset available for this platform ({self.asset_pattern})")
         staging = self.versions_dir / "_staging" / release.tag
         staging.mkdir(parents=True, exist_ok=True)
         dest = staging / release.asset_name
-        _http_download(release.asset_url, dest, token)
+        _http_download(release.asset_url, dest, token, progress_cb=progress_cb)
         if release.sha256_url:
             sha_text = _http_get(release.sha256_url, token).decode().strip()
             expected = sha_text.split()[0]
@@ -512,7 +540,12 @@ class UpdateManager:
         self.write_pending_marker(self.pending_marker_path, release.tag, app_dir)
         return app_dir
 
-    def download_and_stage(self, release: Release, token: str | None = None) -> Path:
+    def download_and_stage(
+        self,
+        release: Release,
+        token: str | None = None,
+        progress_cb: Callable[[int, int | None], None] | None = None,
+    ) -> Path:
         """Download + verify + extract ``release``, returning the staging dir.
 
         The single entry point every auto/manual apply path uses, so they can't
@@ -521,6 +554,8 @@ class UpdateManager:
         waited for the lock, the existing staging dir is returned without
         re-downloading. Transient Windows sharing violations (AV scanning the
         fresh archive) are retried rather than failing the update (§3.7.5).
+        ``progress_cb(received, total)`` is forwarded to the download so the
+        console can show real progress.
         """
         with _STAGE_LOCK:
             if self.staged_tag() == release.tag:
@@ -528,7 +563,7 @@ class UpdateManager:
                 staged = marker.get("staging")
                 if staged and Path(staged).exists():
                     return Path(staged)
-            asset_path = _with_sharing_retry(lambda: self.download(release, token))
+            asset_path = _with_sharing_retry(lambda: self.download(release, token, progress_cb))
             return _with_sharing_retry(lambda: self.stage(asset_path, release))
 
     # -- offline import (§3.7.6) ------------------------------------------- #
