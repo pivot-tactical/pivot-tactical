@@ -32,6 +32,7 @@ from pivot.api.schemas import (
     ScenarioRequest,
     SessionResponse,
     StartSessionRequest,
+    TranscriptionEditRequest,
     TuneRequest,
 )
 from pivot.audio.render import AarCryptoView, PlaybackMode, render_event_wav_bytes
@@ -239,6 +240,23 @@ def event_audio(
     return Response(
         content=wav, media_type="audio/wav", headers={"Cache-Control": "no-store"}
     )
+
+
+@router.post("/events/{event_id}/transcription", dependencies=[Depends(require_instructor)])
+def edit_event_transcription(
+    event_id: str, req: TranscriptionEditRequest, manager=Depends(get_manager)
+) -> dict:
+    """Manually correct an event's transcript (spec §3.5.3).
+
+    Instructor-only. The machine transcription is preserved so the console can
+    highlight exactly what the instructor changed, and the correction is
+    broadcast live to every open console. Restoring the text to the machine
+    transcription clears the manual-edit marker.
+    """
+    updated = manager.edit_transcription(event_id, req.text)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="event not found")
+    return updated
 
 
 @router.post("/sessions/{session_id}/export", dependencies=[Depends(require_instructor)])

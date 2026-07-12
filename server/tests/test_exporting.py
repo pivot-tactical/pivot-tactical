@@ -44,6 +44,43 @@ def test_export_text(database):
     assert "[12:00:00] T-1 14.250 MHz (HF, PLAIN, Heard): Hello World" in text
 
 
+def test_export_marks_edited_transcripts(database):
+    """A hand-corrected transcript is flagged in both text and CSV exports."""
+    with database.session() as s:
+        cfg = ConfigStore(s)
+        cfg.set("display_timezone", "UTC")
+        sess = repo.start_session(s, "Test Session")
+        sid = sess.id
+        event = repo.create_event(
+            s,
+            session_id=sid,
+            trainee_name="T-1",
+            frequency="14.250 MHz",
+            band_region="HF",
+            tx_mode=RadioMode.PLAIN,
+            audibility=Audibility.HEARD,
+            sync_status=SyncStatus.COMPLETED,
+            timestamp_start="2026-06-05T12:00:00+00:00",
+            duration_ms=1000,
+            audio_path="test.wav",
+            dsp_profile={},
+        )
+        repo.set_transcription(
+            s, event.event_id, text_value="helo wrld", confidence=0.4,
+            status=TranscriptionStatus.DONE,
+        )
+        repo.edit_transcription(s, event.event_id, "Hello World")
+
+    text = export_text(database, sid)
+    assert "Hello World [edited]" in text
+
+    reader = csv.DictReader(io.StringIO(export_csv(database, sid)))
+    row = next(iter(reader))
+    assert row["transcription"] == "Hello World"
+    assert row["transcription_original"] == "helo wrld"
+    assert row["transcription_edited"] == "True"
+
+
 def test_export_csv(database):
     with database.session() as s:
         cfg = ConfigStore(s)

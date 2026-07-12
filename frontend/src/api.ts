@@ -244,6 +244,13 @@ export const api = {
   // so history survives a refresh, a server restart and an update.
   recentEvents: (limit = 200) => jsonFetch<EventRow[]>(`/api/events/recent?limit=${limit}`),
   events: (sessionId: string) => jsonFetch<EventRow[]>(`/api/sessions/${sessionId}/events`),
+  // Manually correct an event's transcript. The machine transcription is kept
+  // server-side for diffing; the corrected row is broadcast to every console.
+  editTranscription: (eventId: string, text: string) =>
+    jsonFetch<EventRow>(`/api/events/${eventId}/transcription`, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
   eventAudioUrl: (eventId: string, mode: "clean" | "dirty", view: "plain" | "cypher") =>
     // `_` cache-busts so a re-render (e.g. after a build that changes how
     // jamming masks) is always fetched fresh, never served stale from cache.

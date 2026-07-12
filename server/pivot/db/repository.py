@@ -232,9 +232,46 @@ def set_transcription(
     row = session.get(EventRow, event_id)
     if row is None:
         return None
+    # A manual instructor edit is authoritative: never let a late machine
+    # transcription clobber a hand-corrected row (§3.5.3).
+    if row.transcription_edited:
+        return row
     row.transcription = text_value
     row.transcription_confidence = confidence
     row.transcription_status = status
+    return row
+
+
+def edit_transcription(session: Session, event_id: str, new_text: str) -> EventRow | None:
+    """Apply an instructor's manual correction to an event's transcript (§3.5.3).
+
+    The machine transcription is preserved in ``transcription_original`` on the
+    first edit so the console can diff it against the new text and highlight the
+    changed words. Re-editing keeps that original in place. Restoring the text to
+    exactly the machine transcription clears the edited flag (a full revert), so
+    an unchanged row is never mislabelled as hand-corrected.
+    """
+    row = session.get(EventRow, event_id)
+    if row is None:
+        return None
+    new_text = new_text.strip()
+    # The baseline to diff against: the machine transcription. On the first edit
+    # that's the current value; afterwards it's the preserved original.
+    baseline = row.transcription_original if row.transcription_edited else row.transcription
+    if new_text == (baseline or ""):
+        # Reverted to the machine transcription — drop the manual-edit marker.
+        row.transcription = baseline
+        row.transcription_original = None
+        row.transcription_edited = 0
+        row.transcription_status = TranscriptionStatus.DONE
+        return row
+    if not row.transcription_edited:
+        row.transcription_original = row.transcription
+    row.transcription = new_text
+    row.transcription_edited = 1
+    # A hand-entered transcript is final regardless of the machine's outcome
+    # (Pending/Failed/Skipped), so mark it Done.
+    row.transcription_status = TranscriptionStatus.DONE
     return row
 
 

@@ -173,6 +173,14 @@ class EventRow(Base):
     transcription_status: Mapped[TranscriptionStatus] = mapped_column(
         _str_enum(TranscriptionStatus), default=TranscriptionStatus.PENDING
     )
+    # Manual instructor edits (§3.5.3): the machine transcription is preserved in
+    # ``transcription_original`` the first time an instructor overrides the text,
+    # so the console can diff the two and highlight what was changed by hand.
+    # ``transcription_edited`` (0/1) flags a row the instructor has corrected.
+    transcription_original: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transcription_edited: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
 
     session: Mapped[SessionRow] = relationship(back_populates="events")
 
@@ -208,4 +216,6 @@ class EventRow(Base):
             "transcription_status": self.transcription_status.value
             if isinstance(self.transcription_status, TranscriptionStatus)
             else self.transcription_status,
+            "transcription_original": self.transcription_original,
+            "transcription_edited": bool(self.transcription_edited),
         }

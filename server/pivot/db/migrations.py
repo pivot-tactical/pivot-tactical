@@ -18,7 +18,7 @@ from collections.abc import Callable
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 def _migrate_v2_net_scenarios(conn) -> None:
@@ -39,11 +39,28 @@ def _migrate_v2_net_scenarios(conn) -> None:
             pass
 
 
+def _migrate_v3_transcript_edits(conn) -> None:
+    """v3: manual instructor transcript edits (§3.5.3).
+
+    Preserve the machine transcription in ``transcription_original`` and flag a
+    hand-corrected row with ``transcription_edited`` so the console can show what
+    was changed. Both are additive columns on ``events``.
+    """
+    cols = {row[1] for row in conn.execute(text("PRAGMA table_info(events)"))}
+    if "transcription_original" not in cols:
+        conn.execute(text("ALTER TABLE events ADD COLUMN transcription_original TEXT"))
+    if "transcription_edited" not in cols:
+        conn.execute(
+            text("ALTER TABLE events ADD COLUMN transcription_edited INTEGER NOT NULL DEFAULT 0")
+        )
+
+
 # (target_version, migrate_fn). migrate_fn receives a live connection and should
 # perform idempotent DDL/DML to move the schema from target_version-1 to
 # target_version. Append new steps here; never edit released ones.
 MIGRATIONS: list[tuple[int, Callable[[object], None]]] = [
     (2, _migrate_v2_net_scenarios),
+    (3, _migrate_v3_transcript_edits),
 ]
 
 
