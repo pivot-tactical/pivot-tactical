@@ -213,6 +213,10 @@ describe('InstructorConsole', () => {
     const cell = container!.querySelector('.transcript') as HTMLElement;
     expect(cell.textContent).toContain('grid 123556 to dog');
 
+    // The badge trails the text (right side) so edited rows stay left-aligned.
+    const badge = cell.querySelector('.transcript__badge')!;
+    expect(cell.lastElementChild).toBe(badge);
+
     const marks = Array.from(container!.querySelectorAll('.transcript__edit')).map((m) => m.textContent);
     const highlighted = marks.join('|');
     // Character-level: the changed digit is marked, but not the whole number.

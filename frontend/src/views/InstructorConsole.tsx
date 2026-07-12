@@ -704,15 +704,18 @@ function TranscriptCell({ ev, onEventUpdate }: {
   }
 
   const hasText = !!ev.transcription;
+  // The "edited" badge trails the text so a corrected row's transcript still
+  // starts at the same left edge as every other row (the badge on the left
+  // bumped it out of column alignment).
   const body = (
     <>
       {jammedBadge}
-      {ev.transcription_edited && (
-        <span className="transcript__badge" title="Manually edited — highlighted words differ from the machine transcription.">✎ edited</span>
-      )}
       {ev.transcription_edited && hasText
         ? renderDiff(ev.transcription_original, ev.transcription!)
         : (ev.transcription || (pending ? "transcribing…" : "—"))}
+      {ev.transcription_edited && (
+        <span className="transcript__badge" title="Manually edited — highlighted words differ from the machine transcription.">✎ edited</span>
+      )}
     </>
   );
 

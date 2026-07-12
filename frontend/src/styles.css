@@ -363,7 +363,7 @@ body {
 .transcript__badge {
   display: inline-block; vertical-align: middle; font-size: 10px; font-weight: 700;
   line-height: 1.5; letter-spacing: 0.04em; color: var(--green);
-  border: 1px solid var(--green); border-radius: 3px; padding: 0 5px; margin-right: 7px;
+  border: 1px solid var(--green); border-radius: 3px; padding: 0 5px; margin-left: 7px;
   white-space: nowrap;
 }
 
