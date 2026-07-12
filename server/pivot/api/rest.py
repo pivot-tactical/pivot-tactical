@@ -264,6 +264,37 @@ def export_session(
     )
 
 
+@router.get("/admin/recordings/location", dependencies=[Depends(require_instructor)])
+def admin_recordings_location(manager=Depends(get_manager)) -> dict:
+    """Absolute path of the recordings folder so the instructor knows exactly
+    where the WAVs live (they are named for humans — see audio/recording.py)."""
+    recordings_dir = manager.settings.recordings_dir
+    recordings_dir.mkdir(parents=True, exist_ok=True)
+    path = recordings_dir.resolve()
+    return {"path": str(path), "exists": path.exists()}
+
+
+@router.post("/admin/recordings/open", dependencies=[Depends(require_instructor)])
+def admin_recordings_open(manager=Depends(get_manager)) -> dict:
+    """Open the recordings folder in the server host's file manager.
+
+    PIVOT is a local instructor-station app, so this launches on the machine
+    running the server. Best-effort: a headless host has nothing to open, so we
+    return ``opened: false`` with the path and the console shows it instead.
+    """
+    from pivot.runtime.reveal import open_in_file_manager
+
+    recordings_dir = manager.settings.recordings_dir
+    recordings_dir.mkdir(parents=True, exist_ok=True)
+    path = recordings_dir.resolve()
+    try:
+        open_in_file_manager(path)
+        return {"opened": True, "path": str(path)}
+    except Exception as exc:  # no display / no file manager / launch failure
+        log.warning("could not open recordings folder %s: %s", path, exc)
+        return {"opened": False, "path": str(path), "detail": str(exc)}
+
+
 # --- instructor / admin (instructor token required) ------------------------ #
 
 

@@ -250,4 +250,16 @@ export const api = {
     `/api/events/${eventId}/audio?${tokenQuery(`mode=${mode}&view=${view}&_=${Date.now()}`)}`,
   exportUrl: (sessionId: string, fmt: "zip" | "text" | "csv") =>
     `/api/sessions/${sessionId}/export?${tokenQuery(`fmt=${fmt}`)}`,
+
+  // --- instructor: recordings folder ---
+  // Where the WAV recordings live on the server host (absolute path).
+  recordingsLocation: () =>
+    jsonFetch<{ path: string; exists: boolean }>("/api/admin/recordings/location"),
+  // Ask the server host to open that folder in its file manager. `opened` is
+  // false on a headless host — the caller then just shows `path`.
+  openRecordingsFolder: () =>
+    jsonFetch<{ opened: boolean; path: string; detail?: string }>(
+      "/api/admin/recordings/open",
+      { method: "POST" }
+    ),
 };

@@ -642,6 +642,71 @@ function fmtBytes(n: number): string {
   return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
+// Where recordings live + a one-click "open it" for the instructor who can't
+// find the WAVs on disk. The server host opens its own file manager; when it
+// can't (headless), we fall back to showing the absolute path to copy.
+function RecordingsCard() {
+  const [path, setPath] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    api.recordingsLocation().then((r) => setPath(r.path)).catch(() => {});
+  }, []);
+
+  async function openFolder() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api.openRecordingsFolder();
+      setPath(r.path);
+      setMsg(
+        r.opened
+          ? "Opened on the machine running PIVOT."
+          : "Couldn’t open a file manager here — browse to the path below on the PIVOT server."
+      );
+    } catch {
+      setMsg("Couldn’t open the folder. Use the path below.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyPath() {
+    if (!path) return;
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked (insecure origin) — the path is on screen to copy */
+    }
+  }
+
+  return (
+    <section className="card pad">
+      <h3>Recordings</h3>
+      <p className="muted" style={{ marginTop: 0 }}>
+        Per-transmission WAVs, named by session and time so they’re easy to find
+        in a file browser.
+      </p>
+      <div className="row gap" style={{ flexWrap: "wrap" }}>
+        <button className="btn btn--primary" onClick={openFolder} disabled={busy}>
+          {busy ? "Opening…" : "Open recordings folder"}
+        </button>
+        <button className="btn" onClick={copyPath} disabled={!path}>
+          {copied ? "Copied ✓" : "Copy path"}
+        </button>
+      </div>
+      {path && (
+        <div className="muted mono mt" style={{ wordBreak: "break-all" }}>{path}</div>
+      )}
+      {msg && <p className="muted mt" style={{ fontSize: "0.85em" }}>{msg}</p>}
+    </section>
+  );
+}
+
 function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessionActive }: {
   mustChangePassword: boolean; onTimezone: (tz: string) => void; socket: PivotSocket | null;
   onRestart: () => void; sessionActive: boolean;
@@ -894,6 +959,8 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
         </Field>
         <button className="btn btn--primary" onClick={save}>{saved ? "Saved ✓" : "Save Settings"}</button>
       </section>
+
+      <RecordingsCard />
 
       <section className="card pad">
         <h3>Instructor Password</h3>
