@@ -48,7 +48,7 @@ If you prefer to rebuild the whole application against your own libsndfile:
 
 ```bash
 pip install -r server/requirements.txt          # installs soundfile/libsndfile
-cd frontend && pnpm install && pnpm run build && cd ..
+cd frontend && npm install && npm run build && cd ..
 pyinstaller packaging/pivot.spec                 # produces dist/PIVOT-Tactical/
 ```
 
