@@ -195,6 +195,19 @@ export function InstructorConsole({
     };
   }, []);
 
+  // Merge a (possibly partial) event update into the running log — shared by the
+  // live `transcription_updated` feed and the instructor's own manual edits, so
+  // a correction shows immediately without waiting on the socket round-trip.
+  const updateEvent = useCallback((ev: Partial<EventRow> & { event_id: string }) => {
+    setEntries((prev) =>
+      prev.map((e) =>
+        e.kind === "event" && e.event.event_id === ev.event_id
+          ? { kind: "event", event: { ...e.event, ...ev } }
+          : e
+      )
+    );
+  }, []);
+
   // Settings → Restart server flips us into the reconnecting state; the socket
   // close handler then starts polling for the server to come back.
   function enterRestarting() {
@@ -243,7 +256,7 @@ export function InstructorConsole({
       </nav>
 
       <main className="console__body">
-        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} entries={entries} netScenarios={netScenarios} rxLevels={rxLevels} />}
+        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} entries={entries} netScenarios={netScenarios} rxLevels={rxLevels} onEventUpdate={updateEvent} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
         {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} socket={socketRef.current} onRestart={enterRestarting} sessionActive={sessionActive} />}
       </main>
@@ -269,9 +282,10 @@ function scenarioFor(netScenarios: NetScenario[], hz: number): NetScenario | und
 // handler; the meters poll and decay it at animation rate without re-renders.
 type RxLevels = { current: Record<string, number> };
 
-function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxLevels }: {
+function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxLevels, onEventUpdate }: {
   radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
   entries: LogEntry[]; netScenarios: NetScenario[]; rxLevels: RxLevels;
+  onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
 }) {
   // TX phase per keyed radio (absent = IDLE). Several radios can be keyed at
   // once — the one mic feeds them all, and each runs its own PTT/crypto-sync
@@ -384,7 +398,7 @@ function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxL
       {/* Below the radios, right-aligned — out of the way, but never scrolled
           out of sight like a grid tile would be when a row is exactly full. */}
       <button className="instr-radios__add" onClick={addRadio}>+ Add Radio</button>
-      <LiveLogTab entries={entries} />
+      <LiveLogTab entries={entries} onEventUpdate={onEventUpdate} />
     </div>
   );
 }
@@ -547,7 +561,10 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
   );
 }
 
-function LiveLogTab({ entries }: { entries: LogEntry[] }) {
+function LiveLogTab({ entries, onEventUpdate }: {
+  entries: LogEntry[];
+  onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
+}) {
   const [audio] = useState(() => new Audio());
   // Two independent playbacks of the one stored recording: "clean" is the raw
   // pre-DSP capture (no noise); "dirty" re-renders it through the original DSP
@@ -575,7 +592,6 @@ function LiveLogTab({ entries }: { entries: LogEntry[] }) {
             );
           }
           const ev = entry.event;
-          const low = ev.transcription_confidence != null && ev.transcription_confidence < 0.8;
           return (
             <div className="logrow" key={ev.event_id}>
               <span className="event__play-group">
@@ -587,25 +603,222 @@ function LiveLogTab({ entries }: { entries: LogEntry[] }) {
               <span className="mono">{ev.frequency}</span>
               <span title={ev.tx_mode}>{ev.tx_mode === "Cypher" ? "🔒" : "◌"}</span>
               <span className={`event__aud aud--${ev.audibility.split("-")[0].toLowerCase()}`}>{ev.audibility}</span>
-              <span className={`logtext ${low ? "text--amber" : ""} ${!ev.transcription ? "text--none" : ""}`}>
-                {ev.jammed && (
-                  <span
-                    className="event__jammed"
-                    title={`Captured while its channel was jammed${
-                      ev.snr_db != null ? ` (SNR ${Math.round(ev.snr_db)} dB)` : ""
-                    }. "Play with noise" re-renders it as a wall of jammer noise.`}
-                  >
-                    JAMMED
-                  </span>
-                )}
-                {ev.transcription || (ev.transcription_status === "Pending" ? "transcribing…" : "—")}
-              </span>
+              <TranscriptCell ev={ev} onEventUpdate={onEventUpdate} />
             </div>
           );
         })}
       </div>
     </section>
   );
+}
+
+// One transcript, single-click-to-edit (§3.5.3). Displayed it shows the current
+// text; a machine transcription below the amber-confidence threshold is tinted,
+// and a hand-corrected one diffs against the preserved machine text so the words
+// the instructor changed are highlighted. Clicking swaps in a freeform box;
+// Enter (or Save) confirms, Escape (or Cancel) reverts.
+function TranscriptCell({ ev, onEventUpdate }: {
+  ev: EventRow;
+  onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // Don't offer editing until the machine transcription has settled — editing a
+  // row still being transcribed would race the worker's result.
+  const pending = ev.transcription_status === "Pending";
+  const low = !ev.transcription_edited &&
+    ev.transcription_confidence != null && ev.transcription_confidence < 0.8;
+
+  function begin() {
+    if (pending) return;
+    setDraft(ev.transcription ?? "");
+    setEditing(true);
+  }
+  useEffect(() => {
+    if (editing) {
+      const ta = taRef.current;
+      ta?.focus();
+      ta?.select();
+    }
+  }, [editing]);
+
+  async function confirm() {
+    const text = draft.trim();
+    // No-op edit: just close the box.
+    if (text === (ev.transcription ?? "").trim()) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      const updated = await api.editTranscription(ev.event_id, text);
+      onEventUpdate(updated);
+      setEditing(false);
+    } catch {
+      // Leave the box open so the instructor can retry without losing the text.
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const jammedBadge = ev.jammed && (
+    <span
+      className="event__jammed"
+      title={`Captured while its channel was jammed${
+        ev.snr_db != null ? ` (SNR ${Math.round(ev.snr_db)} dB)` : ""
+      }. "Play with noise" re-renders it as a wall of jammer noise.`}
+    >
+      JAMMED
+    </span>
+  );
+
+  if (editing) {
+    return (
+      <span className="logtext transcript transcript--editing">
+        {jammedBadge}
+        <textarea
+          ref={taRef}
+          className="input transcript__box"
+          rows={2}
+          value={draft}
+          disabled={saving}
+          aria-label="Edit transcript"
+          placeholder="Type what was said…"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter confirms (Shift+Enter inserts a newline); Escape cancels.
+            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); confirm(); }
+            else if (e.key === "Escape") { e.preventDefault(); setEditing(false); }
+          }}
+        />
+        <span className="transcript__actions">
+          <button className="btn btn--primary btn--tiny" onClick={confirm} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button className="btn btn--tiny" onClick={() => setEditing(false)} disabled={saving}>
+            Cancel
+          </button>
+        </span>
+      </span>
+    );
+  }
+
+  const hasText = !!ev.transcription;
+  // The "edited" badge trails the text so a corrected row's transcript still
+  // starts at the same left edge as every other row (the badge on the left
+  // bumped it out of column alignment).
+  const body = (
+    <>
+      {jammedBadge}
+      {ev.transcription_edited && hasText
+        ? renderDiff(ev.transcription_original, ev.transcription!)
+        : (ev.transcription || (pending ? "transcribing…" : "—"))}
+      {ev.transcription_edited && (
+        <span className="transcript__badge" title="Manually edited — highlighted words differ from the machine transcription.">✎ edited</span>
+      )}
+    </>
+  );
+
+  // While the machine transcription is still pending there's nothing to correct
+  // yet, so it's shown as plain (non-editable) text; every settled row is
+  // single-click-to-edit.
+  if (pending) {
+    return <span className="logtext transcript text--none">{body}</span>;
+  }
+  return (
+    <span
+      className={`logtext transcript ${low ? "text--amber" : ""} ${!hasText ? "text--none" : ""}`}
+      role="button"
+      tabIndex={0}
+      title="Click to edit the transcript"
+      onClick={begin}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); begin(); } }}
+    >
+      {body}
+    </span>
+  );
+}
+
+// Diff of a hand-corrected transcript against the machine one, hybrid word +
+// character (§3.5.3). Words are aligned first (a word is the meaningful unit of
+// a transcript, and aligning on words keeps a reworded phrase from fragmenting).
+// A word the instructor *replaced* is then refined to the character level so a
+// one-digit or suffix fix highlights only the characters that changed — but only
+// when the two words are similar enough; a wholesale reword highlights the whole
+// word instead of scattering marks across it. A null original means the line was
+// typed from scratch, so all of it is a change.
+
+// Longest-common-subsequence alignment of two token arrays into ordered ops.
+function lcsOps<T extends string>(a: T[], b: T[]): { t: "eq" | "del" | "ins"; v: T }[] {
+  const n = a.length, m = b.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out: { t: "eq" | "del" | "ins"; v: T }[] = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ t: "eq", v: b[j] }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: "del", v: a[i] }); i++; }
+    else { out.push({ t: "ins", v: b[j] }); j++; }
+  }
+  while (i < n) { out.push({ t: "del", v: a[i] }); i++; }
+  while (j < m) { out.push({ t: "ins", v: b[j] }); j++; }
+  return out;
+}
+
+// Render one word `to` that replaced machine word `from` (or was inserted when
+// `from` is null): highlight the characters that differ, or the whole word when
+// the two are too dissimilar to refine cleanly.
+function renderWord(from: string | null, to: string, key: React.Key): React.ReactNode {
+  const whole = <mark key={key} className="transcript__edit">{to}</mark>;
+  if (from == null) return whole;
+  const chars = lcsOps([...from], [...to]).filter((o) => o.t !== "del");
+  const unchanged = chars.filter((c) => c.t === "eq").length;
+  // Refine only when at least half the correction's characters are shared with
+  // the machine word — otherwise it's a reword, not a typo fix.
+  if (unchanged / Math.max(from.length, to.length) < 0.5) return whole;
+  // Coalesce adjacent same-kind characters into as few marks as possible.
+  const nodes: React.ReactNode[] = [];
+  let buf = "", changed = chars.length > 0 && chars[0].t === "ins", part = 0;
+  const flush = () => {
+    if (!buf) return;
+    nodes.push(
+      changed
+        ? <mark key={`${key}-${part}`} className="transcript__edit">{buf}</mark>
+        : <span key={`${key}-${part}`}>{buf}</span>
+    );
+    buf = ""; part++;
+  };
+  for (const c of chars) {
+    const isChanged = c.t === "ins";
+    if (isChanged !== changed) { flush(); changed = isChanged; }
+    buf += c.v;
+  }
+  flush();
+  return <span key={key}>{nodes}</span>;
+}
+
+function renderDiff(original: string | null, edited: string): React.ReactNode {
+  const a = original ? original.split(/\s+/).filter(Boolean) : [];
+  const b = edited.split(/\s+/).filter(Boolean);
+  const ops = lcsOps(a, b);
+  const words: React.ReactNode[] = [];
+  let k = 0;
+  while (k < ops.length) {
+    if (ops[k].t === "eq") { words.push(ops[k].v); k++; continue; }
+    // A maximal run of deletes/inserts is one replace block; pair each new word
+    // with the machine word it replaced (by position) for character refinement.
+    const dels: string[] = [], inss: string[] = [];
+    while (k < ops.length && ops[k].t !== "eq") {
+      if (ops[k].t === "del") dels.push(ops[k].v); else inss.push(ops[k].v);
+      k++;
+    }
+    inss.forEach((w, idx) =>
+      words.push(renderWord(idx < dels.length ? dels[idx] : null, w, `w${words.length}`))
+    );
+  }
+  return words.map((n, idx) => <span key={idx}>{idx > 0 ? " " : ""}{n}</span>);
 }
 
 function MonitorTab({ terminals }: { terminals: Terminal[] }) {
@@ -707,6 +920,36 @@ function RecordingsCard() {
   );
 }
 
+// Live download progress for an update in flight. Shows a determinate bar +
+// percentage when the server reported a size, else an indeterminate bar (the
+// native <progress> renders indeterminate when `value` is undefined).
+function DownloadBar({ tag, progress }: {
+  tag: string;
+  progress?: { received: number; total: number | null } | null;
+}) {
+  const received = progress?.received ?? 0;
+  const total = progress?.total ?? null;
+  const pct = total && total > 0 ? Math.min(100, Math.round((received / total) * 100)) : null;
+  return (
+    <div className="mt">
+      <p style={{ fontWeight: 600, margin: 0 }}>
+        ⟳ Downloading {tag}…{" "}
+        <span className="mono" style={{ fontWeight: 400 }}>
+          {pct !== null
+            ? `${pct}% (${fmtBytes(received)} / ${fmtBytes(total!)})`
+            : received > 0 ? fmtBytes(received) : ""}
+        </span>
+      </p>
+      <progress
+        className="dl-progress mt"
+        style={{ width: "100%" }}
+        max={100}
+        value={pct ?? undefined}
+      />
+    </div>
+  );
+}
+
 function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessionActive }: {
   mustChangePassword: boolean; onTimezone: (tz: string) => void; socket: PivotSocket | null;
   onRestart: () => void; sessionActive: boolean;
@@ -720,6 +963,14 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
   const [checking, setChecking] = useState(false);
   const [applying, setApplying] = useState<string | null>(null);
   const [staged, setStaged] = useState<string | null>(null);
+  // The version the instructor deliberately picked this session (a manual apply
+  // or rollback). Lets the headline positively confirm *their* choice is what a
+  // restart will run — distinct from a version auto-update staged on its own.
+  const [chosen, setChosen] = useState<string | null>(null);
+  // Live byte progress of the download the instructor just kicked off, polled
+  // from the cached status while the (synchronous) apply runs.
+  const [dlProgress, setDlProgress] =
+    useState<{ tag: string; received: number; total: number | null } | null>(null);
   const [applyErr, setApplyErr] = useState<string | null>(null);
   const [restartErr, setRestartErr] = useState<string | null>(null);
   const [showDowngrade, setShowDowngrade] = useState(false);
@@ -730,6 +981,10 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
   // local `staged` covers the moment right after a manual apply, and
   // auto_staged is a fallback for older payload shapes.
   const stagedTag = staged || upd?.staged_tag || upd?.auto_staged || null;
+  // The tag currently downloading via a manual "install" (a plain apply, not a
+  // rollback/delete op, which are keyed "rollback:"/"delete:"). Suppresses the
+  // "ready" headline while a fresh pick is still coming down the wire.
+  const applyingTag = applying && !applying.includes(":") ? applying : null;
   // Versions actually stored on disk (instant rollback / deletable), loaded
   // lazily when the downgrade pane is opened. Distinct from older *releases*,
   // which re-download.
@@ -800,16 +1055,33 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
     }
     setApplying(a.tag);
     setApplyErr(null);
+    setDlProgress(null);
+    // The apply is one synchronous request (download + verify + stage). Poll the
+    // cached status alongside it for live byte progress, so the pane shows a real
+    // bar rather than a static "Downloading…". The poll only reads progress — it
+    // never touches the staged headline, so an in-flight poll can't revert it.
+    const poll = window.setInterval(async () => {
+      try {
+        const s = await api.checkUpdates();
+        if (s.download_progress && s.download_progress.tag === a.tag) {
+          setDlProgress(s.download_progress);
+        }
+      } catch { /* transient poll error — ignore */ }
+    }, 700);
     try {
       await api.applyUpdate(a.tag, a.asset_url, a.sha256_url, a.sig_url, a.asset_name);
       // Verified + staged; the swap finishes on the next restart. This replaces
-      // any previously staged version (the last explicit choice wins).
+      // any previously staged version (the last explicit choice wins). Record it
+      // as the deliberate pick so the headline confirms *this* version is ready.
+      setChosen(a.tag);
       setStaged(a.tag);
       setShowChoose(false);
     } catch (e: any) {
       setApplyErr(e?.message ?? "Download failed");
     } finally {
+      window.clearInterval(poll);
       setApplying(null);
+      setDlProgress(null);
     }
   }
 
@@ -823,6 +1095,7 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
     setApplyErr(null);
     try {
       const res = await api.rollbackUpdate(tag);
+      setChosen(res.tag);
       setStaged(res.tag);
       setShowChoose(false);
     } catch (e: any) {
@@ -1000,10 +1273,23 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
 
         {/* One primary status line — single source of truth for the headline. */}
         {upd && (() => {
+          // A manual "install" is downloading right now: show its live progress,
+          // not the previously-staged version's "ready" line (that pick isn't
+          // the one awaiting restart until this download finishes staging).
+          if (applyingTag)
+            return <DownloadBar tag={applyingTag} progress={dlProgress} />;
           if (stagedTag)
-            return <p className="mt" style={{ fontWeight: 600 }}>{stagedTag} ready — restart PIVOT to apply ✓</p>;
+            // Confirm the instructor's deliberate pick distinctly from a version
+            // auto-update chose, so choosing a different one gives clear feedback.
+            return stagedTag === chosen
+              ? <p className="mt" style={{ fontWeight: 600 }}>
+                  ✓ Version {stagedTag} selected and staged — restart PIVOT to run it.
+                </p>
+              : <p className="mt" style={{ fontWeight: 600 }}>{stagedTag} ready — restart PIVOT to apply ✓</p>;
           if (upd.auto_state === "downloading")
-            return <p className="muted mt">⟳ {upd.auto_message || "Downloading update…"}</p>;
+            return upd.download_progress
+              ? <DownloadBar tag={upd.download_progress.tag} progress={upd.download_progress} />
+              : <p className="muted mt">⟳ {upd.auto_message || "Downloading update…"}</p>;
           if (upd.auto_state === "deferred_session_active")
             return <p className="mt" style={{ fontWeight: 600 }}>{upd.auto_message || "Update deferred until the session ends."}</p>;
           if (upd.auto_state === "error")

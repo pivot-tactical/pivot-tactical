@@ -750,6 +750,21 @@ class SessionManager:
             if row is not None:
                 self.broadcast("transcription_updated", row.to_dict())
 
+    def edit_transcription(self, event_id: str, new_text: str) -> dict | None:
+        """Apply an instructor's manual transcript correction and fan it out.
+
+        Persists the edit (preserving the machine transcription for diffing) and
+        broadcasts the same ``transcription_updated`` message the worker uses, so
+        every open console reflects the correction live (§3.5.3). Returns the
+        updated event dict, or ``None`` when the event does not exist.
+        """
+        with self.db.session() as s:
+            row = repo.edit_transcription(s, event_id, new_text)
+            payload = row.to_dict() if row is not None else None
+        if payload is not None:
+            self.broadcast("transcription_updated", payload)
+        return payload
+
     def _collect_audio(self, acc: _TxAccumulator, audio: np.ndarray | None) -> np.ndarray | None:
         if audio is not None:
             return np.asarray(audio, dtype=np.float32).reshape(-1)

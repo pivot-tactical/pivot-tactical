@@ -32,6 +32,7 @@ from pivot.api.schemas import (
     ScenarioRequest,
     SessionResponse,
     StartSessionRequest,
+    TranscriptionEditRequest,
     TuneRequest,
 )
 from pivot.audio.render import AarCryptoView, PlaybackMode, render_event_wav_bytes
@@ -239,6 +240,23 @@ def event_audio(
     return Response(
         content=wav, media_type="audio/wav", headers={"Cache-Control": "no-store"}
     )
+
+
+@router.post("/events/{event_id}/transcription", dependencies=[Depends(require_instructor)])
+def edit_event_transcription(
+    event_id: str, req: TranscriptionEditRequest, manager=Depends(get_manager)
+) -> dict:
+    """Manually correct an event's transcript (spec §3.5.3).
+
+    Instructor-only. The machine transcription is preserved so the console can
+    highlight exactly what the instructor changed, and the correction is
+    broadcast live to every open console. Restoring the text to the machine
+    transcription clears the manual-edit marker.
+    """
+    updated = manager.edit_transcription(event_id, req.text)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="event not found")
+    return updated
 
 
 @router.post("/sessions/{session_id}/export", dependencies=[Depends(require_instructor)])
@@ -597,11 +615,18 @@ def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) ->
 
     cfg = manager.get_config()
     token = str(cfg.get("github_token") or "") or None
+    # The background service owns the cached status the console polls/streams.
+    # Staging here happens out-of-band, so we tell the service what we did — both
+    # the live download progress and the resulting staged version — otherwise its
+    # cache would keep advertising the previously-staged one (§3.7.4).
+    service = getattr(manager, "update_service", None)
 
     mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
     # Already staged this exact release — skip the redundant download + extract
     # and just tell the client to restart (§3.7.5).
     if mgr.staged_tag() == req.tag:
+        if service is not None:
+            service.note_staged(req.tag)
         return {
             "staged": True,
             "tag": req.tag,
@@ -616,10 +641,18 @@ def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) ->
         sha256_url=req.sha256_url,
         sig_url=req.sig_url,
     )
+
+    def _progress(received: int, total: int | None) -> None:
+        if service is not None:
+            service.note_download_progress(req.tag, received, total)
+
     try:
-        staging_dir = mgr.download_and_stage(release, token)
+        staging_dir = mgr.download_and_stage(release, token, progress_cb=_progress)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if service is not None:
+        service.note_staged(req.tag)
 
     return {
         "staged": True,
@@ -650,6 +683,12 @@ def admin_rollback(req: RollbackRequest | None = None, manager=Depends(get_manag
         mgr.stage_rollback(target)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    # Keep the background service's cached status in step with this out-of-band
+    # stage, so the console immediately reports the rollback target as the version
+    # awaiting restart rather than a stale one (§3.7.4, §3.7.7).
+    service = getattr(manager, "update_service", None)
+    if service is not None:
+        service.note_staged(target)
     return {"staged": True, "tag": target, "rollback": True, "restart_required": True}
 
 

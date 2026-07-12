@@ -66,6 +66,11 @@ export interface EventRow {
   transcription: string | null;
   transcription_confidence: number | null;
   transcription_status: string;
+  // Manual instructor edits (§3.5.3): when the instructor corrects a transcript,
+  // `transcription_edited` flags the row and `transcription_original` preserves
+  // the machine transcription so the console can highlight what was changed.
+  transcription_original: string | null;
+  transcription_edited: boolean;
 }
 
 // A divider row in the Running Event Log marking when a training session

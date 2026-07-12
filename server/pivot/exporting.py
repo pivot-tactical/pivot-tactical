@@ -34,6 +34,8 @@ _CSV_FIELDS = [
     "transcription",
     "transcription_confidence",
     "transcription_status",
+    "transcription_edited",
+    "transcription_original",
 ]
 
 
@@ -62,9 +64,12 @@ def export_text(
         clock = format_clock(parse_iso_utc(e["timestamp_start"]), tz)
         mode = "CYPHER" if e["tx_mode"] == "Cypher" else "PLAIN"
         text = e["transcription"] or "(no transcription)"
+        # Flag hand-corrected transcripts so a reviewer knows the line was edited
+        # away from the machine transcription (§3.5.3).
+        edited = " [edited]" if e.get("transcription_edited") else ""
         lines.append(
             f"[{clock}] {e['trainee_name']} {e['frequency']} ({e['band_region']}, {mode}, "
-            f"{e['audibility']}): {text}"
+            f"{e['audibility']}): {text}{edited}"
         )
     return "\n".join(lines) + "\n"
 

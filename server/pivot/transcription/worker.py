@@ -113,6 +113,10 @@ class TranscriptionWorker:
             event = repo.get_event(s, event_id)
             if event is None:
                 return TranscriptionStatus.FAILED
+            # An instructor may have hand-corrected this row before the worker
+            # reached it — a manual edit wins, so leave it untouched (§3.5.3).
+            if event.transcription_edited:
+                return TranscriptionStatus.DONE
             # Resolve from the path stored on the row (the source of truth) rather
             # than rebuilding it from ids — recording names are human-readable and
             # no longer derivable from session/event ids alone.

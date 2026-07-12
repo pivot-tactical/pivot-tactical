@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from pivot.api.app import _maybe_start_transcription, create_app
 from pivot.api.deps import require_instructor
 from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD
+from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
 from pivot.version import version_info
 
@@ -241,6 +242,23 @@ def test_rollback_stages_retained_version(client, settings):
     assert body["restart_required"] is True
 
 
+def test_rollback_syncs_update_service_cache(client, settings):
+    """Rolling back stages a retained version out-of-band; the background
+    service's cached status (what the console streams over the WebSocket) must
+    reflect it immediately, so the pane can't keep showing a version that was
+    auto-staged before (§3.7.4)."""
+    good = settings.versions_dir / "app-1.1.0"
+    (good / "_internal").mkdir(parents=True)
+    (good / "PIVOT-Tactical").write_text("retained 1.1.0")
+
+    r = client.post("/api/admin/updates/rollback", json={})
+    assert r.status_code == 200
+
+    service = client.app.state.update_service
+    assert service is not None
+    assert service.snapshot()["staged_tag"] == "1.1.0"
+
+
 def test_retained_versions_list_and_delete(client, settings):
     # Two versions kept on disk; the pane lists them with sizes and can delete.
     v1 = settings.versions_dir / "app-1.1.0"
@@ -339,6 +357,45 @@ def test_sessions_events_and_export(client, settings):
     # Invalid format.
     r = client.post(f"/api/sessions/{session_id}/export?fmt=pdf")
     assert r.status_code == 422
+
+
+def test_edit_transcription_over_rest(client, settings):
+    """POST /events/{id}/transcription corrects the text, preserves the machine
+    transcription for diffing, and flags the row (§3.5.3)."""
+    manager = client.app.state.manager
+    manager.start_session("EX-EDIT")
+    manager.login("ALPHA", "t-1")
+    manager.tune("t-1", "14.250 MHz")
+    manager.ptt_start("t-1")
+    t = np.sin(2 * np.pi * 440 * np.arange(8000) / 16000).astype(np.float32)
+    event = manager.ptt_end("t-1", audio=t)
+    eid = event["event_id"]
+
+    # Seed a (low-confidence) machine transcription, then correct it.
+    with manager.db.session() as s:
+        from pivot.db.models import TranscriptionStatus
+
+        repo.set_transcription(
+            s, eid, text_value="SITREP FOLOWS", confidence=0.4, status=TranscriptionStatus.DONE
+        )
+
+    r = client.post(f"/api/events/{eid}/transcription", json={"text": "SITREP FOLLOWS OVER"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["transcription"] == "SITREP FOLLOWS OVER"
+    assert body["transcription_original"] == "SITREP FOLOWS"
+    assert body["transcription_edited"] is True
+
+    # The correction is reflected in the log seed the console reads on load.
+    r = client.get("/api/events/recent")
+    row = next(e for e in r.json() if e["event_id"] == eid)
+    assert row["transcription"] == "SITREP FOLLOWS OVER"
+    assert row["transcription_edited"] is True
+
+
+def test_edit_transcription_unknown_event_404(client):
+    r = client.post("/api/events/does-not-exist/transcription", json={"text": "x"})
+    assert r.status_code == 404
 
 
 def test_recent_events_survive_restart(client, settings):

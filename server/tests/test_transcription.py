@@ -99,6 +99,33 @@ def test_aborted_event_is_still_transcribed(database, settings, manager):
     assert worker.process_event(event["event_id"]) is TranscriptionStatus.DONE
 
 
+def test_worker_leaves_manually_edited_events_untouched(database, settings, manager):
+    """A manual correction wins even if the worker gets to the event afterwards."""
+    event_id = _make_event(manager, tone(1.0))
+    with database.session() as s:
+        repo.edit_transcription(s, event_id, "HUMAN TRUTH")
+    fake = FakeTranscriber("ROBOT GUESS", 0.99)
+    worker = TranscriptionWorker(database, settings, transcriber=fake)
+    assert worker.process_event(event_id) is TranscriptionStatus.DONE
+    assert fake.calls == []  # never even ran the transcriber
+    with database.session() as s:
+        e = repo.get_event(s, event_id)
+        assert e.transcription == "HUMAN TRUTH"
+        assert bool(e.transcription_edited) is True
+
+
+def test_manager_edit_transcription_broadcasts(database, settings, manager):
+    """manager.edit_transcription persists and fans out transcription_updated."""
+    event_id = _make_event(manager, tone(1.0))
+    sent = []
+    manager.broadcast = lambda t, p: sent.append((t, p))
+    out = manager.edit_transcription(event_id, "CORRECTED TEXT")
+    assert out is not None and out["transcription"] == "CORRECTED TEXT"
+    assert sent and sent[-1][0] == "transcription_updated"
+    assert sent[-1][1]["transcription"] == "CORRECTED TEXT"
+    assert manager.edit_transcription("missing", "x") is None
+
+
 def test_manager_enqueues_when_worker_attached(database, settings, manager):
     enqueued = []
     manager.transcription_worker = type(
