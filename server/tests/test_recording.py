@@ -48,14 +48,17 @@ EVENT_START = "2026-07-11T14:30:22.123456+00:00"
 
 
 def test_session_dir_name_uses_name_and_dtg():
-    assert session_dir_name("Night Nav Ex", SESSION_START) == "night-nav-ex_20260711T140000Z"
+    assert session_dir_name("Night Nav Ex", SESSION_START) == "night-nav-ex_2026-07-11_14-00-00Z"
 
 
 def test_relative_audio_path_is_human_readable():
     path = relative_audio_path(
         "Night Nav Ex", SESSION_START, EVENT_START, "John Smith", EVENT_ID
     )
-    assert path == "night-nav-ex_20260711T140000Z/20260711T143022Z_john-smith_a1b2c3d4.wav"
+    assert (
+        path
+        == "night-nav-ex_2026-07-11_14-00-00Z/2026-07-11_14-30-22Z_john-smith_a1b2c3d4.wav"
+    )
 
 
 def test_relative_audio_path_all_events_share_session_folder():

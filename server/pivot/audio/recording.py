@@ -9,9 +9,11 @@ Files are named for humans, not machines: recordings land in a per-session
 folder named ``{session-name}_{date-time-group}`` and each WAV is named
 ``{date-time-group}_{trainee}_{shortid}.wav`` so an instructor can find the
 right clip in a file browser without the application. The date-time group is
-the UTC instant in compact ``YYYYMMDDThhmmssZ`` form (sorts chronologically);
-the short id is the first 8 characters of the event UUID, kept only to
-guarantee uniqueness when two stations key within the same second.
+the UTC instant in readable ``YYYY-MM-DD_HH-MM-SSZ`` form (sorts
+chronologically); the short id is the first 8 characters of the event UUID,
+kept only to guarantee uniqueness when two stations key within the same second.
+
+    e.g. ``night-nav-ex_2026-07-11_14-00-00Z/2026-07-11_14-30-22Z_j-smith_a1b2c3d4.wav``
 
 The path actually used to read a recording is always the one stored on the
 event row (``audio_path``) — it is never reconstructed from ids — so older
@@ -46,11 +48,13 @@ def _slugify(text: str | None, *, max_len: int, fallback: str) -> str:
 
 
 def _dtg(iso_timestamp: str) -> str:
-    """Compact, chronologically sortable UTC date-time group for a filename."""
+    """Human-readable, chronologically sortable UTC date-time group for a
+    filename: ``YYYY-MM-DD_HH-MM-SSZ``. Hyphens (not colons) keep it valid on
+    Windows filesystems, and the fixed-width fields still sort lexically."""
     try:
-        return parse_iso_utc(iso_timestamp).strftime("%Y%m%dT%H%M%SZ")
+        return parse_iso_utc(iso_timestamp).strftime("%Y-%m-%d_%H-%M-%SZ")
     except (ValueError, TypeError):
-        return "00000000T000000Z"
+        return "0000-00-00_00-00-00Z"
 
 
 def session_dir_name(session_name: str | None, session_started_at: str) -> str:
