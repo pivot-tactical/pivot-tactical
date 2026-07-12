@@ -82,6 +82,10 @@ export interface UpdateStatus {
   // source of truth for what this install becomes on restart. Read fresh from
   // the pending marker on every check, so it reflects a manual selection too.
   staged_tag?: string | null;
+  // Live byte progress of an in-flight download (auto or manual), or null when
+  // nothing is downloading. `total` is null when the server sends no
+  // Content-Length (the UI then shows an indeterminate bar).
+  download_progress?: { tag: string; received: number; total: number | null } | null;
 }
 
 function tokenQuery(extra = ""): string {

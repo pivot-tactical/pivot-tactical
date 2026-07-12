@@ -65,6 +65,10 @@ vi.mock('../api', () => ({
     refreshUpdates: vi.fn().mockResolvedValue({ standing: 'current' }),
     editTranscription: vi.fn(),
     eventAudioUrl: vi.fn().mockReturnValue('blob:audio'),
+    applyUpdate: vi.fn().mockResolvedValue({ staged: true, tag: '', restart_required: true }),
+    rollbackUpdate: vi.fn().mockResolvedValue({ staged: true, tag: '', rollback: true, restart_required: true }),
+    retainedVersions: vi.fn().mockResolvedValue({ retained: [], current_version: '1.0.0' }),
+    restartServer: vi.fn().mockResolvedValue({}),
   },
   getToken: vi.fn().mockReturnValue('mock-token'),
 }));
@@ -227,5 +231,44 @@ describe('InstructorConsole', () => {
     // Unchanged words are never highlighted.
     expect(highlighted).not.toContain('grid');
     expect(marks).not.toContain('to');
+  });
+
+  it('positively confirms a deliberately chosen version, distinct from the auto-staged one', async () => {
+    const release = (tag: string) => ({
+      tag, name: tag, prerelease: false, standing: 'newer', published_at: '',
+      has_asset: true, asset_url: `u-${tag}`, sha256_url: `s-${tag}`,
+      sig_url: `g-${tag}`, asset_name: `a-${tag}`,
+    });
+    // Auto-update staged 2.0.0; the instructor wants 1.5.0 instead.
+    vi.mocked(api.checkUpdates).mockResolvedValue({
+      current_version: '1.0.0', channel: 'stable', auto_update: true, updater: 'staged',
+      reachable: true, error: null, last_checked: new Date().toISOString(), checking: false,
+      available: [release('2.0.0'), release('1.5.0')], releases: [], staged_tag: '2.0.0',
+    } as any);
+    vi.mocked(api.applyUpdate).mockResolvedValue(
+      { staged: true, tag: '1.5.0', restart_required: true } as any);
+
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+    });
+
+    // The auto-staged version is reported first.
+    expect(await screen.findByText(/2\.0\.0 ready — restart PIVOT to apply/)).toBeInTheDocument();
+
+    // Open the version list and install a different one.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /choose a different version/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /download & install/i }));
+    });
+
+    // The headline now positively confirms the instructor's pick — not 2.0.0.
+    expect(await screen.findByText(/Version 1\.5\.0 selected and staged/)).toBeInTheDocument();
+    expect(screen.queryByText(/2\.0\.0 ready — restart PIVOT to apply/)).not.toBeInTheDocument();
+    expect(api.applyUpdate).toHaveBeenCalledWith('1.5.0', 'u-1.5.0', 's-1.5.0', 'g-1.5.0', 'a-1.5.0');
   });
 });

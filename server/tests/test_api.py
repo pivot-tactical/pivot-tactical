@@ -242,6 +242,23 @@ def test_rollback_stages_retained_version(client, settings):
     assert body["restart_required"] is True
 
 
+def test_rollback_syncs_update_service_cache(client, settings):
+    """Rolling back stages a retained version out-of-band; the background
+    service's cached status (what the console streams over the WebSocket) must
+    reflect it immediately, so the pane can't keep showing a version that was
+    auto-staged before (§3.7.4)."""
+    good = settings.versions_dir / "app-1.1.0"
+    (good / "_internal").mkdir(parents=True)
+    (good / "PIVOT-Tactical").write_text("retained 1.1.0")
+
+    r = client.post("/api/admin/updates/rollback", json={})
+    assert r.status_code == 200
+
+    service = client.app.state.update_service
+    assert service is not None
+    assert service.snapshot()["staged_tag"] == "1.1.0"
+
+
 def test_retained_versions_list_and_delete(client, settings):
     # Two versions kept on disk; the pane lists them with sizes and can delete.
     v1 = settings.versions_dir / "app-1.1.0"

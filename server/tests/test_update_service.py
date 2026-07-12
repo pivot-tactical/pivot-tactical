@@ -115,6 +115,92 @@ def test_snapshot_reports_staged_tag_without_auto_update(tmp_path):
     assert snap["staged_tag"] == "1.0.5"
 
 
+def test_refresh_error_path_reports_fresh_staged_tag(tmp_path):
+    """A failed GitHub check must still broadcast the version staged on disk, not
+    a stale cached one — otherwise a LAN-only site (where the check never
+    succeeds) stays stuck showing a previously-staged version after the
+    instructor picks a different one (§3.7.4). Regression for the console
+    reverting to the auto-chosen version.
+    """
+    _stage(tmp_path, "1.0.5")  # instructor's out-of-band pick, on disk
+
+    def boom(repo, token=None):
+        raise OSError("no network")
+
+    seen: list[dict] = []
+    svc = _service(tmp_path, config={"github_repo": "o/r"}, fetch=boom,
+                   on_change=lambda s: seen.append(dict(s)))
+    snap = svc.refresh()
+
+    assert snap["reachable"] is False
+    assert snap["staged_tag"] == "1.0.5"          # the pick survives the failure
+    # Every broadcast — the "checking" one and the error one — carries it, so no
+    # stale value ever reaches the console.
+    assert seen and all(s.get("staged_tag") == "1.0.5" for s in seen)
+
+
+def test_note_staged_updates_cached_snapshot_and_broadcasts(tmp_path):
+    """A version staged out-of-band (manual apply / rollback) is reflected in the
+    cached snapshot immediately and pushed to the console, so a partial poll
+    broadcast can't keep advertising a stale pick (§3.7.4)."""
+    seen: list[dict] = []
+    svc = _service(tmp_path, config={"github_repo": "o/r"},
+                   on_change=lambda s: seen.append(dict(s)))
+    svc.note_staged("1.0.7")
+
+    snap = svc.snapshot()
+    assert snap["staged_tag"] == "1.0.7"
+    assert snap["auto_state"] == "idle"
+    assert "1.0.7" in snap["auto_message"]
+    assert snap["download_progress"] is None
+    assert seen[-1]["staged_tag"] == "1.0.7"
+
+
+def test_note_download_progress_broadcasts_start_and_completion(tmp_path):
+    """Progress is published for the download in flight; the first byte report and
+    the completion always emit (the throttle only coalesces the noisy middle)."""
+    seen: list[dict] = []
+    svc = _service(tmp_path, config={"github_repo": "o/r"},
+                   on_change=lambda s: seen.append(dict(s)))
+    svc.note_download_progress("1.1.0", 0, 100)    # start — always emits
+    svc.note_download_progress("1.1.0", 50, 100)   # mid-flight — throttled out
+    svc.note_download_progress("1.1.0", 100, 100)  # complete — always emits
+
+    reported = [s["download_progress"] for s in seen if s.get("download_progress")]
+    assert reported[0] == {"tag": "1.1.0", "received": 0, "total": 100}
+    assert reported[-1] == {"tag": "1.1.0", "received": 100, "total": 100}
+    assert svc.snapshot()["download_progress"] == {"tag": "1.1.0", "received": 100, "total": 100}
+
+
+def test_default_apply_reports_download_progress(tmp_path):
+    """The auto-update path streams byte progress into the snapshot so the console
+    shows a real progress bar, not just static 'Downloading…' text."""
+    from pivot.updates import manager as mgrmod
+    from pivot.updates.manager import Release
+
+    # Stub the streaming download to emit a couple of progress ticks.
+    def fake_download(url, dest, token=None, timeout=600.0, progress_cb=None):
+        dest.write_bytes(b"bundle")
+        if progress_cb is not None:
+            progress_cb(0, 6)
+            progress_cb(6, 6)
+
+    import unittest.mock as mock
+
+    seen: list[dict] = []
+    svc = _service(tmp_path, config={"github_repo": "o/r"},
+                   on_change=lambda s: seen.append(dict(s)))
+    # Point apply at a real staging dir and skip extraction by pre-creating it.
+    with mock.patch.object(mgrmod, "_http_download", fake_download), \
+         mock.patch.object(mgrmod.UpdateManager, "stage",
+                           lambda self, path, rel: self.versions_dir):
+        svc._default_apply(Release(tag="1.1.0", asset_url="http://x/a.zip",
+                                   asset_name="a.zip"), cfg={})
+
+    reported = [s["download_progress"] for s in seen if s.get("download_progress")]
+    assert {"tag": "1.1.0", "received": 6, "total": 6} in reported
+
+
 def test_auto_update_stages_newest_onto_clean_slate_and_reports_it(tmp_path):
     """With nothing staged, the routine check stages the newest and staged_tag
     reflects the release that was actually applied."""
