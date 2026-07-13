@@ -17,7 +17,7 @@ from typing import Self
 
 # Canonical semantic version. Bumped per release; the packaged build overwrites
 # the buildinfo fields below via packaging/_buildinfo.py generated in CI.
-__version__ = "1.0.3"
+__version__ = "1.0.4"
 
 _SEMVER_RE = re.compile(
     r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
