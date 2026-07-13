@@ -855,6 +855,71 @@ function fmtBytes(n: number): string {
   return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
+// Where recordings live + a one-click "open it" for the instructor who can't
+// find the WAVs on disk. The server host opens its own file manager; when it
+// can't (headless), we fall back to showing the absolute path to copy.
+function RecordingsCard() {
+  const [path, setPath] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    api.recordingsLocation().then((r) => setPath(r.path)).catch(() => {});
+  }, []);
+
+  async function openFolder() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api.openRecordingsFolder();
+      setPath(r.path);
+      setMsg(
+        r.opened
+          ? "Opened on the machine running PIVOT."
+          : "Couldn’t open a file manager here — browse to the path below on the PIVOT server."
+      );
+    } catch {
+      setMsg("Couldn’t open the folder. Use the path below.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyPath() {
+    if (!path) return;
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked (insecure origin) — the path is on screen to copy */
+    }
+  }
+
+  return (
+    <section className="card pad">
+      <h3>Recordings</h3>
+      <p className="muted" style={{ marginTop: 0 }}>
+        Per-transmission WAVs, named by session and time so they’re easy to find
+        in a file browser.
+      </p>
+      <div className="row gap" style={{ flexWrap: "wrap" }}>
+        <button className="btn btn--primary" onClick={openFolder} disabled={busy}>
+          {busy ? "Opening…" : "Open recordings folder"}
+        </button>
+        <button className="btn" onClick={copyPath} disabled={!path}>
+          {copied ? "Copied ✓" : "Copy path"}
+        </button>
+      </div>
+      {path && (
+        <div className="muted mono mt" style={{ wordBreak: "break-all" }}>{path}</div>
+      )}
+      {msg && <p className="muted mt" style={{ fontSize: "0.85em" }}>{msg}</p>}
+    </section>
+  );
+}
+
 // Live download progress for an update in flight. Shows a determinate bar +
 // percentage when the server reported a size, else an indeterminate bar (the
 // native <progress> renders indeterminate when `value` is undefined).
@@ -1102,6 +1167,7 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
 
   return (
     <div className="grid2">
+      <div className="settings-col">
       <section className="card pad">
         <h3>Settings</h3>
         <Field label="Update channel">
@@ -1180,6 +1246,10 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
         <button className="btn btn--primary" disabled={pw.next.length < 4} onClick={changePassword}>Change Password</button>
         {pwMsg && <p className="muted mt">{pwMsg}</p>}
       </section>
+      </div>
+
+      <div className="settings-col">
+      <RecordingsCard />
 
       <section className="card pad">
         <div className="row between" style={{ alignItems: "center" }}>
@@ -1395,6 +1465,7 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
           offline import.
         </p>
       </section>
+      </div>
     </div>
   );
 }

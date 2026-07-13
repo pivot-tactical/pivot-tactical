@@ -951,3 +951,45 @@ def test_admin_start_session_mocked(client, monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"session_id": 123, "name": "MockSession"}
     mock_manager.start_session.assert_called_once_with("MockSession")
+
+
+def test_recordings_location_returns_absolute_path(client, settings):
+    """The location endpoint reports the recordings dir and creates it."""
+    resp = client.get("/api/admin/recordings/location")
+    assert resp.status_code == 200
+    body = resp.json()
+    expected = settings.recordings_dir.resolve()
+    assert body["path"] == str(expected)
+    assert body["exists"] is True
+    assert expected.is_dir()  # endpoint ensures the folder exists
+
+
+def test_recordings_open_success(client, settings):
+    """A successful launch reports opened=True with the resolved path."""
+    with patch("pivot.runtime.reveal.open_in_file_manager") as opener:
+        resp = client.post("/api/admin/recordings/open")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["opened"] is True
+    assert body["path"] == str(settings.recordings_dir.resolve())
+    opener.assert_called_once()
+
+
+def test_recordings_open_headless_falls_back(client, settings):
+    """When the host can't open a file manager, the path is still returned."""
+    with patch(
+        "pivot.runtime.reveal.open_in_file_manager",
+        side_effect=RuntimeError("no display"),
+    ):
+        resp = client.post("/api/admin/recordings/open")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["opened"] is False
+    assert body["path"] == str(settings.recordings_dir.resolve())
+    assert "no display" in body["detail"]
+
+
+def test_recordings_endpoints_require_instructor(raw_client):
+    """Both recordings endpoints are gated behind the instructor token."""
+    assert raw_client.get("/api/admin/recordings/location").status_code == 401
+    assert raw_client.post("/api/admin/recordings/open").status_code == 401

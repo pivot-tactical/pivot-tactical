@@ -13,6 +13,7 @@ import io
 import zipfile
 from pathlib import Path
 
+from pivot.audio.recording import session_dir_name
 from pivot.core.timebase import format_clock, parse_iso_utc
 from pivot.db.config_store import ConfigStore
 from pivot.db.database import Database
@@ -44,7 +45,8 @@ def _events_and_tz(db: Database, session_id: str):
         session = next((x for x in list_sessions(s) if x.id == session_id), None)
         events = [e.to_dict() for e in list_events(s, session_id)]
         name = session.name if session else session_id
-    return name, events, tz
+        started_at = session.started_at if session else ""
+    return name, events, tz, started_at
 
 
 def export_text(
@@ -55,7 +57,7 @@ def export_text(
     tz: str | None = None,
 ) -> str:
     if events is None or name is None or tz is None:
-        name, events, tz = _events_and_tz(db, session_id)
+        name, events, tz, _ = _events_and_tz(db, session_id)
 
     lines = [f"PIVOT session transcript — {name}", f"Display timezone: {tz}", ""]
     for e in events:
@@ -74,7 +76,7 @@ def export_text(
 
 def export_csv(db: Database, session_id: str, events: list | None = None) -> str:
     if events is None:
-        _, events, _ = _events_and_tz(db, session_id)
+        _, events, _, _ = _events_and_tz(db, session_id)
 
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=_CSV_FIELDS, extrasaction="ignore")
@@ -86,17 +88,21 @@ def export_csv(db: Database, session_id: str, events: list | None = None) -> str
 
 def export_zip(db: Database, settings, session_id: str) -> bytes:
     """Full session ZIP: logs + every WAV recording (§3.6.4, acceptance #21)."""
-    name, events, tz = _events_and_tz(db, session_id)
+    name, events, tz, started_at = _events_and_tz(db, session_id)
     text = export_text(db, session_id, name=name, events=events, tz=tz)
     csv_data = export_csv(db, session_id, events=events)
 
+    # Name the archive's top folder for humans (same convention as the on-disk
+    # recording folders) so an unzipped export is browsable without the app.
+    root = session_dir_name(name, started_at)
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(f"{session_id}/transcript.txt", text)
-        zf.writestr(f"{session_id}/events.csv", csv_data)
+        zf.writestr(f"{root}/transcript.txt", text)
+        zf.writestr(f"{root}/events.csv", csv_data)
         base_dir = Path(settings.recordings_dir).resolve()
         for e in events:
             wav_path = (Path(settings.recordings_dir) / e["audio_path"]).resolve()
             if wav_path.is_relative_to(base_dir) and wav_path.exists():
-                zf.write(wav_path, arcname=f"{session_id}/recordings/{Path(e['audio_path']).name}")
+                zf.write(wav_path, arcname=f"{root}/recordings/{Path(e['audio_path']).name}")
     return buf.getvalue()

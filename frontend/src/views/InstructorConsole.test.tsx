@@ -63,6 +63,8 @@ vi.mock('../api', () => ({
     bandProfile: vi.fn().mockResolvedValue({ crypto_enabled: true }),
     terminals: vi.fn().mockResolvedValue({ session_active: false, terminals: [] }),
     refreshUpdates: vi.fn().mockResolvedValue({ standing: 'current' }),
+    recordingsLocation: vi.fn().mockResolvedValue({ path: '/data/recordings', exists: true }),
+    openRecordingsFolder: vi.fn().mockResolvedValue({ opened: true, path: '/data/recordings' }),
     editTranscription: vi.fn(),
     eventAudioUrl: vi.fn().mockReturnValue('blob:audio'),
     applyUpdate: vi.fn().mockResolvedValue({ staged: true, tag: '', restart_required: true }),

@@ -67,12 +67,6 @@ class Settings(BaseSettings):
         for d in (self.data_dir, self.recordings_dir, self.logs_dir):
             d.mkdir(parents=True, exist_ok=True)
 
-    def session_recordings_dir(self, session_id: str) -> Path:
-        """``/recordings/{session_id}/`` per §3.5.1."""
-        d = self.recordings_dir / session_id
-        d.mkdir(parents=True, exist_ok=True)
-        return d
-
 
 # Runtime config defaults persisted to the ``config`` table on first run.
 # Values are stored JSON-encoded (spec §5.1). Grouped by spec section.
