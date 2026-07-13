@@ -59,6 +59,8 @@ vi.mock('../api', () => ({
     instructorRadios: vi.fn().mockResolvedValue([]),
     recentEvents: vi.fn().mockResolvedValue([]),
     sessions: vi.fn().mockResolvedValue([]),
+    events: vi.fn().mockResolvedValue([]),
+    exportSession: vi.fn().mockResolvedValue(undefined),
     getConfig: vi.fn().mockResolvedValue({}),
     bandProfile: vi.fn().mockResolvedValue({ crypto_enabled: true }),
     terminals: vi.fn().mockResolvedValue({ session_active: false, terminals: [] }),
@@ -272,5 +274,70 @@ describe('InstructorConsole', () => {
     expect(await screen.findByText(/Version 1\.5\.0 selected and staged/)).toBeInTheDocument();
     expect(screen.queryByText(/2\.0\.0 ready — restart PIVOT to apply/)).not.toBeInTheDocument();
     expect(api.applyUpdate).toHaveBeenCalledWith('1.5.0', 'u-1.5.0', 's-1.5.0', 'g-1.5.0', 'a-1.5.0');
+  });
+
+  it('AAR tab lists sessions newest-first and shows the selected session transmissions', async () => {
+    (api.sessions as any).mockResolvedValue([
+      { id: 's-old', name: 'Old Ex', started_at: '2026-06-01T09:00:00+00:00', ended_at: '2026-06-01T10:00:00+00:00', event_count: 2 },
+      { id: 's-new', name: 'New Ex', started_at: '2026-06-05T09:00:00+00:00', ended_at: null, event_count: 5 },
+    ]);
+    (api.events as any).mockResolvedValue([makeEvent()]);
+
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'AAR' }));
+    });
+
+    // Both sessions are listed; the newest is pre-selected (appears in the bar
+    // title too) and its transmissions are fetched and rendered.
+    expect(await screen.findByText('Old Ex')).toBeInTheDocument();
+    expect(screen.getAllByText('New Ex').length).toBeGreaterThanOrEqual(1);
+    expect(api.events).toHaveBeenCalledWith('s-new');
+    expect(await screen.findByText('helo wrld')).toBeInTheDocument();
+  });
+
+  it('AAR export buttons download the selected session in the chosen format', async () => {
+    (api.sessions as any).mockResolvedValue([
+      { id: 's-1', name: 'Range Day', started_at: '2026-06-05T09:00:00+00:00', ended_at: null, event_count: 1 },
+    ]);
+    (api.events as any).mockResolvedValue([makeEvent()]);
+
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'AAR' }));
+    });
+    await screen.findAllByText('Range Day');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /export zip/i }));
+    });
+    expect(api.exportSession).toHaveBeenCalledWith('s-1', 'zip', 'Range Day');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /export csv/i }));
+    });
+    expect(api.exportSession).toHaveBeenCalledWith('s-1', 'csv', 'Range Day');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /export text/i }));
+    });
+    expect(api.exportSession).toHaveBeenCalledWith('s-1', 'text', 'Range Day');
+  });
+
+  it('AAR tab shows an empty state when no sessions have been recorded', async () => {
+    (api.sessions as any).mockResolvedValue([]);
+
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'AAR' }));
+    });
+
+    expect(await screen.findByText('No sessions recorded yet.')).toBeInTheDocument();
   });
 });

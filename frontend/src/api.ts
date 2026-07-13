@@ -36,6 +36,26 @@ async function jsonFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// Hand a fetched blob to the browser as a "Save as…" download. Named as a
+// module helper (not a hook) so it works from a plain button handler: it spins
+// up a throwaway <a download>, clicks it, and revokes the object URL.
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Strip characters a filesystem won't take, so a session name can safely become
+// the downloaded file's name.
+function safeFilename(name: string): string {
+  return name.replace(/[^\w.\- ]+/g, "_").trim() || "session";
+}
+
 export interface ServerStatus {
   name: string;
   version: string;
@@ -261,6 +281,24 @@ export const api = {
     `/api/events/${eventId}/audio?${tokenQuery(`mode=${mode}&view=${view}&_=${Date.now()}`)}`,
   exportUrl: (sessionId: string, fmt: "zip" | "text" | "csv") =>
     `/api/sessions/${sessionId}/export?${tokenQuery(`fmt=${fmt}`)}`,
+  // Export a whole session (§3.6.4). The endpoint is a POST that streams the
+  // file back, so we fetch it as a blob and trigger a browser download rather
+  // than navigating. `name`, when given, names the saved file for humans
+  // (falling back to the opaque session id).
+  exportSession: async (
+    sessionId: string,
+    fmt: "zip" | "text" | "csv",
+    name?: string
+  ): Promise<void> => {
+    const res = await fetch(api.exportUrl(sessionId, fmt), {
+      method: "POST",
+      headers: headers(),
+    });
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    const blob = await res.blob();
+    const ext = fmt === "text" ? "txt" : fmt;
+    saveBlob(blob, `${safeFilename(name || sessionId)}.${ext}`);
+  },
 
   // --- instructor: recordings folder ---
   // Where the WAV recordings live on the server host (absolute path).

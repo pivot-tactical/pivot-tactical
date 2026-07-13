@@ -8,10 +8,10 @@ import { ModeDial } from "../components/ModeDial";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
 import { METER_DECAY, SignalMeter } from "../components/SignalMeter";
 import { VolumeSlider } from "../components/VolumeSlider";
-import type { EventRow, LogEntry, NetScenario, RadioState, SessionLogMarker, Terminal, TxPhase } from "../types";
+import type { EventRow, LogEntry, NetScenario, RadioState, SessionLogMarker, SessionSummary, Terminal, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
 
-type Tab = "radios" | "monitor" | "settings";
+type Tab = "radios" | "monitor" | "aar" | "settings";
 
 const FALLBACK_TIMEZONES = [
   "UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
@@ -248,9 +248,9 @@ export function InstructorConsole({
       </header>
 
       <nav className="console__tabs">
-        {(["radios", "monitor", "settings"] as Tab[]).map((t) => (
+        {(["radios", "monitor", "aar", "settings"] as Tab[]).map((t) => (
           <button key={t} className={`tabbtn ${tab === t ? "tabbtn--on" : ""}`} onClick={() => setTab(t)}>
-            {t[0].toUpperCase() + t.slice(1)}
+            {t === "aar" ? "AAR" : t[0].toUpperCase() + t.slice(1)}
           </button>
         ))}
       </nav>
@@ -258,6 +258,7 @@ export function InstructorConsole({
       <main className="console__body">
         {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} entries={entries} netScenarios={netScenarios} rxLevels={rxLevels} onEventUpdate={updateEvent} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
+        {tab === "aar" && <AarTab timezone={timezone} />}
         {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} socket={socketRef.current} onRestart={enterRestarting} sessionActive={sessionActive} />}
       </main>
     </div>
@@ -843,6 +844,145 @@ function MonitorTab({ terminals }: { terminals: Terminal[] }) {
         </tbody>
       </table>
     </section>
+  );
+}
+
+// Format a stored UTC timestamp in the configured display timezone (§3.8). Used
+// for the AAR session list; falls back to a bare slice if the browser rejects
+// the timezone name.
+function fmtDateTime(iso: string, tz: string): string {
+  try {
+    return new Date(iso).toLocaleString([], {
+      timeZone: tz,
+      year: "numeric", month: "short", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    });
+  } catch {
+    return iso.slice(0, 16).replace("T", " ");
+  }
+}
+
+// After Action Review (§3.6.4): pick a past session on the left, review its
+// transmissions on the right, and export the whole thing as plain text, CSV, or
+// a ZIP that also bundles every WAV recording. The export endpoints and the
+// per-format wiring live in api.ts; this tab is their home in the console.
+function AarTab({ timezone }: { timezone: string }) {
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [events, setEvents] = useState<EventRow[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  // Which export format is currently downloading (buttons disable while busy).
+  const [busy, setBusy] = useState<"zip" | "text" | "csv" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load the session list once; newest first so the most recent exercise is at
+  // the top and pre-selected.
+  useEffect(() => {
+    api.sessions().then((rows) => {
+      const sorted = [...rows].sort((a, b) => b.started_at.localeCompare(a.started_at));
+      setSessions(sorted);
+      setSelectedId((cur) => cur ?? sorted[0]?.id ?? null);
+    }).catch(() => {});
+  }, []);
+
+  // Pull the selected session's transmissions for the review timeline.
+  useEffect(() => {
+    if (!selectedId) { setEvents([]); return; }
+    let cancelled = false;
+    setLoadingEvents(true);
+    api.events(selectedId)
+      .then((rows) => { if (!cancelled) setEvents(rows); })
+      .catch(() => { if (!cancelled) setEvents([]); })
+      .finally(() => { if (!cancelled) setLoadingEvents(false); });
+    return () => { cancelled = true; };
+  }, [selectedId]);
+
+  const selected = sessions.find((s) => s.id === selectedId) ?? null;
+
+  async function doExport(fmt: "zip" | "text" | "csv") {
+    if (!selected) return;
+    setBusy(fmt);
+    setError(null);
+    try {
+      await api.exportSession(selected.id, fmt, selected.name);
+    } catch {
+      setError("Export failed — please try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="aar">
+      <div className="aar__bar">
+        <h2 className="mono">{selected ? selected.name : "After Action Review"}</h2>
+        <div className="aar__toggles">
+          <button className="btn" disabled={!selected || busy !== null} onClick={() => doExport("text")}>
+            {busy === "text" ? "Exporting…" : "Export Text"}
+          </button>
+          <button className="btn" disabled={!selected || busy !== null} onClick={() => doExport("csv")}>
+            {busy === "csv" ? "Exporting…" : "Export CSV"}
+          </button>
+          <button className="btn btn--primary" disabled={!selected || busy !== null} onClick={() => doExport("zip")}>
+            {busy === "zip" ? "Exporting…" : "Export ZIP + audio"}
+          </button>
+        </div>
+      </div>
+      {error && <div className="aar__error">{error}</div>}
+      <div className="aar__body">
+        <div className="aar__sessions">
+          {sessions.length === 0 && <p className="muted" style={{ padding: 10 }}>No sessions recorded yet.</p>}
+          {sessions.map((s) => (
+            <button
+              key={s.id}
+              className={`session ${s.id === selectedId ? "session--active" : ""}`}
+              onClick={() => setSelectedId(s.id)}
+            >
+              <div className="session__name">{s.name}</div>
+              <div className="session__meta">
+                {fmtDateTime(s.started_at, timezone)}
+                {s.event_count != null && ` · ${s.event_count} tx`}
+                {s.ended_at == null && " · live"}
+              </div>
+            </button>
+          ))}
+        </div>
+        <div className="aar__timeline">
+          {loadingEvents && <p className="muted">Loading transmissions…</p>}
+          {!loadingEvents && selected && events.length === 0 && (
+            <p className="muted">No transmissions in this session.</p>
+          )}
+          {!loadingEvents && events.map((ev) => <AarRow key={ev.event_id} ev={ev} />)}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// One read-only transmission in the AAR timeline: timestamp, callsign, channel,
+// crypto mode, who copied it (audibility), the transcript and its duration. A
+// machine transcription below the confidence threshold is tinted amber, an
+// empty one is shown as a muted placeholder, and a hand-corrected one is flagged
+// (§3.5.3) — matching the running log without the inline editing.
+function AarRow({ ev }: { ev: EventRow }) {
+  const low = !ev.transcription_edited &&
+    ev.transcription_confidence != null && ev.transcription_confidence < 0.8;
+  const text = ev.transcription?.trim();
+  const durS = (ev.duration_ms / 1000).toFixed(1);
+  return (
+    <div className="event event--readonly">
+      <span className="event__time mono">{ev.timestamp_start.slice(11, 19)}</span>
+      <span className="mono">{ev.trainee_name}</span>
+      <span className="event__freq mono">{ev.frequency} <small>{ev.band_region}</small></span>
+      <span className="event__mode" title={ev.tx_mode}>{ev.tx_mode === "Cypher" ? "🔒" : "◌"}</span>
+      <span className={`event__aud aud--${ev.audibility.split("-")[0].toLowerCase()}`}>{ev.audibility}</span>
+      <span className={`event__text ${low ? "text--amber" : ""} ${text ? "" : "text--none"}`}>
+        {ev.jammed && <span className="event__jammed" title="Channel was jammed">JAMMED</span>}
+        {text || "(no transcription)"}
+        {ev.transcription_edited && <span className="muted"> [edited]</span>}
+      </span>
+      <span className="event__dur mono">{durS}s</span>
+    </div>
   );
 }
 
