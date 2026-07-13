@@ -1167,6 +1167,7 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
 
   return (
     <div className="grid2">
+      <div className="settings-col">
       <section className="card pad">
         <h3>Settings</h3>
         <Field label="Update channel">
@@ -1233,8 +1234,6 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
         <button className="btn btn--primary" onClick={save}>{saved ? "Saved ✓" : "Save Settings"}</button>
       </section>
 
-      <RecordingsCard />
-
       <section className="card pad">
         <h3>Instructor Password</h3>
         {mustChangePassword && <p className="login__hint">You are using the default password. Please change it.</p>}
@@ -1247,6 +1246,10 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
         <button className="btn btn--primary" disabled={pw.next.length < 4} onClick={changePassword}>Change Password</button>
         {pwMsg && <p className="muted mt">{pwMsg}</p>}
       </section>
+      </div>
+
+      <div className="settings-col">
+      <RecordingsCard />
 
       <section className="card pad">
         <div className="row between" style={{ alignItems: "center" }}>
@@ -1462,6 +1465,7 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
           offline import.
         </p>
       </section>
+      </div>
     </div>
   );
 }
