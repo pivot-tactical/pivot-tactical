@@ -847,16 +847,25 @@ function MonitorTab({ terminals }: { terminals: Terminal[] }) {
   );
 }
 
+// Performance optimization: cache Intl.DateTimeFormat instances by timezone
+// to avoid the ~0.14ms instantiation cost per row when rendering large AAR lists.
+const _fmtCache = new Map<string, Intl.DateTimeFormat>();
+
 // Format a stored UTC timestamp in the configured display timezone (§3.8). Used
 // for the AAR session list; falls back to a bare slice if the browser rejects
 // the timezone name.
 function fmtDateTime(iso: string, tz: string): string {
   try {
-    return new Date(iso).toLocaleString([], {
-      timeZone: tz,
-      year: "numeric", month: "short", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", hour12: false,
-    });
+    let fmt = _fmtCache.get(tz);
+    if (!fmt) {
+      fmt = new Intl.DateTimeFormat([], {
+        timeZone: tz,
+        year: "numeric", month: "short", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false,
+      });
+      _fmtCache.set(tz, fmt);
+    }
+    return fmt.format(new Date(iso));
   } catch {
     return iso.slice(0, 16).replace("T", " ");
   }
@@ -1614,6 +1623,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <label className="field"><span>{label}</span>{children}</label>;
 }
 
+let _relFmt: Intl.DateTimeFormat | null = null;
+
 // Compact "x ago" for the last-checked timestamp; falls back to a local date.
 function relTime(iso: string): string {
   const then = new Date(iso).getTime();
@@ -1625,7 +1636,18 @@ function relTime(iso: string): string {
   if (mins < 60) return `${mins} min ago`;
   const hrs = Math.round(mins / 60);
   if (hrs < 24) return `${hrs} hour${hrs > 1 ? "s" : ""} ago`;
-  return new Date(iso).toLocaleString();
+
+  try {
+    if (!_relFmt) {
+      _relFmt = new Intl.DateTimeFormat([], {
+        year: "numeric", month: "numeric", day: "numeric",
+        hour: "numeric", minute: "numeric", second: "numeric"
+      });
+    }
+    return _relFmt.format(new Date(iso));
+  } catch {
+    return new Date(iso).toLocaleString();
+  }
 }
 
 function updateRadio(radios: RadioState[], r: RadioState): RadioState[] {
