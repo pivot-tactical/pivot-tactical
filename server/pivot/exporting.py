@@ -61,7 +61,10 @@ def export_text(
 
     lines = [f"PIVOT session transcript — {name}", f"Display timezone: {tz}", ""]
     for e in events:
-        clock = format_clock(parse_iso_utc(e["timestamp_start"]), tz)
+        try:
+            clock = format_clock(parse_iso_utc(e["timestamp_start"]), tz)
+        except (ValueError, TypeError):
+            clock = "00:00:00"
         mode = "CYPHER" if e["tx_mode"] == "Cypher" else "PLAIN"
         text = e["transcription"] or "(no transcription)"
         # Flag hand-corrected transcripts so a reviewer knows the line was edited
@@ -102,6 +105,8 @@ def export_zip(db: Database, settings, session_id: str) -> bytes:
         zf.writestr(f"{root}/events.csv", csv_data)
         base_dir = Path(settings.recordings_dir).resolve()
         for e in events:
+            if not e.get("audio_path"):
+                continue
             wav_path = (Path(settings.recordings_dir) / e["audio_path"]).resolve()
             if wav_path.is_relative_to(base_dir) and wav_path.exists():
                 zf.write(wav_path, arcname=f"{root}/recordings/{Path(e['audio_path']).name}")

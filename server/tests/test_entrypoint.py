@@ -155,3 +155,24 @@ def test_restart_mode_detection(monkeypatch):
     # Plain source/dev run -> re-exec in place.
     monkeypatch.setattr(lifecycle.sys, "frozen", False, raising=False)
     assert lifecycle.restart_mode() == "exec"
+
+def test_relaunch_after_brings_app_back_even_if_apply_for_relaunch_fails(monkeypatch, tmp_path):
+    """The detached relauncher must still start the app if applying a staged update via _apply_staged_for_relaunch raises an Exception."""
+    from pivot.config import Settings
+    from pivot.runtime import lifecycle
+
+    settings = Settings(data_dir=tmp_path / "data", versions_dir=tmp_path / "versions")
+    calls = {"waited": None, "spawned": 0}
+    monkeypatch.setattr(lifecycle, "wait_for_exit", lambda pid, **k: calls.__setitem__("waited", pid))
+    monkeypatch.setattr(lifecycle, "spawn_app", lambda exe=None: calls.__setitem__("spawned", calls["spawned"] + 1))
+
+    def boom(_s):
+        raise RuntimeError("apply for relaunch failed")
+
+    monkeypatch.setattr(entry, "_apply_staged_for_relaunch", boom)
+
+    rc = entry._relaunch_after(4321, settings)
+
+    assert rc == 0
+    assert calls["waited"] == 4321
+    assert calls["spawned"] == 1
