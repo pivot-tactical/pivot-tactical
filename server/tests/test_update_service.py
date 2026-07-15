@@ -315,3 +315,18 @@ def test_run_catches_refresh_exception_and_keeps_daemon_alive(tmp_path):
     assert snap["reachable"] is False
     assert snap["error"] == "mocked error"
     assert snap["checking"] is False
+
+def test_run_catches_refresh_exception_and_merges_error_state(tmp_path):
+    svc = _service(tmp_path, config={"github_repo": "o/r"})
+
+    def fake_refresh():
+        svc.stop()  # Stop the loop from continuing infinitely
+        raise RuntimeError("simulated refresh error")
+
+    svc.refresh = fake_refresh
+    svc._run()
+
+    snap = svc.snapshot()
+    assert snap["reachable"] is False
+    assert snap["error"] == "simulated refresh error"
+    assert snap["checking"] is False
