@@ -247,9 +247,9 @@ export function InstructorConsole({
         <button className="btn btn--ghost" onClick={onLogout}>Log out</button>
       </header>
 
-      <nav className="console__tabs">
+      <nav className="console__tabs" role="tablist">
         {(["radios", "monitor", "aar", "settings"] as Tab[]).map((t) => (
-          <button key={t} className={`tabbtn ${tab === t ? "tabbtn--on" : ""}`} onClick={() => setTab(t)}>
+          <button key={t} className={`tabbtn ${tab === t ? "tabbtn--on" : ""}`} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
             {t === "aar" ? "AAR" : t[0].toUpperCase() + t.slice(1)}
           </button>
         ))}

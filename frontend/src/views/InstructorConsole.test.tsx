@@ -136,7 +136,7 @@ describe('InstructorConsole', () => {
       render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
     });
 
-    const monitorTabBtn = screen.getByRole('button', { name: /monitor/i });
+    const monitorTabBtn = screen.getByRole('tab', { name: /monitor/i });
 
     await act(async () => {
       fireEvent.click(monitorTabBtn);
@@ -144,7 +144,7 @@ describe('InstructorConsole', () => {
 
     expect(screen.getByText(/Connected Terminals/i)).toBeInTheDocument();
 
-    const settingsTabBtn = screen.getByRole('button', { name: /settings/i });
+    const settingsTabBtn = screen.getByRole('tab', { name: /settings/i });
 
     await act(async () => {
       fireEvent.click(settingsTabBtn);
@@ -256,7 +256,7 @@ describe('InstructorConsole', () => {
       render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+      fireEvent.click(screen.getByRole('tab', { name: /settings/i }));
     });
 
     // The auto-staged version is reported first.
@@ -287,7 +287,7 @@ describe('InstructorConsole', () => {
       render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'AAR' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'AAR' }));
     });
 
     // Both sessions are listed; the newest is pre-selected (appears in the bar
@@ -308,7 +308,7 @@ describe('InstructorConsole', () => {
       render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'AAR' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'AAR' }));
     });
     await screen.findAllByText('Range Day');
 
@@ -335,7 +335,7 @@ describe('InstructorConsole', () => {
       render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'AAR' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'AAR' }));
     });
 
     expect(await screen.findByText('No sessions recorded yet.')).toBeInTheDocument();
