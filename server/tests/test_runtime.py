@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from unittest.mock import Mock
 
 from pivot.audio.render import AarCryptoView, PlaybackMode, render_event
 from pivot.core.crypto import Audibility, RadioMode, SyncStatus
@@ -432,3 +433,9 @@ def test_monitor_snapshot_shows_freq_and_mode(manager):
     assert me["mode"] == "Cypher"
     assert "145.500" in me["frequency"]
     assert me["band_region"] == "VHF"
+
+def test_emit_to_sink_silently_recovers():
+    sink = Mock(side_effect=Exception("Test error"))
+    # _emit_to_sink is a staticmethod
+    SessionManager._emit_to_sink(sink, b"data")
+    sink.assert_called_once_with(b"data")
