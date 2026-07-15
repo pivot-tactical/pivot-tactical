@@ -27,6 +27,7 @@ Transmitting stations are half-duplex: they receive nothing while keyed.
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 
 import numpy as np
@@ -45,12 +46,7 @@ FRAME_SAMPLES = RECORDING_SAMPLE_RATE * FRAME_MS // 1000
 
 
 def aiortc_available() -> bool:
-    try:
-        import aiortc  # noqa: F401
-
-        return True
-    except Exception:
-        return False
+    return importlib.util.find_spec("aiortc") is not None
 
 
 class AudioRouter:
