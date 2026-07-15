@@ -1,5 +1,7 @@
 """Tests for the async transcription worker (spec §3.5.2)."""
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
@@ -133,3 +135,21 @@ def test_manager_enqueues_when_worker_attached(database, settings, manager):
     )()
     _make_event(manager, tone(1.0))
     assert len(enqueued) == 1
+
+
+def test_worker_on_complete_exception_is_handled(database, settings, manager):
+    """A listener error must not affect transcription."""
+    event_id = _make_event(manager, tone(1.0))
+    worker = TranscriptionWorker(database, settings, transcriber=FakeTranscriber())
+
+    def failing_callback(eid):
+        raise RuntimeError("Callback failed")
+
+    worker.on_complete = failing_callback
+
+    with patch("pivot.transcription.worker.log.exception") as mock_log:
+        status = worker.process_event(event_id)
+
+    assert status is TranscriptionStatus.DONE
+    mock_log.assert_called_once()
+    assert "on_complete callback failed for %s" in mock_log.call_args[0][0]
