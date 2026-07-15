@@ -993,3 +993,27 @@ def test_recordings_endpoints_require_instructor(raw_client):
     """Both recordings endpoints are gated behind the instructor token."""
     assert raw_client.get("/api/admin/recordings/location").status_code == 401
     assert raw_client.post("/api/admin/recordings/open").status_code == 401
+
+def test_event_audio_422_on_render_failure(client, monkeypatch):
+    import numpy as np
+    manager = client.app.state.manager
+    manager.start_session("EX")
+    manager.login("ALPHA", "t-1")
+    manager.login("BRAVO", "t-2")
+    manager.tune("t-1", "14.250 MHz")
+    manager.tune("t-2", "14.250 MHz")
+    manager.ptt_start("t-1")
+
+    # Pass a valid audio array to ensure an audio path is created
+    audio = np.zeros(8000, dtype=np.int16)
+    event = manager.ptt_end("t-1", audio=audio)
+
+    # Mock render_event_wav_bytes to raise an Exception
+    def mock_render(*args, **kwargs):
+        raise Exception("mock render error")
+
+    monkeypatch.setattr("pivot.api.rest.render_event_wav_bytes", mock_render)
+
+    r = client.get(f"/api/events/{event['event_id']}/audio?mode=clean")
+    assert r.status_code == 422
+    assert "mock render error" in r.json()["detail"]
