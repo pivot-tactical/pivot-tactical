@@ -95,7 +95,7 @@ def test_relaunch_after_brings_app_back_even_if_apply_fails(monkeypatch, tmp_pat
     def boom(_s):
         raise RuntimeError("bad swap")
 
-    monkeypatch.setattr(entry, "_apply_staged", boom)
+    monkeypatch.setattr(entry, "_apply_staged_for_relaunch", boom)
 
     rc = entry._relaunch_after(4321, settings)
 
