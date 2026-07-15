@@ -7,7 +7,7 @@ from pivot.core.crypto import Audibility, RadioMode, SyncStatus
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
 from pivot.db.migrations import CURRENT_SCHEMA_VERSION, crosses_migration_boundary
-from pivot.db.models import EventRow, TranscriptionStatus
+from pivot.db.models import ConfigRow, EventRow, TranscriptionStatus
 
 
 def test_initialise_seeds_config_and_band_profile(database):
@@ -369,8 +369,10 @@ def test_list_sessions_with_event_count(database):
         assert populated_session.id in counts_by_id
         assert counts_by_id[populated_session.id] == 2
 
+
 def test_read_schema_version_invalid_fallback():
     from sqlalchemy import create_engine, text
+
     from pivot.db.migrations import _read_schema_version
 
     engine = create_engine("sqlite://")
@@ -384,3 +386,14 @@ def test_read_schema_version_invalid_fallback():
 
         conn.execute(text("UPDATE config SET value = 'null' WHERE key = 'schema_version'"))
         assert _read_schema_version(conn) == 0
+
+
+def test_config_store_all_ignores_invalid_json(database):
+    with database.session() as s:
+        cfg = ConfigStore(s)
+        # Direct insert of bad JSON
+        s.add(ConfigRow(key="bad_key", value="{bad json"))
+        s.commit()
+
+        allcfg = cfg.all()
+        assert "bad_key" not in allcfg
