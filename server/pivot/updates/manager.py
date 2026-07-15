@@ -25,12 +25,12 @@ import shutil
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from pivot.updates.layout import Layout
 from pivot.version import SemVer
@@ -59,11 +59,11 @@ _TRANSIENT_HTTP_STATUS = frozenset({429, 500, 502, 503, 504})
 
 
 def _is_transient_http(exc: Exception) -> bool:
-    if isinstance(exc, urllib.error.HTTPError):
+    if isinstance(exc, HTTPError):
         return exc.code in _TRANSIENT_HTTP_STATUS
     # A URLError with no HTTP status is a connection-level failure (reset DNS
     # hiccup, timeout) — also worth a retry. socket timeouts surface as these.
-    return isinstance(exc, (urllib.error.URLError, TimeoutError))
+    return isinstance(exc, (URLError, TimeoutError))
 
 
 def _with_http_retry(fn, attempts: int = 4, delay: float = 1.5):
@@ -102,12 +102,12 @@ def _with_sharing_retry(fn, *, attempts: int = 8, delay: float = 0.25):
 
 
 def _http_get(url: str, token: str | None = None, timeout: float = 30.0) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
+    req = Request(url, headers={"User-Agent": "PIVOT-Updater"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
 
     def _fetch() -> bytes:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        with urlopen(req, timeout=timeout) as resp:  # noqa: S310
             return resp.read()
 
     return _with_http_retry(_fetch)
@@ -128,14 +128,14 @@ def _http_download(
     shows an indeterminate bar). Each retry re-opens from scratch, so the callback
     restarts from ``0``.
     """
-    req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
+    req = Request(url, headers={"User-Agent": "PIVOT-Updater"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
 
     def _fetch() -> None:
         # Re-open from scratch each attempt so a connection dropped mid-stream
         # doesn't leave a truncated file behind to be staged.
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        with urlopen(req, timeout=timeout) as resp:  # noqa: S310
             length = resp.getheader("Content-Length")
             total = int(length) if length and length.isdigit() else None
             received = 0
