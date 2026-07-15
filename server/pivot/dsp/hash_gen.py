@@ -72,10 +72,10 @@ def encrypted_hash(
     base = normalise_rms(base) * am
 
     # --- metallic inharmonic tone cluster ---
-    metallic = np.zeros(n, dtype=np.float64)
-    for f0 in _METALLIC_PARTIALS_HZ:
-        phase = rng.uniform(0, 2 * np.pi)
-        metallic += np.sin(2 * np.pi * f0 * t + phase)
+    f0s = np.array(_METALLIC_PARTIALS_HZ)[:, np.newaxis]
+    phases = rng.uniform(0, 2 * np.pi, size=(len(_METALLIC_PARTIALS_HZ), 1))
+
+    metallic = np.sum(np.sin(2 * np.pi * f0s * t + phases), axis=0, dtype=np.float64)
     metallic = normalise_rms(metallic.astype(np.float32)) * am * harmonic_level
 
     # --- gate by the voice cadence so rhythm survives, content does not ---
