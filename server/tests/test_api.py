@@ -993,3 +993,25 @@ def test_recordings_endpoints_require_instructor(raw_client):
     """Both recordings endpoints are gated behind the instructor token."""
     assert raw_client.get("/api/admin/recordings/location").status_code == 401
     assert raw_client.post("/api/admin/recordings/open").status_code == 401
+
+def test_event_audio_422_when_render_fails(client, monkeypatch):
+    import numpy as np
+    manager = client.app.state.manager
+    manager.start_session("EX")
+    manager.login("ALPHA", "t-1")
+    manager.login("BRAVO", "t-2")
+    manager.tune("t-1", "14.250 MHz")
+    manager.tune("t-2", "14.250 MHz")
+    manager.ptt_start("t-1")
+
+    audio = np.zeros(100, dtype=np.float32)
+    event = manager.ptt_end("t-1", audio=audio)
+
+    def mock_render_event_wav_bytes(*args, **kwargs):
+        raise ValueError("simulated render failure")
+
+    monkeypatch.setattr("pivot.api.rest.render_event_wav_bytes", mock_render_event_wav_bytes)
+
+    r = client.get(f"/api/events/{event['event_id']}/audio?mode=clean")
+    assert r.status_code == 422
+    assert "could not render recording" in r.json()["detail"]
