@@ -30,7 +30,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from urllib.error import HTTPError, URLError
 
 from pivot.updates.layout import Layout
 from pivot.version import SemVer
@@ -59,11 +58,11 @@ _TRANSIENT_HTTP_STATUS = frozenset({429, 500, 502, 503, 504})
 
 
 def _is_transient_http(exc: Exception) -> bool:
-    if isinstance(exc, HTTPError):
+    if isinstance(exc, urllib.request.HTTPError):
         return exc.code in _TRANSIENT_HTTP_STATUS
     # A URLError with no HTTP status is a connection-level failure (reset DNS
     # hiccup, timeout) — also worth a retry. socket timeouts surface as these.
-    return isinstance(exc, (URLError, TimeoutError))
+    return isinstance(exc, (urllib.request.URLError, TimeoutError))
 
 
 def _with_http_retry(fn, attempts: int = 4, delay: float = 1.5):
