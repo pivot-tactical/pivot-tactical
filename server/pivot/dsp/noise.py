@@ -220,9 +220,9 @@ class NoiseTexture:
 
         # Power-line buzz: odd-ish harmonics of 100 Hz through the voice band.
         t = (self._t + np.arange(n)) / sr
-        buzz = np.zeros(n, dtype=np.float64)
-        for k in range(3, 29, 2):  # 300 Hz .. 2.8 kHz
-            buzz += (1.0 / k) * np.sin(2.0 * np.pi * 100.0 * k * t + self._buzz_phases[k])
+        k = np.arange(3, 29, 2)[:, np.newaxis]  # 300 Hz .. 2.8 kHz
+        phases_k = self._buzz_phases[3:29:2, np.newaxis]
+        buzz = np.sum((1.0 / k) * np.sin(2.0 * np.pi * 100.0 * k * t + phases_k), axis=0)
         buzz = 0.25 * buzz / max(1e-6, float(np.max(np.abs(buzz))))
 
         # Sparse ignition-style ticks.
