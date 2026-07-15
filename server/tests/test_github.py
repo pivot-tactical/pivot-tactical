@@ -29,7 +29,7 @@ def test_fetch_releases_success():
         return_value=mock.MagicMock(__enter__=mock.MagicMock(return_value=mock_response))
     )
 
-    with mock.patch("urllib.request.urlopen", mock_urlopen):
+    with mock.patch("pivot.updates.github.urlopen", mock_urlopen):
         result = fetch_releases("owner/repo")
 
     assert result == mock_data
@@ -53,7 +53,7 @@ def test_fetch_releases_auth():
         return_value=mock.MagicMock(__enter__=mock.MagicMock(return_value=mock_response))
     )
 
-    with mock.patch("urllib.request.urlopen", mock_urlopen):
+    with mock.patch("pivot.updates.github.urlopen", mock_urlopen):
         fetch_releases("owner/repo", token="my-secret-token")
 
     mock_urlopen.assert_called_once()
@@ -74,7 +74,7 @@ def test_fetch_releases_returns_empty_list_for_dict():
         return_value=mock.MagicMock(__enter__=mock.MagicMock(return_value=mock_response))
     )
 
-    with mock.patch("urllib.request.urlopen", mock_urlopen):
+    with mock.patch("pivot.updates.github.urlopen", mock_urlopen):
         result = fetch_releases("owner/repo")
 
     assert result == []
@@ -83,7 +83,7 @@ def test_fetch_releases_returns_empty_list_for_dict():
 def test_fetch_releases_bubbles_errors():
     mock_urlopen = mock.MagicMock(side_effect=urllib.error.URLError("connection refused"))
 
-    with mock.patch("urllib.request.urlopen", mock_urlopen):
+    with mock.patch("pivot.updates.github.urlopen", mock_urlopen):
         with pytest.raises(urllib.error.URLError, match="connection refused"):
             fetch_releases("owner/repo")
 

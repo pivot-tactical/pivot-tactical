@@ -13,8 +13,8 @@ from __future__ import annotations
 import json
 import threading
 import time
-import urllib.request
 from functools import wraps
+from urllib.request import Request, urlopen
 
 GITHUB_API = "https://api.github.com"
 
@@ -67,7 +67,7 @@ def fetch_releases(repo: str, token: str | None = None, timeout: float = 10.0) -
     Raises on network/HTTP errors; the caller decides how to present them.
     """
     url = f"{GITHUB_API}/repos/{repo}/releases?per_page=100"
-    req = urllib.request.Request(
+    req = Request(
         url,
         headers={
             "Accept": "application/vnd.github+json",
@@ -77,6 +77,6 @@ def fetch_releases(repo: str, token: str | None = None, timeout: float = 10.0) -
     )
     if token:
         req.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (https only)
+    with urlopen(req, timeout=timeout) as resp:  # noqa: S310 (https only)
         data = json.loads(resp.read().decode("utf-8"))
     return data if isinstance(data, list) else []
