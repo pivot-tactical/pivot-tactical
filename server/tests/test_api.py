@@ -1011,3 +1011,21 @@ def test_recordings_open_error_path(client, settings):
     assert body["opened"] is False
     assert body["path"] == str(settings.recordings_dir.resolve())
     assert "launch failure" in body["detail"]
+
+def test_event_audio_422_on_render_failure(client, monkeypatch):
+    import numpy as np
+    manager = client.app.state.manager
+    manager.start_session("EX")
+    manager.login("ALPHA", "t-1")
+    manager.tune("t-1", "14.250 MHz")
+    manager.ptt_start("t-1")
+    # provide dummy audio to ensure a recording file is created
+    event = manager.ptt_end("t-1", audio=np.zeros(1024, dtype=np.float32))
+
+    from unittest.mock import MagicMock
+    # Using monkeypatch to cleanly override the function for this test only
+    monkeypatch.setattr("pivot.api.rest.render_event_wav_bytes", MagicMock(side_effect=Exception("mocked render error")))
+
+    r = client.get(f"/api/events/{event['event_id']}/audio?mode=clean")
+    assert r.status_code == 422
+    assert "mocked render error" in r.text
