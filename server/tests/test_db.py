@@ -369,6 +369,25 @@ def test_list_sessions_with_event_count(database):
         assert populated_session.id in counts_by_id
         assert counts_by_id[populated_session.id] == 2
 
+
+def test_read_schema_version_invalid_fallback():
+    from sqlalchemy import create_engine, text
+
+    from pivot.db.migrations import _read_schema_version
+
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT)"))
+        conn.execute(text("INSERT INTO config (key, value) VALUES ('schema_version', 'invalid')"))
+        assert _read_schema_version(conn) == 0
+
+        conn.execute(text("UPDATE config SET value = '\"not-an-int\"' WHERE key = 'schema_version'"))
+        assert _read_schema_version(conn) == 0
+
+        conn.execute(text("UPDATE config SET value = 'null' WHERE key = 'schema_version'"))
+        assert _read_schema_version(conn) == 0
+
+
 def test_config_store_all_ignores_invalid_json(database):
     with database.session() as s:
         cfg = ConfigStore(s)
