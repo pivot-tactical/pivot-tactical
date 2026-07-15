@@ -176,3 +176,31 @@ def test_relaunch_after_brings_app_back_even_if_apply_for_relaunch_fails(monkeyp
     assert rc == 0
     assert calls["waited"] == 4321
     assert calls["spawned"] == 1
+
+def test_lan_ip_success(monkeypatch):
+    import socket
+    from unittest.mock import MagicMock
+    mock_socket_instance = MagicMock()
+    mock_socket_instance.getsockname.return_value = ("192.168.1.50", 12345)
+    mock_socket = MagicMock(return_value=mock_socket_instance)
+    monkeypatch.setattr(entry.socket, "socket", mock_socket)
+
+    ip = entry._lan_ip()
+
+    assert ip == "192.168.1.50"
+    mock_socket_instance.connect.assert_called_once_with(("8.8.8.8", 80))
+    mock_socket_instance.getsockname.assert_called_once()
+    mock_socket_instance.close.assert_called_once()
+
+def test_lan_ip_fallback_on_oserror(monkeypatch):
+    import socket
+    from unittest.mock import MagicMock
+    mock_socket_instance = MagicMock()
+    mock_socket_instance.connect.side_effect = OSError("Network is unreachable")
+    mock_socket = MagicMock(return_value=mock_socket_instance)
+    monkeypatch.setattr(entry.socket, "socket", mock_socket)
+
+    ip = entry._lan_ip()
+
+    assert ip == "127.0.0.1"
+    mock_socket_instance.connect.assert_called_once_with(("8.8.8.8", 80))
