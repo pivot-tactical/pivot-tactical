@@ -45,7 +45,10 @@ def resolve_timezone(name: str) -> ZoneInfo:
     try:
         return ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError, KeyError):
-        return ZoneInfo("UTC")
+        try:
+            return ZoneInfo("UTC")
+        except (ZoneInfoNotFoundError, ValueError, KeyError):
+            return UTC
 
 
 def format_clock(dt: datetime, tz_name: str = "UTC") -> str:
