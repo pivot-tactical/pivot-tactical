@@ -482,6 +482,7 @@ async def admin_refresh_updates(manager=Depends(get_manager)) -> dict:
     air-gapped sites can ignore it and use offline import instead (§3.7.1).
     """
     import anyio
+
     from pivot.updates import github
 
     # "Check now" must reach the network, not return a stale TTL-cached result:
@@ -528,6 +529,7 @@ def _shape_update_status(snap: dict, manager) -> dict:
 async def _live_update_check(manager) -> dict:
     """One-shot live check used when the background service isn't running."""
     import anyio
+
     from pivot.updates import github
     from pivot.updates.manager import UpdateManager, classify_release
     from pivot.version import SemVer, version_info
