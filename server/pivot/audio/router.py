@@ -158,8 +158,6 @@ class AudioRouter:
           4. render each *distinct* reception once (fan-out, A.4),
           5. push each rendered frame to the matching listeners' outbound tracks.
         """
-        from av import AudioFrame  # noqa: F401 (PyAV; ensures extra present)
-
         radio = self.manager.registry.get(radio_id)
         while radio is not None and radio.on_air:
             try:
