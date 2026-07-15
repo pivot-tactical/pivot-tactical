@@ -155,3 +155,26 @@ def test_restart_mode_detection(monkeypatch):
     # Plain source/dev run -> re-exec in place.
     monkeypatch.setattr(lifecycle.sys, "frozen", False, raising=False)
     assert lifecycle.restart_mode() == "exec"
+
+def test_lan_ip_success(monkeypatch):
+    import socket
+    class MockSocket:
+        def __init__(self, *args, **kwargs):
+            pass
+        def connect(self, addr):
+            pass
+        def getsockname(self):
+            return ("192.168.1.100", 12345)
+        def close(self):
+            pass
+
+    monkeypatch.setattr(socket, "socket", MockSocket)
+    assert entry._lan_ip() == "192.168.1.100"
+
+def test_lan_ip_failure(monkeypatch):
+    import socket
+    def mock_socket(*args, **kwargs):
+        raise OSError("Network unreachable")
+
+    monkeypatch.setattr(socket, "socket", mock_socket)
+    assert entry._lan_ip() == "127.0.0.1"
