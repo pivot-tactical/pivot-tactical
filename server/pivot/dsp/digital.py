@@ -84,6 +84,7 @@ class DigitalVoice:
         self.sample_rate = sample_rate
         self.rng = rng if rng is not None else np.random.default_rng()
         self.frame = max(1, int(sample_rate * CODEC_FRAME_MS / 1000.0))
+        self._bands_buf = np.empty((_N_BANDS, self.frame), dtype=np.float64)
 
         # Sharp streaming pre-filter: everything outside the vocoder passband is
         # gone before the analysis banks (whose own skirts are gentle).
@@ -123,22 +124,26 @@ class DigitalVoice:
         """Narrowband, spectrally-stepped, gently companded 'MELP' voice."""
         n = x.size
         pre, self._pre_zi = sp_signal.sosfilt(self._pre_sos, x, zi=self._pre_zi)
-        acc = np.zeros(n, dtype=np.float64)
         a = self._alpha
+
+        bands = self._bands_buf if n == self.frame else np.empty((_N_BANDS, n), dtype=np.float64)
         for b in range(_N_BANDS):
-            band, self._zi[b] = sp_signal.sosfilt(self._sos[b], pre, zi=self._zi[b])
-            # Fast streaming one-pole envelope on |band| (state carried).
-            ab = np.abs(band)
-            env, _ = sp_signal.lfilter(
-                [1.0 - a], [1.0, -a], ab, zi=[a * self._follow[b]]
-            )
-            self._follow[b] = float(env[-1])
-            # ...flattened to the frame's average level: the band's envelope is
-            # a per-frame parameter (zero-order hold), which is exactly the
-            # steppy, parametric character of a frame-based vocoder.
-            frame_level = float(np.mean(ab))
-            gain = np.clip(frame_level / (env + 1e-6), 0.0, 4.0)
-            acc += band * gain
+            bands[b], self._zi[b] = sp_signal.sosfilt(self._sos[b], pre, zi=self._zi[b])
+
+        ab = np.abs(bands)
+
+        # Fast streaming one-pole envelope on |band| (state carried).
+        zi = (a * self._follow).reshape(_N_BANDS, 1)
+        env, _ = sp_signal.lfilter([1.0 - a], [1.0, -a], ab, axis=-1, zi=zi)
+        self._follow = env[:, -1]
+
+        # ...flattened to the frame's average level: the band's envelope is
+        # a per-frame parameter (zero-order hold), which is exactly the
+        # steppy, parametric character of a frame-based vocoder.
+        frame_level = np.mean(ab, axis=-1, keepdims=True)
+        gain = np.clip(frame_level / (env + 1e-6), 0.0, 4.0)
+
+        acc = np.sum(bands * gain, axis=0)
         y = np.tanh(1.8 * acc)
         # Hold the decoded loudness at the talker's level (the codec transmits
         # gain as a parameter; it does not inherit the channel's). The makeup
