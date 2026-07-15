@@ -459,7 +459,7 @@ def admin_change_password(req: PasswordChangeRequest, auth=Depends(get_auth)) ->
 
 
 @router.get("/admin/updates/check", dependencies=[Depends(require_instructor)])
-def admin_check_updates(manager=Depends(get_manager)) -> dict:
+async def admin_check_updates(manager=Depends(get_manager)) -> dict:
     """Return the latest known update status (§3.7).
 
     The background update service polls GitHub out-of-band on an interval and
@@ -471,16 +471,17 @@ def admin_check_updates(manager=Depends(get_manager)) -> dict:
     service = getattr(manager, "update_service", None)
     if service is not None:
         return _shape_update_status(service.snapshot(), manager)
-    return _live_update_check(manager)
+    return await _live_update_check(manager)
 
 
 @router.post("/admin/updates/refresh", dependencies=[Depends(require_instructor)])
-def admin_refresh_updates(manager=Depends(get_manager)) -> dict:
+async def admin_refresh_updates(manager=Depends(get_manager)) -> dict:
     """Force an immediate, synchronous re-check (the "Check now" button, §3.7.3).
 
     Touches the internet and degrades gracefully (``reachable: false``) so
     air-gapped sites can ignore it and use offline import instead (§3.7.1).
     """
+    import anyio
     from pivot.updates import github
 
     # "Check now" must reach the network, not return a stale TTL-cached result:
@@ -493,8 +494,9 @@ def admin_refresh_updates(manager=Depends(get_manager)) -> dict:
 
     service = getattr(manager, "update_service", None)
     if service is not None:
-        return _shape_update_status(service.refresh(), manager)
-    return _live_update_check(manager)
+        snap = await anyio.to_thread.run_sync(service.refresh)
+        return _shape_update_status(snap, manager)
+    return await _live_update_check(manager)
 
 
 def _shape_update_status(snap: dict, manager) -> dict:
@@ -523,8 +525,9 @@ def _shape_update_status(snap: dict, manager) -> dict:
     return out
 
 
-def _live_update_check(manager) -> dict:
+async def _live_update_check(manager) -> dict:
     """One-shot live check used when the background service isn't running."""
+    import anyio
     from pivot.updates import github
     from pivot.updates.manager import UpdateManager, classify_release
     from pivot.version import SemVer, version_info
@@ -555,7 +558,7 @@ def _live_update_check(manager) -> dict:
         "staged_tag": mgr.staged_tag(),
     }
     try:
-        raw = github.fetch_releases(repo, token)
+        raw = await anyio.to_thread.run_sync(github.fetch_releases, repo, token)
     except Exception as exc:  # network/HTTP/JSON — stay graceful for air-gapped
         log.warning("update check for %r failed: %s", repo, exc)
         result["reachable"] = False
