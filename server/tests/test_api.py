@@ -993,3 +993,17 @@ def test_recordings_endpoints_require_instructor(raw_client):
     """Both recordings endpoints are gated behind the instructor token."""
     assert raw_client.get("/api/admin/recordings/location").status_code == 401
     assert raw_client.post("/api/admin/recordings/open").status_code == 401
+
+def test_recordings_open_handles_exception(client, settings):
+    """Ensure the error path is tested when open_in_file_manager raises an Exception."""
+    from unittest.mock import patch
+    with patch(
+        "pivot.runtime.reveal.open_in_file_manager",
+        side_effect=Exception("mocked launch failure"),
+    ):
+        resp = client.post("/api/admin/recordings/open")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["opened"] is False
+    assert body["path"] == str(settings.recordings_dir.resolve())
+    assert "mocked launch failure" in body["detail"]
