@@ -977,9 +977,12 @@ def test_recordings_open_success(client, settings):
 
 def test_recordings_open_headless_falls_back(client, settings):
     """When the host can't open a file manager, the path is still returned."""
-    with patch(
-        "pivot.runtime.reveal.open_in_file_manager",
-        side_effect=RuntimeError("no display"),
+    with (
+        patch(
+            "pivot.runtime.reveal.open_in_file_manager",
+            side_effect=RuntimeError("no display"),
+        ),
+        patch("pivot.api.rest.log.warning") as log_warning,
     ):
         resp = client.post("/api/admin/recordings/open")
     assert resp.status_code == 200
@@ -987,6 +990,8 @@ def test_recordings_open_headless_falls_back(client, settings):
     assert body["opened"] is False
     assert body["path"] == str(settings.recordings_dir.resolve())
     assert "no display" in body["detail"]
+    log_warning.assert_called_once()
+    assert "could not open recordings folder" in log_warning.call_args[0][0]
 
 
 def test_recordings_endpoints_require_instructor(raw_client):
