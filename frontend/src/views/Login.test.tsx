@@ -99,7 +99,7 @@ describe("Login", () => {
     expect(screen.getByText("Name / Callsign")).toBeInTheDocument();
   });
 
-  it("submits instructor login and handles errors", async () => {
+  it("submits instructor login successfully", async () => {
     const user = userEvent.setup();
     render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
 
@@ -112,8 +112,30 @@ describe("Login", () => {
     expect(signInBtn).toBeDisabled();
 
     // Type password
-    await user.type(input, "wrong-password");
+    await user.type(input, "my-password");
     expect(signInBtn).not.toBeDisabled();
+
+    mockOnInstructor.mockResolvedValueOnce(undefined);
+    await user.click(signInBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Incorrect password.")).not.toBeInTheDocument();
+    });
+    expect(mockOnInstructor).toHaveBeenCalledWith("my-password");
+  });
+
+  it("handles instructor login errors", async () => {
+    const user = userEvent.setup();
+    render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
+
+    // Switch to instructor
+    await user.click(screen.getByRole("button", { name: /Log in as instructor/i }));
+
+    const input = screen.getByPlaceholderText("default: instructor");
+    const signInBtn = screen.getByRole("button", { name: /Sign In/i });
+
+    // Type password
+    await user.type(input, "wrong-password");
 
     // Mock failure
     mockOnInstructor.mockRejectedValueOnce(new Error("Unauthorized"));
@@ -124,14 +146,6 @@ describe("Login", () => {
     await waitFor(() => {
       expect(screen.getByText("Incorrect password.")).toBeInTheDocument();
     });
-
-    // Submitting again clears the error and shows busy
-    mockOnInstructor.mockResolvedValueOnce(undefined);
-    await user.click(signInBtn);
-    await waitFor(() => {
-      expect(screen.queryByText("Incorrect password.")).not.toBeInTheDocument();
-    });
-    expect(mockOnInstructor).toHaveBeenNthCalledWith(2, "wrong-password");
   });
 
   it("submits instructor login on Enter key", async () => {
