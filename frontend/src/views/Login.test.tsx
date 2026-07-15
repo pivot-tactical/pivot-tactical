@@ -149,6 +149,26 @@ describe("Login", () => {
     });
   });
 
+  it("submits instructor login on Enter key and handles errors", async () => {
+    const user = userEvent.setup();
+    render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
+
+    // Switch to instructor
+    await user.click(screen.getByRole("button", { name: /Log in as instructor/i }));
+
+    const input = screen.getByPlaceholderText("default: instructor");
+
+    // Mock failure
+    mockOnInstructor.mockRejectedValueOnce(new Error("Unauthorized"));
+
+    await user.type(input, "wrong-password{enter}");
+
+    // Should display error
+    await waitFor(() => {
+      expect(screen.getByText("Incorrect password.")).toBeInTheDocument();
+    });
+  });
+
   it("does not submit instructor login on Enter key when password is empty", async () => {
     const user = userEvent.setup();
     render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
