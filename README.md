@@ -110,6 +110,15 @@ out-of-band action that is **never** run during an exercise:
 Updates only ever replace the program folder; your database and recordings live
 outside it and are never touched.
 
+## Configuration
+
+PIVOT's runtime configuration is managed through the instructor browser UI. However, a few bootstrap settings can be configured via environment variables or command-line arguments when starting the server:
+
+- **`PIVOT_HOST` / `--host`**: The IP address to bind to (default: `0.0.0.0` to listen on all LAN interfaces).
+- **`PIVOT_PORT` / `--port`**: The port to listen on (default: `8080`).
+- **`PIVOT_DATA_DIR` / `--data-dir`**: The directory to store the database, recordings, logs, and settings (default: `data` next to the executable).
+- **`PIVOT_AMBIENT_NOISE`**: Set to `0` to disable continuous ambient band noise ("hash") on tuned channels, resulting in a silent-when-idle net (default: `1`).
+
 ## How it works
 
 - **Per-listener audio.** A single transmission can sound different to different
