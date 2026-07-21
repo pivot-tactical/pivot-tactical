@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from pivot.core.bands import BandConditions, region_for
+from pivot.core.bands import BandConditions
 from pivot.core.crypto import RadioMode, Reception
 from pivot.db.models import EventRow
 from pivot.dsp.engine import DspEngine
@@ -112,12 +112,10 @@ def _read(path: Path) -> tuple[np.ndarray, int]:
     return data.astype(np.float32), int(sr)
 
 
-# region_for is re-exported for callers building dsp profiles inline.
 __all__ = [
     "PlaybackMode",
     "AarCryptoView",
     "reception_for_playback",
     "render_event",
     "render_event_wav_bytes",
-    "region_for",
 ]
