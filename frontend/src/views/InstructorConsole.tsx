@@ -477,22 +477,22 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
         <div className="instr-radio__head">
           <span className="instr-radio__num mono" aria-hidden>{index}</span>
           <span className="instr-radio__name mono">{radio.name}</span>
-          <button className="btn btn--ghost instr-radio__remove" aria-label="Remove radio" title="Remove radio"
+          <button className="btn btn--ghost instr-radio__remove" aria-label={`Remove radio ${radio.name}`} title={`Remove radio ${radio.name}`}
             onClick={() => onRemove(radio.radio_id)} disabled={transmitting}>✕</button>
         </div>
 
         <div className="freq">
           <div className="freq__display mono">{fmtMHz(radio.frequency_hz)}<span className="freq__unit">MHz</span></div>
           <div className="freq__controls">
-            <button className="btn btn--step" aria-label="Decrease frequency"
+            <button className="btn btn--step" aria-label={`Decrease frequency on ${radio.name}`}
               onClick={() => tuneTo(radio.frequency_hz - STEP_HZ)} disabled={transmitting}>▼</button>
-            <input ref={entryRef} className="input mono freq__entry" aria-label="Frequency in MHz"
+            <input ref={entryRef} className="input mono freq__entry" aria-label={`Frequency in MHz on ${radio.name}`}
               value={entry} disabled={transmitting}
               onChange={(e) => setEntry(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") confirmEntry(); }} />
-            <button className="btn btn--step" aria-label="Increase frequency"
+            <button className="btn btn--step" aria-label={`Increase frequency on ${radio.name}`}
               onClick={() => tuneTo(radio.frequency_hz + STEP_HZ)} disabled={transmitting}>▲</button>
-            <button className="btn btn--primary" onClick={confirmEntry} disabled={transmitting}>Tune</button>
+            <button className="btn btn--primary" aria-label={`Tune ${radio.name}`} onClick={confirmEntry} disabled={transmitting}>Tune</button>
           </div>
         </div>
 
@@ -501,7 +501,7 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
             mode={radio.mode}
             onToggle={() => socket?.instrMode(radio.radio_id, radio.mode === "Cypher" ? "Plain" : "Cypher")}
             disabled={transmitting}
-            title="Plain / Cypher (persists across retuning)"
+            title={`Plain / Cypher on ${radio.name} (persists across retuning)`}
           />
           <SignalMeter label={`SIGNAL · ${radio.band_region}`} read={readRxLevel} />
         </div>
@@ -513,8 +513,8 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
           <div className="row gap">
             <input
               type="range" min={-100} max={100} value={intPct} list={`net-baseline-${radio.radio_id}`}
-              aria-label="Noise offset on this channel (0 = natural baseline)"
-              title="Noise on this channel: 0 is the frequency's natural baseline; raise it to induce interference, lower it to temporarily clean the channel up"
+              aria-label={`Noise offset on ${radio.name} channel (0 = natural baseline)`}
+              title={`Noise on ${radio.name} channel: 0 is the frequency's natural baseline; raise it to induce interference, lower it to temporarily clean the channel up`}
               onChange={(e) => {
                 const v = +e.target.value;
                 setIntPct(v);
@@ -527,7 +527,8 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
             </datalist>
             <button
               className={`btn ${jammed ? "btn--danger" : ""}`}
-              title="Jam this channel (a wall of jammer noise; trainees must change frequency)"
+              aria-label={`Jam ${radio.name} channel`}
+              title={`Jam ${radio.name} channel (a wall of jammer noise; trainees must change frequency)`}
               onClick={() => setNet({ jammed: !jammed })}
             >
               {jammed ? "JAMMING" : "Jam"}
@@ -536,10 +537,11 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
         </div>
 
         <div className="rxctl">
-          <VolumeSlider value={volume} onChange={changeVolume} />
+          <VolumeSlider value={volume} onChange={changeVolume} ariaLabel={`Headset volume for ${radio.name}`} />
           <button
             className={`btn ${rxNoiseOn ? "" : "btn--warn"}`}
-            title="Channel noise on this radio's receive only — turn it off to monitor this net unhindered. Every other station still hears the channel noise (shape the net itself with the CHANNEL NOISE controls)."
+            aria-label={`Toggle RX Noise on ${radio.name}`}
+            title={`Channel noise on ${radio.name}'s receive only — turn it off to monitor this net unhindered. Every other station still hears the channel noise (shape the net itself with the CHANNEL NOISE controls).`}
             onClick={() => socket?.instrRxNoise(radio.radio_id, !rxNoiseOn)}
           >
             {rxNoiseOn ? "RX Noise: On" : "RX NOISE OFF"}
@@ -549,6 +551,7 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
 
       <button
         className={`ptt ptt--${phase.toLowerCase()}`}
+        aria-label={`Push to talk on ${radio.name}`}
         onMouseDown={() => onStart(radio)}
         onMouseUp={() => onEnd(radio)}
         onMouseLeave={() => transmitting && onEnd(radio)}

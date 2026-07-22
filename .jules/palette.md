@@ -10,3 +10,6 @@
 ## 2024-07-09 - Inline Validation constraints
 **Learning:** Adding custom inline styles like `style={{ marginTop: "-8px" }}` to tweak the display violates strict project boundaries regarding using only existing classes, and adding `title` to disabled buttons is actually an anti-pattern as many browsers suppress mouse events on them.
 **Action:** Removed inline styles relying on the existing `.login__hint` class instead, and removed the broken tooltip on the disabled button.
+## 2026-07-22 - Differentiating Multiple Interactive Controls for Screen Readers
+**Learning:** In contexts with multiple identical interactive controls (like the per-radio `InstrRadioCard` tuning buttons, mode dial, volume slider, PTT, etc.), using static `aria-label`s or `title`s (like "Decrease frequency" or "Headset volume") leads to a poor screen reader experience, as users can't distinguish *which* radio they are controlling.
+**Action:** Injected context-specific information (e.g., `aria-label={"Decrease frequency on " + radio.name}`) into all duplicated controls to improve screen reader accessibility and differentiation. Added `ariaLabel` prop to `VolumeSlider` to support this override while keeping it backwards-compatible.
