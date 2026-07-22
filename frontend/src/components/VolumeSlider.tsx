@@ -6,10 +6,12 @@ export function VolumeSlider({
   value,
   onChange,
   disabled,
+  ariaLabel = "Headset volume",
 }: {
   value: number;
   onChange: (v: number) => void;
   disabled?: boolean;
+  ariaLabel?: string;
 }) {
   const pct = Math.round(value * 100);
   return (
@@ -23,7 +25,7 @@ export function VolumeSlider({
         step={1}
         value={pct}
         disabled={disabled}
-        aria-label="Headset volume"
+        aria-label={ariaLabel}
         onChange={(e) => onChange(Number(e.target.value) / 100)}
       />
     </div>
