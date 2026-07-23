@@ -37,7 +37,7 @@ shell32 = ctypes.windll.shell32
 # blank white rectangle). Declaring prototypes makes ctypes pass/return the full
 # 64-bit values. We only need this for calls that take or return handles.
 LRESULT = ctypes.c_ssize_t
-HMENU = wintypes.HMENU
+HMENU = ctypes.c_uint64
 HWND = wintypes.HWND
 
 
