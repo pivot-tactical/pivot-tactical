@@ -176,3 +176,15 @@ def test_app_exe(tmp_path):
 
     assert layout.app_exe("1.0.0", "app.exe") == exe
     assert layout.app_exe("1.0.0", "missing.exe") is None
+
+
+def test_active_version_resolve_error(tmp_path, monkeypatch):
+    layout = Layout(tmp_path / "versions")
+    layout.place_version("1.0.0", _bundle(tmp_path, "a"))
+    layout.activate("1.0.0")
+
+    def mock_resolve(*args, **kwargs):
+        raise RuntimeError("mocked error")
+
+    monkeypatch.setattr("pathlib.Path.resolve", mock_resolve)
+    assert layout.active_version() is None
