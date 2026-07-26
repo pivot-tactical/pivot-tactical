@@ -32,6 +32,27 @@ describe("parseTaggedAudio", () => {
     expect(radioId).toBe("");
     expect(pcm.byteLength).toBe(0);
   });
+
+  it("handles a truncated buffer where claimed header length exceeds buffer size", () => {
+    const buf = new Uint8Array([10, 65, 66]).buffer;
+    const { radioId, pcm } = parseTaggedAudio(buf);
+    expect(radioId).toBe("AB");
+    expect(pcm.byteLength).toBe(0);
+  });
+
+  it("handles a buffer with only the length byte", () => {
+    const buf = new Uint8Array([5]).buffer;
+    const { radioId, pcm } = parseTaggedAudio(buf);
+    expect(radioId).toBe("");
+    expect(pcm.byteLength).toBe(0);
+  });
+
+  it("handles a buffer with exact header but no PCM data", () => {
+    const buf = new Uint8Array([2, 65, 66]).buffer;
+    const { radioId, pcm } = parseTaggedAudio(buf);
+    expect(radioId).toBe("AB");
+    expect(pcm.byteLength).toBe(0);
+  });
 });
 
 describe("volume persistence", () => {
