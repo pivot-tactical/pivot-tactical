@@ -10,6 +10,7 @@ and the admin API read/write through this store so there are no config files to 
 import json
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pivot.config import DEFAULT_CONFIG
@@ -42,7 +43,7 @@ class ConfigStore:
     def all(self) -> dict[str, Any]:
         """Full effective config (defaults overlaid with stored values)."""
         result = dict(DEFAULT_CONFIG)
-        for key, value in self.session.query(ConfigRow.key, ConfigRow.value):
+        for key, value in self.session.execute(select(ConfigRow.key, ConfigRow.value)):
             try:
                 result[key] = json.loads(value)
             except (ValueError, TypeError):

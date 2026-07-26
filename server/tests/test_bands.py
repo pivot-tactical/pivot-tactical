@@ -179,6 +179,16 @@ def test_without_noise_lifts_every_channel_degradation():
     assert quiet.bandpass_high_hz == cond.bandpass_high_hz
     assert quiet.squelch_tail_ms == cond.squelch_tail_ms
 
-def test_from_curve_json_missing_keys():
-    with pytest.raises(KeyError, match="'freq_hz'"):
-        BandProfile.from_curve_json([{"snr_db": 10.0, "fading_depth_db": 5.0, "fading_rate_hz": 1.0}])
+
+@pytest.mark.parametrize("missing", ["freq_hz", "snr_db", "fading_depth_db", "fading_rate_hz"])
+def test_from_curve_json_missing_keys(missing):
+    """Every anchor key is required: a curve row missing any one of them raises."""
+    anchor = {
+        "freq_hz": 7_000_000.0,
+        "snr_db": 10.0,
+        "fading_depth_db": 5.0,
+        "fading_rate_hz": 1.0,
+    }
+    del anchor[missing]
+    with pytest.raises(KeyError, match=f"'{missing}'"):
+        BandProfile.from_curve_json([anchor])

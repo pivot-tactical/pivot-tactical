@@ -999,6 +999,7 @@ def test_recordings_endpoints_require_instructor(raw_client):
     assert raw_client.get("/api/admin/recordings/location").status_code == 401
     assert raw_client.post("/api/admin/recordings/open").status_code == 401
 
+
 def test_recordings_open_error_path(client, settings):
     """The fallback logic correctly returns the detail when an error occurs."""
     with patch(

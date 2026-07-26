@@ -44,7 +44,11 @@ from pivot.db.config_store import ConfigStore
 from pivot.runtime.reveal import open_in_file_manager
 
 router = APIRouter(prefix="/api")
-log = logging.getLogger("pivot.updates")
+# Named for this module, not "pivot.updates": that name belongs to
+# pivot.updates.service, and sharing it meant REST warnings were logged under
+# the updater's name *and* that both modules mutated one logger object — which
+# made tests patching this logger see the update daemon's warnings too.
+log = logging.getLogger("pivot.api.rest")
 
 # Config keys the instructor may change from the Settings page.
 _SETTABLE_KEYS = {
