@@ -65,12 +65,14 @@ class Database:
         """Populate config defaults and the single band_profile row on first run."""
         import json
 
+        from sqlalchemy import select
+
         from pivot.config import DEFAULT_CONFIG
         from pivot.core.bands import BandProfile
         from pivot.db.models import BandProfileRow, ConfigRow
 
         with self.session() as sess:
-            existing = {row.key for row in sess.query(ConfigRow).all()}
+            existing = set(sess.scalars(select(ConfigRow.key)).all())
             for key, value in DEFAULT_CONFIG.items():
                 if key not in existing:
                     sess.add(ConfigRow(key=key, value=json.dumps(value)))
