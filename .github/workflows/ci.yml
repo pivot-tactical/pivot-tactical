@@ -74,6 +74,10 @@ jobs:
           npm install
           npm run build
 
+      - name: Run tests
+        working-directory: frontend
+        run: npm test
+
       - name: Frontend licence summary (spec §13.7)
         working-directory: frontend
         env:

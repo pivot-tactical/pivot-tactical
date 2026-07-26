@@ -178,13 +178,19 @@ def test_app_exe(tmp_path):
     assert layout.app_exe("1.0.0", "missing.exe") is None
 
 
-def test_active_version_resolve_error(tmp_path, monkeypatch):
+@pytest.mark.parametrize("error", [RuntimeError, OSError])
+def test_active_version_resolve_error(tmp_path, monkeypatch, error):
+    """A broken ``current`` symlink reports "no active version" rather than raising.
+
+    ``resolve(strict=True)`` raises OSError for a dangling link and RuntimeError
+    for a symlink loop; ``active_version`` swallows both.
+    """
     layout = Layout(tmp_path / "versions")
     layout.place_version("1.0.0", _bundle(tmp_path, "a"))
     layout.activate("1.0.0")
 
     def mock_resolve(*args, **kwargs):
-        raise RuntimeError("mocked error")
+        raise error("mocked error")
 
     monkeypatch.setattr("pathlib.Path.resolve", mock_resolve)
     assert layout.active_version() is None
