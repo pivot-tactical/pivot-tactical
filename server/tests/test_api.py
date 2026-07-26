@@ -966,7 +966,7 @@ def test_recordings_location_returns_absolute_path(client, settings):
 
 def test_recordings_open_success(client, settings):
     """A successful launch reports opened=True with the resolved path."""
-    with patch("pivot.runtime.reveal.open_in_file_manager") as opener:
+    with patch("pivot.api.rest.open_in_file_manager") as opener:
         resp = client.post("/api/admin/recordings/open")
     assert resp.status_code == 200
     body = resp.json()
@@ -979,7 +979,7 @@ def test_recordings_open_headless_falls_back(client, settings):
     """When the host can't open a file manager, the path is still returned."""
     with (
         patch(
-            "pivot.runtime.reveal.open_in_file_manager",
+            "pivot.api.rest.open_in_file_manager",
             side_effect=RuntimeError("no display"),
         ),
         patch("pivot.api.rest.log.warning") as log_warning,
@@ -1002,7 +1002,7 @@ def test_recordings_endpoints_require_instructor(raw_client):
 def test_recordings_open_error_path(client, settings):
     """The fallback logic correctly returns the detail when an error occurs."""
     with patch(
-        "pivot.runtime.reveal.open_in_file_manager",
+        "pivot.api.rest.open_in_file_manager",
         side_effect=Exception("launch failure"),
     ):
         resp = client.post("/api/admin/recordings/open")

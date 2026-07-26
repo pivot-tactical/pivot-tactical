@@ -41,6 +41,7 @@ from pivot.core.crypto import RadioMode
 from pivot.core.radios import RadioBusyError
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
+from pivot.runtime.reveal import open_in_file_manager
 
 router = APIRouter(prefix="/api")
 log = logging.getLogger("pivot.updates")
@@ -237,9 +238,7 @@ def event_audio(
     # Never cache: the same event/mode URL is re-rendered on demand, and a build
     # that changes the DSP (e.g. how jamming masks) must not have an old render
     # served from the browser cache for a URL it saw on a previous version.
-    return Response(
-        content=wav, media_type="audio/wav", headers={"Cache-Control": "no-store"}
-    )
+    return Response(content=wav, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
 
 @router.post("/events/{event_id}/transcription", dependencies=[Depends(require_instructor)])
@@ -300,8 +299,6 @@ def admin_recordings_open(manager=Depends(get_manager)) -> dict:
     running the server. Best-effort: a headless host has nothing to open, so we
     return ``opened: false`` with the path and the console shows it instead.
     """
-    from pivot.runtime.reveal import open_in_file_manager
-
     recordings_dir = manager.settings.recordings_dir
     recordings_dir.mkdir(parents=True, exist_ok=True)
     path = recordings_dir.resolve()
