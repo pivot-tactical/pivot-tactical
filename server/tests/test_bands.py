@@ -178,3 +178,7 @@ def test_without_noise_lifts_every_channel_degradation():
     assert quiet.bandpass_low_hz == cond.bandpass_low_hz
     assert quiet.bandpass_high_hz == cond.bandpass_high_hz
     assert quiet.squelch_tail_ms == cond.squelch_tail_ms
+
+def test_from_curve_json_missing_keys():
+    with pytest.raises(KeyError, match="'freq_hz'"):
+        BandProfile.from_curve_json([{"snr_db": 10.0, "fading_depth_db": 5.0, "fading_rate_hz": 1.0}])
