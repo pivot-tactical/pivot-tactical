@@ -158,3 +158,44 @@ describe("playSyncTone", () => {
     expect(mockOscillators[1].stop).toHaveBeenCalledWith(100 + 0.5);
   });
 });
+
+describe("AudioIO", () => {
+  let mockAudioContext: any;
+
+  beforeEach(() => {
+    mockAudioContext = vi.fn().mockImplementation(() => ({
+      audioWorklet: { addModule: vi.fn().mockResolvedValue(undefined) },
+      destination: {},
+      createMediaStreamSource: vi.fn().mockReturnValue({}),
+      state: "running",
+      resume: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.stubGlobal("AudioContext", mockAudioContext);
+    vi.stubGlobal("AudioWorkletNode", vi.fn().mockImplementation(() => ({
+      connect: vi.fn(),
+      port: { onmessage: null, postMessage: vi.fn() }
+    })));
+
+    // Mock navigator
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: vi.fn(),
+      }
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  describe("prewarm", () => {
+    it("swallows exceptions from openMic (e.g., getUserMedia rejection)", async () => {
+      const { AudioIO } = await import("./audio");
+      vi.mocked(navigator.mediaDevices.getUserMedia).mockRejectedValue(new Error("NotAllowedError"));
+      const io = new AudioIO();
+
+      // Should not throw
+      await expect(io.prewarm()).resolves.toBeUndefined();
+    });
+  });
+});
