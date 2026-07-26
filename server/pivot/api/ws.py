@@ -227,12 +227,14 @@ async def _handle_instructor_message(
     try:
         if mtype == "heartbeat":
             await ws.send_json({"type": "heartbeat", "payload": {}})
-        elif mtype == "instr_tune":
+            return
+        if mtype == "instr_tune":
             rid = _instructor_radio_id(manager, payload)
             await ws.send_json(
                 {"type": "tuned", "payload": manager.tune(rid, payload["frequency"])}
             )
-        elif mtype == "instr_mode":
+            return
+        if mtype == "instr_mode":
             rid = _instructor_radio_id(manager, payload)
             await ws.send_json(
                 {
@@ -240,20 +242,24 @@ async def _handle_instructor_message(
                     "payload": manager.set_mode(rid, RadioMode(payload["mode"])),
                 }
             )
-        elif mtype == "instr_rx_noise":
+            return
+        if mtype == "instr_rx_noise":
             # Per-radio receive-noise toggle (§3.1.5). The state push
             # rides on the manager's instructor_radios broadcast, so
             # every open console stays in step.
             manager.set_rx_noise(
                 _instructor_radio_id(manager, payload), bool(payload.get("enabled", True))
             )
-        elif mtype == "instr_add_radio":
+            return
+        if mtype == "instr_add_radio":
             # Sink binding and the instructor_radios push both ride on
             # the manager's change watcher/broadcast (shared with REST).
             manager.add_instructor_radio(payload.get("label"), payload.get("frequency"))
-        elif mtype == "instr_remove_radio":
+            return
+        if mtype == "instr_remove_radio":
             manager.remove_instructor_radio(payload.get("radio_id", ""))
-        elif mtype == "instr_ptt_start":
+            return
+        if mtype == "instr_ptt_start":
             rid = _instructor_radio_id(manager, payload)
             result = manager.ptt_start(
                 rid,
@@ -268,14 +274,16 @@ async def _handle_instructor_message(
                 sync_tasks[rid] = asyncio.create_task(
                     _schedule_on_air(ws, manager, rid, result["sync_delay_ms"])
                 )
-        elif mtype == "instr_ptt_end":
+            return
+        if mtype == "instr_ptt_end":
             rid = _instructor_radio_id(manager, payload)
             _cancel(sync_tasks.pop(rid, None))
             active_tx.discard(rid)
             await ws.send_json(
                 {"type": "ptt_ended", "payload": {**(manager.ptt_end(rid) or {}), "radio_id": rid}}
             )
-        elif mtype == "instr_ptt_abort":
+            return
+        if mtype == "instr_ptt_abort":
             rid = _instructor_radio_id(manager, payload)
             _cancel(sync_tasks.pop(rid, None))
             active_tx.discard(rid)
@@ -285,8 +293,8 @@ async def _handle_instructor_message(
                     "payload": {**(manager.ptt_abort(rid) or {}), "radio_id": rid},
                 }
             )
-        else:
-            await ws.send_json({"type": "error", "payload": {"detail": f"unknown: {mtype}"}})
+            return
+        await ws.send_json({"type": "error", "payload": {"detail": f"unknown: {mtype}"}})
     except (RadioBusyError, KeyError, ValueError) as exc:
         await ws.send_json({"type": "error", "payload": {"detail": str(exc)}})
 
