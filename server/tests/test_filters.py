@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from pivot.dsp.filters import (
-    _cached_butter,
+    cached_butter,
     bandpass,
     bandstop,
     highpass,
@@ -16,9 +16,9 @@ SR = 16000
 
 @pytest.fixture(autouse=True)
 def clear_filter_cache():
-    _cached_butter.cache_clear()
+    cached_butter.cache_clear()
     yield
-    _cached_butter.cache_clear()
+    cached_butter.cache_clear()
 
 def test_normalise_rms_zeros():
     x = np.zeros(100, dtype=np.float32)

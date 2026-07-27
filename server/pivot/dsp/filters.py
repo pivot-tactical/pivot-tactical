@@ -12,7 +12,7 @@ from scipy import signal
 
 
 @lru_cache(maxsize=128)
-def _cached_butter(
+def cached_butter(
     order: int, Wn: float | tuple[float, float], btype: str, output: str
 ) -> np.ndarray:
     """Cache the relatively expensive Butterworth filter coefficient generation."""
@@ -33,7 +33,7 @@ def bandpass(
     if x.size == 0:
         return x
     wl, wh = _normalise_band(low_hz, high_hz, sample_rate)
-    sos = _cached_butter(order, (wl, wh), btype="bandpass", output="sos")
+    sos = cached_butter(order, (wl, wh), btype="bandpass", output="sos")
     return _safe_filtfilt(sos, x)
 
 
@@ -42,7 +42,7 @@ def lowpass(x: np.ndarray, cutoff_hz: float, sample_rate: int, order: int = 4) -
         return x
     nyq = sample_rate / 2.0
     wc = max(1e-4, min(cutoff_hz / nyq, 0.999))
-    sos = _cached_butter(order, wc, btype="low", output="sos")
+    sos = cached_butter(order, wc, btype="low", output="sos")
     return _safe_filtfilt(sos, x)
 
 
@@ -51,7 +51,7 @@ def highpass(x: np.ndarray, cutoff_hz: float, sample_rate: int, order: int = 4) 
         return x
     nyq = sample_rate / 2.0
     wc = max(1e-4, min(cutoff_hz / nyq, 0.999))
-    sos = _cached_butter(order, wc, btype="high", output="sos")
+    sos = cached_butter(order, wc, btype="high", output="sos")
     return _safe_filtfilt(sos, x)
 
 
@@ -62,7 +62,7 @@ def bandstop(
     if x.size == 0:
         return x
     wl, wh = _normalise_band(low_hz, high_hz, sample_rate)
-    sos = _cached_butter(order, (wl, wh), btype="bandstop", output="sos")
+    sos = cached_butter(order, (wl, wh), btype="bandstop", output="sos")
     return _safe_filtfilt(sos, x)
 
 
