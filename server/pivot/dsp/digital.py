@@ -37,7 +37,7 @@ import math
 import numpy as np
 from scipy import signal as sp_signal
 
-from pivot.dsp.filters import rms
+from pivot.dsp.filters import cached_butter, rms
 
 # The codec frame the decode simulation works in. Real MELPe frames are
 # 22.5 ms; the engine's native block is 20 ms and the 2.5 ms difference is
@@ -89,7 +89,7 @@ class DigitalVoice:
         # Sharp streaming pre-filter: everything outside the vocoder passband is
         # gone before the analysis banks (whose own skirts are gentle).
         nyq = sample_rate / 2.0
-        self._pre_sos = sp_signal.butter(
+        self._pre_sos = cached_butter(
             4, (_BAND_LOW_HZ / nyq, _BAND_HIGH_HZ / nyq), btype="bandpass", output="sos"
         )
         self._pre_zi = np.zeros((self._pre_sos.shape[0], 2))
@@ -100,7 +100,7 @@ class DigitalVoice:
         self._sos: list[np.ndarray] = []
         self._zi: list[np.ndarray] = []
         for lo, hi in zip(edges[:-1], edges[1:], strict=False):
-            sos = sp_signal.butter(2, (lo / nyq, min(hi / nyq, 0.999)),
+            sos = cached_butter(2, (lo / nyq, min(hi / nyq, 0.999)),
                                    btype="bandpass", output="sos")
             self._sos.append(sos)
             self._zi.append(np.zeros((sos.shape[0], 2)))
