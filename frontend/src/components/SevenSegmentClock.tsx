@@ -40,7 +40,7 @@ export function SevenSegmentClock({ timezone }: { timezone: string }) {
 
   return (
     <div className="seven-seg" title={`Display timezone: ${timezone}`}>
-      <span className="seven-seg__ghost">88:88:88</span>
+      <span className="seven-seg__ghost" aria-hidden="true">88:88:88</span>
       <span className="seven-seg__value">{text}</span>
       <div className="seven-seg__zone">{timezone || "UTC"}</div>
     </div>
