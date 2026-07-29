@@ -13,7 +13,7 @@ def test_export_zip_path_traversal(database, settings, tmp_path):
         cfg.set("display_timezone", "UTC")
         sess = repo.start_session(s, "Test Session")
         sid = sess.id
-        event = repo.create_event(
+        repo.create_event(
             s,
             session_id=sid,
             trainee_name="T-1",

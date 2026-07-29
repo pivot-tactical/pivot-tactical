@@ -171,8 +171,8 @@ def test_instructor_login_and_authenticated_admin(raw_client):
 
 
 def test_auth_refresh_slides_the_session(raw_client):
-    r = raw_client.post("/api/login", json={"role": "instructor",
-                                            "password": DEFAULT_INSTRUCTOR_PASSWORD})
+    raw_client.post("/api/login", json={"role": "instructor",
+                                        "password": DEFAULT_INSTRUCTOR_PASSWORD})
     token = raw_client.cookies.get("pivot_token")
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -284,7 +284,7 @@ def test_retained_versions_list_and_delete(client, settings):
 
 
 def test_change_password_and_relogin(raw_client):
-    login_res = raw_client.post(
+    raw_client.post(
         "/api/login", json={"role": "instructor", "password": DEFAULT_INSTRUCTOR_PASSWORD}
     )
     token = raw_client.cookies.get("pivot_token")
