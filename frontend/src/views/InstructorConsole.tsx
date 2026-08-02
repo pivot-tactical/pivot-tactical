@@ -781,7 +781,8 @@ function renderWord(from: string | null, to: string, key: React.Key): React.Reac
   const unchanged = chars.filter((c) => c.t === "eq").length;
   // Refine only when at least half the correction's characters are shared with
   // the machine word — otherwise it's a reword, not a typo fix.
-  if (unchanged / Math.max(from.length, to.length) < 0.5) return whole;
+  const isTypoFix = unchanged / Math.max(from.length, to.length) >= 0.5;
+  if (!isTypoFix) return whole;
   // Coalesce adjacent same-kind characters into as few marks as possible.
   const nodes: React.ReactNode[] = [];
   let buf = "", changed = chars.length > 0 && chars[0].t === "ins", part = 0;
