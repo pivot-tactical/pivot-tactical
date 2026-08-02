@@ -436,7 +436,7 @@ class SessionManager:
         # Group idle, sink-bound radios by net; keep a representative frequency.
         groups: dict[int, list[str]] = {}
         freq_of: dict[int, float] = {}
-        for rid in list(self._audio_sinks.keys()):
+        for rid in self._audio_sinks:
             radio = self.registry.get(rid)
             if radio is None or radio.transmitting or not radio.rx_noise:
                 # Not an idle listener right now (keyed, gone, or its noise
