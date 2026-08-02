@@ -7,6 +7,8 @@ and the admin API read/write through this store so there are no config files to 
 """
 
 
+import copy
+import functools
 import json
 from typing import Any
 
@@ -15,6 +17,11 @@ from sqlalchemy.orm import Session
 
 from pivot.config import DEFAULT_CONFIG
 from pivot.db.models import ConfigRow
+
+
+@functools.lru_cache(maxsize=128)
+def _parse_config_value(val: str) -> Any:
+    return json.loads(val)
 
 
 class ConfigStore:
@@ -28,7 +35,10 @@ class ConfigStore:
         if row is None:
             return DEFAULT_CONFIG.get(key, default)
         try:
-            return json.loads(row.value)
+            val = _parse_config_value(row.value)
+            if isinstance(val, (list, dict)):
+                return copy.deepcopy(val)
+            return val
         except (ValueError, TypeError):
             return DEFAULT_CONFIG.get(key, default)
 
@@ -45,7 +55,10 @@ class ConfigStore:
         result = dict(DEFAULT_CONFIG)
         for key, value in self.session.execute(select(ConfigRow.key, ConfigRow.value)):
             try:
-                result[key] = json.loads(value)
+                val = _parse_config_value(value)
+                if isinstance(val, (list, dict)):
+                    val = copy.deepcopy(val)
+                result[key] = val
             except (ValueError, TypeError):
                 continue
         return result
