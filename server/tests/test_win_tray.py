@@ -85,3 +85,18 @@ def test_show_console_no_hwnd(win_tray_module):
     win_tray_module.user32.ShowWindow.reset_mock()
     win_tray_module._show_console(True)
     win_tray_module.user32.ShowWindow.assert_not_called()
+
+def test_quit_exception_logging(win_tray_module, monkeypatch):
+    # Mock logger to verify exception is called
+    mock_logger = MagicMock()
+    monkeypatch.setattr(win_tray_module, "logger", mock_logger)
+
+    def raising_on_quit():
+        raise Exception("Mock error")
+
+    tray = win_tray_module.TrayApp.__new__(win_tray_module.TrayApp)
+    tray._on_quit = raising_on_quit
+    tray._nid = None
+    tray._hwnd = None
+    tray._quit()
+    mock_logger.exception.assert_called_with("Error in on_quit callback")
