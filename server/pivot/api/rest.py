@@ -7,6 +7,7 @@ valid instructor bearer token (:func:`pivot.api.deps.require_instructor`).
 import logging
 import uuid
 
+import anyio
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -460,7 +461,7 @@ def admin_change_password(req: PasswordChangeRequest, auth=Depends(get_auth)) ->
 
 
 @router.get("/admin/updates/check", dependencies=[Depends(require_instructor)])
-def admin_check_updates(manager=Depends(get_manager)) -> dict:
+async def admin_check_updates(manager=Depends(get_manager)) -> dict:
     """Return the latest known update status (§3.7).
 
     The background update service polls GitHub out-of-band on an interval and
@@ -472,11 +473,11 @@ def admin_check_updates(manager=Depends(get_manager)) -> dict:
     service = getattr(manager, "update_service", None)
     if service is not None:
         return _shape_update_status(service.snapshot(), manager)
-    return _live_update_check(manager)
+    return await anyio.to_thread.run_sync(_live_update_check, manager)
 
 
 @router.post("/admin/updates/refresh", dependencies=[Depends(require_instructor)])
-def admin_refresh_updates(manager=Depends(get_manager)) -> dict:
+async def admin_refresh_updates(manager=Depends(get_manager)) -> dict:
     """Force an immediate, synchronous re-check (the "Check now" button, §3.7.3).
 
     Touches the internet and degrades gracefully (``reachable: false``) so
@@ -494,8 +495,9 @@ def admin_refresh_updates(manager=Depends(get_manager)) -> dict:
 
     service = getattr(manager, "update_service", None)
     if service is not None:
-        return _shape_update_status(service.refresh(), manager)
-    return _live_update_check(manager)
+        snap = await anyio.to_thread.run_sync(service.refresh)
+        return _shape_update_status(snap, manager)
+    return await anyio.to_thread.run_sync(_live_update_check, manager)
 
 
 def _shape_update_status(snap: dict, manager) -> dict:
