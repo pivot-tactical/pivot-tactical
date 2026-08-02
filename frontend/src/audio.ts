@@ -17,6 +17,7 @@ function localCtx(): AudioContext | null {
 // A short two-tone (KY-57 style) burst, ~0.3 s, local only.
 export function playSyncTone(durationMs = 300) {
   const ac = localCtx();
+  if (!ac) return;
   const now = ac.currentTime;
   const gain = ac.createGain();
   gain.gain.setValueAtTime(0.0001, now);
