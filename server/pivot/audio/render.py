@@ -25,7 +25,7 @@ import soundfile as sf
 from pivot.core.bands import BandConditions
 from pivot.core.crypto import RadioMode, Reception
 from pivot.db.models import EventRow
-from pivot.dsp.engine import DspEngine
+from pivot.dsp.engine import DspEngine, RenderOptions
 
 
 class PlaybackMode(StrEnum):
@@ -72,7 +72,7 @@ def render_event(
     reception = reception_for_playback(tx_mode, view)
     engine = DspEngine(sample_rate=sr)
     rendered = engine.render(
-        reception, clean, conditions=conditions, rng=rng, with_transients=True
+        reception, RenderOptions(conditions=conditions, rng=rng, with_transients=True), clean
     )
     return rendered, sr
 

@@ -19,6 +19,13 @@ from pivot.dsp.hash_gen import encrypted_hash
 from pivot.dsp.noise import NoiseTexture, add_noise_for_snr, idle_noise_amplitude
 from pivot.dsp.tone import ptt_click, squelch_tail
 
+
+@dataclass
+class RenderOptions:
+    conditions: BandConditions
+    rng: np.random.Generator | None = None
+    with_transients: bool = False
+
 # Per-net noise textures kept alive at once; oldest-touched are evicted so a
 # long session of tuning around never grows the engine unboundedly.
 _MAX_TEXTURES = 64
@@ -195,12 +202,10 @@ class DspEngine:
     def render(
         self,
         reception: Reception,
+        options: RenderOptions,
         voice: np.ndarray | None = None,
         *,
         voices: list[np.ndarray] | None = None,
-        conditions: BandConditions,
-        rng: np.random.Generator | None = None,
-        with_transients: bool = False,
     ) -> np.ndarray:
         """Render a buffer for ``reception``.
 
@@ -213,21 +218,21 @@ class DspEngine:
             n = voice.size if voice is not None else 0
             return np.zeros(n, dtype=np.float32)
         if reception is Reception.CLEAR:
-            out = self.render_clear(_require(voice, "voice"), conditions, rng)
+            out = self.render_clear(_require(voice, "voice"), options.conditions, options.rng)
         elif reception is Reception.DIGITAL:
-            out = self.render_digital(_require(voice, "voice"), conditions, rng)
+            out = self.render_digital(_require(voice, "voice"), options.conditions, options.rng)
         elif reception is Reception.HASH:
-            out = self.render_hash(_require(voice, "voice"), conditions, rng)
+            out = self.render_hash(_require(voice, "voice"), options.conditions, options.rng)
         elif reception is Reception.PLAIN_COLLISION:
-            out = self.render_plain_collision(_require(voices, "voices"), conditions, rng)
+            out = self.render_plain_collision(_require(voices, "voices"), options.conditions, options.rng)
         elif reception is Reception.CRYPTO_JAM:
             n = voice.size if voice is not None else (len(voices[0]) if voices else 0)
-            out = self.render_crypto_jam(n, conditions, rng)
+            out = self.render_crypto_jam(n, options.conditions, options.rng)
         else:  # pragma: no cover - exhaustive
             raise ValueError(f"unhandled reception: {reception}")
 
-        if with_transients:
-            out = self._wrap_transients(out, conditions)
+        if options.with_transients:
+            out = self._wrap_transients(out, options.conditions)
         return out
 
     def _wrap_transients(self, out: np.ndarray, conditions: BandConditions) -> np.ndarray:
@@ -249,10 +254,8 @@ def render_reception(
     engine = DspEngine(sample_rate=sample_rate)
     return engine.render(
         reception,
+        RenderOptions(conditions=conditions, rng=rng, with_transients=with_transients),
         voice,
-        conditions=conditions,
-        rng=rng,
-        with_transients=with_transients,
     )
 
 

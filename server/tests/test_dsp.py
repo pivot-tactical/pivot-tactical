@@ -6,12 +6,15 @@ low HF (acceptance #4), and the encrypted hash is unintelligible yet follows
 speech cadence (acceptance #10).
 """
 
+import dataclasses
+
 import numpy as np
 import pytest
 
 from pivot.core.bands import BandProfile
 from pivot.core.crypto import Reception
-from pivot.dsp.engine import DspEngine, render_reception
+from pivot.dsp.engine import DspEngine, RenderOptions, render_reception
+from pivot.dsp.fading import apply_fading, flat_fading_gain
 from pivot.dsp.hash_gen import encrypted_hash, envelope_follower
 from pivot.dsp.noise import band_noise, pink_noise, white_noise
 from pivot.dsp.tone import crypto_sync_tone, ptt_click, squelch_tail
@@ -139,7 +142,7 @@ def test_plain_collision_mixes_voices():
     cond = BandProfile().conditions_at(145e6)
     engine = DspEngine(SR)
     out = engine.render(
-        Reception.PLAIN_COLLISION, voices=[a, b], conditions=cond, rng=np.random.default_rng(0)
+        Reception.PLAIN_COLLISION, RenderOptions(conditions=cond, rng=np.random.default_rng(0)), voices=[a, b]
     )
     assert out.shape == a.shape
     # The mix correlates with neither source as strongly as a clean render would.
@@ -150,7 +153,7 @@ def test_crypto_jam_has_requested_length_and_is_noise():
     voice = speech_like()
     cond = BandProfile().conditions_at(14e6)
     engine = DspEngine(SR)
-    out = engine.render(Reception.CRYPTO_JAM, voice, conditions=cond, rng=np.random.default_rng(0))
+    out = engine.render(Reception.CRYPTO_JAM, RenderOptions(conditions=cond, rng=np.random.default_rng(0)), voice)
     assert out.shape == voice.shape
     assert abs(norm_corr(out, voice)) < 0.1
 
@@ -158,7 +161,7 @@ def test_crypto_jam_has_requested_length_and_is_noise():
 def test_silence_render_is_zeros():
     voice = speech_like()
     cond = BandProfile().conditions_at(14e6)
-    out = DspEngine(SR).render(Reception.SILENCE, voice, conditions=cond)
+    out = DspEngine(SR).render(Reception.SILENCE, RenderOptions(conditions=cond), voice)
     assert np.array_equal(out, np.zeros_like(voice))
 
 
@@ -220,8 +223,7 @@ def test_ptt_click_level():
     click2 = ptt_click(SR, level=1.0)
     assert np.allclose(click1 * 2, click2)
 # --- fading ---------------------------------------------------------------- #
-import dataclasses
-from pivot.dsp.fading import apply_fading, flat_fading_gain
+
 
 def test_flat_fading_gain_empty():
     rng = np.random.default_rng(0)
