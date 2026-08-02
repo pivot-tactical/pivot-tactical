@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 if sys.platform != "win32":  # pragma: no cover - guarded by callers
     raise ImportError("win_tray is Windows-only")
 
-import ctypes
-from ctypes import wintypes
+import ctypes  # noqa: E402
+from ctypes import wintypes  # noqa: E402
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
