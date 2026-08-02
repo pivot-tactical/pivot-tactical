@@ -193,7 +193,7 @@ def test_mode_persists_across_reconnect(manager):
 
 def test_stale_disconnect_keeps_reconnected_radio(manager):
     """A reconnect bumps the epoch; the stale connection's late teardown must
-    not remove the freshly re-logged-in radio (the no-hash-after-restart bug)."""
+    not remove the freshly re-logged-in radio."""
     manager.start_session("EX")
     first = manager.login("ALPHA", "t-1")
     # Browser restarts: new connection logs in again under the same id.
