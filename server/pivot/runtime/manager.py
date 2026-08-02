@@ -468,7 +468,7 @@ class SessionManager:
                     for _ in range(2):  # prime a ~2-frame cushion on first sight
                         self._emit_to_sink(
                             sink,
-                            float32_to_pcm16(self.engine.render_idle_noise(frame_samples, conditions)),
+                            data,
                         )
                     primed.add(rid)
                 self._emit_to_sink(sink, data)
