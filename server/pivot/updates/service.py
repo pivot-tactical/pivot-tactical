@@ -240,44 +240,61 @@ class UpdateService:
             "download_progress": None,
         }
 
-        # Auto-update policy: newest available, only out-of-band, and never over
-        # an update that is already staged.
-        if auto and available:
-            if staged is not None:
-                # Something is staged awaiting restart — possibly a *specific*
-                # version the instructor chose deliberately (§3.7.4). Auto-update
-                # must not replace that choice with the newest release; it waits
-                # until a restart applies (or clears) the pending update.
-                update["auto_state"] = "idle"
-                update["auto_message"] = f"{staged} staged — restart to apply."
-            elif self._session_active():
-                update["auto_state"] = "deferred_session_active"
-                update["auto_message"] = "Update deferred — a session is running."
-            else:
-                target = available[0]
-                # Broadcast a downloading state so the UI shows progress before
-                # the potentially-slow download completes.
-                self._merge({**update, "auto_state": "downloading",
-                             "auto_message": f"Downloading {target.tag}…"})
-                try:
-                    result = self._apply(target, cfg)
-                    applied_ok = bool(result.get("applied"))
-                    update["auto_state"] = "applied" if applied_ok else "error"
-                    update["auto_message"] = result.get("message", "") or (
-                        f"Updating to {target.tag}." if applied_ok
-                        else "Auto-update failed."
-                    )
-                    if applied_ok:
-                        update["staged_tag"] = mgr.staged_tag() or target.tag
-                except Exception as exc:
-                    update["auto_state"] = "error"
-                    update["auto_message"] = str(exc)
-        else:
-            update["auto_state"] = "idle"
-            update["auto_message"] = ""
+        # Apply the auto-update policy (modifies `update` dict in place).
+        self._apply_auto_update_policy(update, auto, available, staged, cfg, mgr)
 
         self._merge(update)
         return self.snapshot()
+
+    # -- auto update policy ----------------------------------------------- #
+
+    def _apply_auto_update_policy(
+        self,
+        update: dict,
+        auto: bool,
+        available: list[Release],
+        staged: str | None,
+        cfg: dict,
+        mgr: UpdateManager,
+    ) -> None:
+        """Apply auto-update policy: newest available, out-of-band, and never over a staged update."""
+        if not auto or not available:
+            update["auto_state"] = "idle"
+            update["auto_message"] = ""
+            return
+
+        if staged is not None:
+            # Something is staged awaiting restart — possibly a *specific*
+            # version the instructor chose deliberately (§3.7.4). Auto-update
+            # must not replace that choice with the newest release; it waits
+            # until a restart applies (or clears) the pending update.
+            update["auto_state"] = "idle"
+            update["auto_message"] = f"{staged} staged — restart to apply."
+            return
+
+        if self._session_active():
+            update["auto_state"] = "deferred_session_active"
+            update["auto_message"] = "Update deferred — a session is running."
+            return
+
+        target = available[0]
+        # Broadcast a downloading state so the UI shows progress before
+        # the potentially-slow download completes.
+        self._merge({**update, "auto_state": "downloading",
+                     "auto_message": f"Downloading {target.tag}…"})
+        try:
+            result = self._apply(target, cfg)
+            applied_ok = bool(result.get("applied"))
+            update["auto_state"] = "applied" if applied_ok else "error"
+            update["auto_message"] = result.get("message", "") or (
+                f"Updating to {target.tag}." if applied_ok
+                else "Auto-update failed."
+            )
+            if applied_ok:
+                update["staged_tag"] = mgr.staged_tag() or target.tag
+        except Exception as exc:
+            update["auto_state"] = "error"
+            update["auto_message"] = str(exc)
 
     # -- default apply (real updater) ------------------------------------- #
 
