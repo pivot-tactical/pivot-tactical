@@ -337,7 +337,7 @@ class SessionManager:
         """Append a chunk of the station's clean mic audio for recording."""
         acc = self._active_tx.get(radio_id)
         if acc is not None:
-            acc.audio_chunks.append(np.asarray(audio, dtype=np.float32).reshape(-1))
+            acc.audio_chunks.append(audio)
 
     # -- live audio routing (§6.3) ----------------------------------------- #
 
@@ -769,7 +769,7 @@ class SessionManager:
         if audio is not None:
             return np.asarray(audio, dtype=np.float32).reshape(-1)
         if acc.audio_chunks:
-            return np.concatenate(acc.audio_chunks).astype(np.float32)
+            return np.concatenate(acc.audio_chunks).astype(np.float32).reshape(-1)
         return None
 
     def _write_event(self, acc, sync_status, audibility, clean) -> dict | None:
