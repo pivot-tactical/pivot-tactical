@@ -9,8 +9,7 @@ routers, and serves the built React frontend so trainees reach the UI at
 import importlib.util
 import os
 import sys
-from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -100,21 +99,25 @@ def frontend_dist_dir() -> Path | None:
     return None
 
 
-def _create_app_lifespan(
-    cfg: Settings, manager: SessionManager | None = None
-) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
+class AppLifespan:
+    """Manages FastAPI application startup and shutdown lifecycle events."""
+
+    def __init__(self, cfg: Settings, manager: SessionManager | None = None):
+        self.cfg = cfg
+        self.manager = manager
+
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def __call__(self, app: FastAPI):
         import asyncio
 
-        if manager is not None:
-            app.state.db = manager.db
-            app.state.manager = manager
+        if self.manager is not None:
+            app.state.db = self.manager.db
+            app.state.manager = self.manager
         else:
-            db = init_database(cfg)
+            db = init_database(self.cfg)
             app.state.db = db
-            app.state.manager = SessionManager(db, cfg)
-        app.state.settings = cfg
+            app.state.manager = SessionManager(db, self.cfg)
+        app.state.settings = self.cfg
         # Record the running loop so cross-thread broadcasts marshal correctly.
         app.state.manager.loop = asyncio.get_running_loop()
         app.state.audio_router = None  # set by the audio plane when available
@@ -128,16 +131,16 @@ def _create_app_lifespan(
         from pivot.db import repository as repo
 
         with app.state.manager.db.session() as s:
-            repo.reconcile_orphan_transcriptions(s, cfg.recordings_dir)
+            repo.reconcile_orphan_transcriptions(s, self.cfg.recordings_dir)
 
         # Async transcription worker — only started if faster-whisper is present
         # (the live event log still works without it; transcripts stay pending).
-        worker = _maybe_start_transcription(app.state.manager, cfg)
+        worker = _maybe_start_transcription(app.state.manager, self.cfg)
         app.state.transcription_worker = worker
 
         # Background update service: always-on async checks + session-gated
         # auto-update (§3.7). Broadcasts status changes to the instructor UI.
-        update_service = _start_update_service(app.state.manager, cfg)
+        update_service = _start_update_service(app.state.manager, self.cfg)
         app.state.update_service = update_service
 
         # Continuous ambient band noise ("hash") on tuned channels (§3.2.2):
@@ -145,7 +148,7 @@ def _create_app_lifespan(
         # listeners so an open channel hisses until someone keys up. Optional
         # (PIVOT_AMBIENT_NOISE=0 for a silent-when-idle net).
         noise = None
-        if getattr(cfg, "ambient_noise", True):
+        if getattr(self.cfg, "ambient_noise", True):
             from pivot.audio.noise_stream import NoiseBroadcaster
 
             noise = NoiseBroadcaster(app.state.manager)
@@ -161,8 +164,6 @@ def _create_app_lifespan(
             if noise is not None:
                 await noise.stop()
 
-    return lifespan
-
 
 def create_app(
     settings: Settings | None = None,
@@ -176,7 +177,7 @@ def create_app(
     app = FastAPI(
         title="PIVOT — Procedural Interactive Voice Operations Trainer",
         version=version_info.version,
-        lifespan=_create_app_lifespan(cfg, manager),
+        lifespan=AppLifespan(cfg, manager),
     )
 
     if force_https:
