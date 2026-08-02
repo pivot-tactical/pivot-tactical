@@ -180,6 +180,75 @@ describe("playSyncTone", () => {
   });
 });
 
+describe("playClick", () => {
+  let mockGain: any;
+  let mockOscillator: any;
+  let mockAudioContext: any;
+
+  beforeEach(() => {
+    mockGain = {
+      gain: {
+        setValueAtTime: vi.fn(),
+        exponentialRampToValueAtTime: vi.fn(),
+      },
+      connect: vi.fn(),
+    };
+
+    mockOscillator = {
+      frequency: { value: 0 },
+      connect: vi.fn(),
+      start: vi.fn(),
+      stop: vi.fn(),
+    };
+
+    mockAudioContext = vi.fn().mockImplementation(() => ({
+      currentTime: 100,
+      createGain: vi.fn().mockReturnValue(mockGain),
+      createOscillator: vi.fn().mockReturnValue(mockOscillator),
+      destination: {},
+    }));
+
+    vi.stubGlobal("AudioContext", mockAudioContext);
+    vi.stubGlobal("webkitAudioContext", undefined);
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("plays a click with default frequency", async () => {
+    const { playClick } = await import("./audio");
+    playClick();
+
+    expect(mockGain.gain.setValueAtTime).toHaveBeenCalledWith(0.2, 100);
+    expect(mockGain.gain.exponentialRampToValueAtTime).toHaveBeenCalledWith(0.0001, 100 + 0.05);
+    expect(mockGain.connect).toHaveBeenCalled();
+
+    expect(mockOscillator.frequency.value).toBe(900);
+    expect(mockOscillator.connect).toHaveBeenCalledWith(mockGain);
+    expect(mockOscillator.start).toHaveBeenCalledWith(100);
+    expect(mockOscillator.stop).toHaveBeenCalledWith(100 + 0.05);
+  });
+
+  it("plays a click with custom frequency", async () => {
+    const { playClick } = await import("./audio");
+    playClick(1200);
+
+    expect(mockOscillator.frequency.value).toBe(1200);
+  });
+
+  it("returns early if AudioContext is not available", async () => {
+    vi.stubGlobal("AudioContext", undefined);
+    vi.stubGlobal("webkitAudioContext", undefined);
+
+    const { playClick } = await import("./audio");
+    playClick();
+
+    expect(mockAudioContext).not.toHaveBeenCalled();
+  });
+});
+
 describe("AudioIO", () => {
   let mockAudioContext: any;
 

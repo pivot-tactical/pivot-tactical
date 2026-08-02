@@ -6,8 +6,11 @@
 const SR = 16000;
 
 let toneCtx: AudioContext | null = null;
-function localCtx(): AudioContext {
-  if (!toneCtx) toneCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+function localCtx(): AudioContext | null {
+  if (!toneCtx) {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    if (Ctx) toneCtx = new Ctx();
+  }
   return toneCtx;
 }
 
@@ -34,6 +37,7 @@ export function playSyncTone(durationMs = 300) {
 // PTT click feedback on key-down/up.
 export function playClick(freq = 900) {
   const ac = localCtx();
+  if (!ac) return;
   const now = ac.currentTime;
   const osc = ac.createOscillator();
   const gain = ac.createGain();
