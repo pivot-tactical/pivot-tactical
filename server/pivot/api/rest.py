@@ -527,7 +527,7 @@ def _shape_update_status(snap: dict, manager) -> dict:
 def _live_update_check(manager) -> dict:
     """One-shot live check used when the background service isn't running."""
     from pivot.updates import github
-    from pivot.updates.manager import UpdateManager, classify_release
+    from pivot.updates.manager import UpdateManager
     from pivot.version import SemVer, version_info
 
     cfg = manager.get_config()
@@ -564,40 +564,49 @@ def _live_update_check(manager) -> dict:
         return result
 
     cur = SemVer.parse(version_info.version)
-
-    def to_dict(r) -> dict:
-        return {
-            "tag": r.tag,
-            "name": r.name,
-            "published_at": r.published_at,
-            "prerelease": r.prerelease,
-            "asset_name": r.asset_name,
-            "asset_url": r.asset_url,
-            "sha256_url": r.sha256_url,
-            "sig_url": r.sig_url,
-            "has_asset": bool(r.asset_url),
-            "standing": classify_release(r, cur).value,
-        }
-
     available = mgr.available_updates(raw)
-    result["releases"] = [to_dict(r) for r in mgr.list_releases(raw)]
-    result["available"] = [to_dict(r) for r in available]
+    result["releases"] = [_format_release(r, cur) for r in mgr.list_releases(raw)]
+    result["available"] = [_format_release(r, cur) for r in available]
 
-    # Auto-update: download + stage the newest available release on the channel
-    # — but never over an update that is already staged. A pending version
-    # (possibly a specific one the instructor chose, §3.7.4) wins until a
-    # restart applies it; the newest is only auto-staged onto a clean slate.
-    if bool(cfg.get("auto_update", False)) and available and not mgr.staged_tag():
-        newest = available[0]
-        if newest.asset_url:
-            try:
-                mgr.download_and_stage(newest, token)
-                result["auto_staged"] = newest.tag
-                result["staged_tag"] = newest.tag
-            except Exception as exc:
-                result["auto_update_error"] = str(exc)
+    if bool(cfg.get("auto_update", False)):
+        _process_auto_update(mgr, available, token, result)
 
     return result
+
+
+def _format_release(r, cur_semver) -> dict:
+    from pivot.updates.manager import classify_release
+    return {
+        "tag": r.tag,
+        "name": r.name,
+        "published_at": r.published_at,
+        "prerelease": r.prerelease,
+        "asset_name": r.asset_name,
+        "asset_url": r.asset_url,
+        "sha256_url": r.sha256_url,
+        "sig_url": r.sig_url,
+        "has_asset": bool(r.asset_url),
+        "standing": classify_release(r, cur_semver).value,
+    }
+
+
+def _process_auto_update(mgr, available: list, token: str | None, result: dict) -> None:
+    """Download and stage the newest available release on the channel,
+    but never over an update that is already staged. A pending version
+    wins until a restart applies it."""
+    if not available or mgr.staged_tag():
+        return
+
+    newest = available[0]
+    if not newest.asset_url:
+        return
+
+    try:
+        mgr.download_and_stage(newest, token)
+        result["auto_staged"] = newest.tag
+        result["staged_tag"] = newest.tag
+    except Exception as exc:
+        result["auto_update_error"] = str(exc)
 
 
 @router.post("/admin/updates/apply", dependencies=[Depends(require_instructor)])

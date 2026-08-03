@@ -281,7 +281,7 @@ def test_jammed_render_masks_even_with_stale_shallow_snr():
                              rng=np.random.default_rng(1))
     stale = render_reception(
         Reception.CLEAR, voice,
-        replace(_conditions(145.5, jammed=True), snr_db=-6.0),  # pre-fix profile
+        replace(_conditions(145.5, jammed=True), snr_db=-6.0),  # legacy profile
         SR, rng=np.random.default_rng(1),
     )
     assert _abs_corr(fresh, voice) < 0.15

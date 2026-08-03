@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -38,6 +39,24 @@ from pathlib import Path
 from pivot.version import SemVer
 
 _APP_PREFIX = "app-"
+
+
+def _is_link(path: Path) -> bool:
+    """True if ``path`` is a symlink *or* a Windows directory junction.
+
+    ``os.path.islink`` is not enough on Windows: only a reparse point tagged
+    ``IO_REPARSE_TAG_SYMLINK`` is reported as a link, so a junction — the shape
+    ``current`` actually takes there — comes back False and looks like an
+    ordinary directory to anything that recurses.
+    """
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    if stat.S_ISLNK(st.st_mode):
+        return True
+    attrs = getattr(st, "st_file_attributes", 0)
+    return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
 
 def _remove_link(link: Path) -> None:
@@ -48,8 +67,9 @@ def _remove_link(link: Path) -> None:
     remove but ``rmdir`` can), and — defensively — a real directory left behind
     by a botched earlier flip.
     """
-    if not (link.exists() or link.is_symlink() or os.path.lexists(link)):
+    if not os.path.lexists(link):
         return
+    was_link = _is_link(link)
     try:
         os.unlink(link)
         return
@@ -60,6 +80,16 @@ def _remove_link(link: Path) -> None:
         return
     except OSError:
         pass
+    if was_link:
+        # Both unlink and rmdir failing means something holds the link open (an
+        # on-access virus scan, an Explorer window). Recursing is NOT the
+        # fallback: rmtree would walk *through* the reparse point and delete the
+        # bundle of the version it points at — which, when re-activating the tag
+        # already active, is the bundle we are about to hand back as `current`.
+        raise OSError(
+            f"Could not unlink {link}: it is in use. Refusing to delete it "
+            "recursively — that would destroy the version it points at."
+        )
     shutil.rmtree(link, ignore_errors=True)
 
 

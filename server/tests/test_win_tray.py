@@ -36,9 +36,10 @@ def win_tray_module(monkeypatch):
         monkeypatch.setattr(ctypes, "wintypes", MockWintypes(), raising=False)
         monkeypatch.setitem(sys.modules, "ctypes.wintypes", MockWintypes())
         monkeypatch.setattr(ctypes, "windll", MagicMock(), raising=False)
-        monkeypatch.setattr(
-            ctypes, "WINFUNCTYPE", MagicMock(return_value=ctypes.c_void_p), raising=False
-        )
+        # WINFUNCTYPE builds a real callback type on Windows: stand in the
+        # cdecl equivalent so WNDPROC works both as a _WNDCLASS field type and
+        # as a factory wrapping the bound window procedure.
+        monkeypatch.setattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE, raising=False)
 
         if "pivot.win_tray" in sys.modules:
             del sys.modules["pivot.win_tray"]
@@ -85,6 +86,41 @@ def test_show_console_no_hwnd(win_tray_module):
     win_tray_module.user32.ShowWindow.reset_mock()
     win_tray_module._show_console(True)
     win_tray_module.user32.ShowWindow.assert_not_called()
+
+
+def test_create_window_arguments_match_win32_prototype(win_tray_module):
+    """Every CreateWindowExW argument must be convertible to its declared type.
+
+    Regression test: hMenu was passed as ``None`` while its ctypes type is an
+    integer (HMENU), which ctypes rejects — the packaged app died at startup
+    with "argument 10: TypeError: wrong type" before the tray ever appeared.
+    """
+    win_tray_module.kernel32.GetModuleHandleW.return_value = 1
+    win_tray_module.user32.CreateWindowExW.return_value = 4242
+
+    app = win_tray_module.TrayApp("https://192.168.0.2:8080")
+    app._create_window()
+
+    assert app._hwnd == 4242
+    args = win_tray_module.user32.CreateWindowExW.call_args.args
+    argtypes = win_tray_module.CREATE_WINDOW_EX_ARGTYPES
+    assert len(args) == len(argtypes)
+    for position, (argtype, value) in enumerate(zip(argtypes, args, strict=True), start=1):
+        try:
+            argtype.from_param(value)
+        except TypeError as exc:  # pragma: no cover - only on regression
+            pytest.fail(f"argument {position} ({value!r}) is not a valid {argtype}: {exc}")
+
+
+def test_create_window_raises_when_window_creation_fails(win_tray_module):
+    """A null HWND must surface as an error, not a silently broken tray."""
+    win_tray_module.kernel32.GetModuleHandleW.return_value = 1
+    win_tray_module.user32.CreateWindowExW.return_value = None
+
+    app = win_tray_module.TrayApp("https://192.168.0.2:8080")
+    with pytest.raises(OSError):
+        app._create_window()
+
 
 def test_quit_exception_logging(win_tray_module, monkeypatch):
     # Mock logger to verify exception is called

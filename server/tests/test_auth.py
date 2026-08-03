@@ -1,5 +1,7 @@
 """Tests for instructor authentication (password + bearer tokens)."""
 
+from unittest.mock import patch
+
 from pivot.auth import (
     DEFAULT_INSTRUCTOR_PASSWORD,
     AuthService,
@@ -115,3 +117,13 @@ def test_tampered_token_is_rejected(database):
     # Push the expiry far out but keep the original signature — must not verify.
     forged = f"{version}.{int(exp_s) + 10_000_000}.{nonce}.{sig}"
     assert auth.validate(forged) is False
+
+def test_is_default_delegates_to_verify(database):
+    auth = AuthService(database)
+    with patch.object(auth, "verify", return_value=True) as mock_verify:
+        assert auth.is_default() is True
+        mock_verify.assert_called_once_with(DEFAULT_INSTRUCTOR_PASSWORD)
+
+    with patch.object(auth, "verify", return_value=False) as mock_verify:
+        assert auth.is_default() is False
+        mock_verify.assert_called_once_with(DEFAULT_INSTRUCTOR_PASSWORD)

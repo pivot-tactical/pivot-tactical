@@ -193,7 +193,7 @@ def test_mode_persists_across_reconnect(manager):
 
 def test_stale_disconnect_keeps_reconnected_radio(manager):
     """A reconnect bumps the epoch; the stale connection's late teardown must
-    not remove the freshly re-logged-in radio (the no-hash-after-restart bug)."""
+    not remove the freshly re-logged-in radio."""
     manager.start_session("EX")
     first = manager.login("ALPHA", "t-1")
     # Browser restarts: new connection logs in again under the same id.
@@ -439,3 +439,10 @@ def test_emit_to_sink_silently_recovers():
     # _emit_to_sink is a staticmethod
     SessionManager._emit_to_sink(sink, b"data")
     sink.assert_called_once_with(b"data")
+
+def test_session_active(manager):
+    assert not manager.session_active
+    manager.start_session("EX1")
+    assert manager.session_active
+    manager.end_session()
+    assert not manager.session_active
