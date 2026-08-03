@@ -171,13 +171,16 @@ begin
     Sleep(500);
   end;
 
+  // NB: never start a continuation line with #13/#10 — ISPP reads a leading '#'
+  // as a preprocessor directive and aborts before the [Code] section compiles.
   RaiseException(
-    'Setup could not link' + #13#10 + CurrentPath + #13#10 + 'to this version''s folder.' +
-    #13#10#13#10 +
-    'PIVOT installs each version side by side and points a "current" link at the' +
-    ' active one. That needs an NTFS install location and permission to create a' +
-    ' directory junction. Choosing a different install folder, or excluding this' +
-    ' one from real-time antivirus scanning, usually resolves it.');
+    'Setup could not link' + #13#10
+    + CurrentPath + #13#10
+    + 'to this version''s folder.' + #13#10 + #13#10
+    + 'PIVOT installs each version side by side and points a "current" link at the'
+    + ' active one. That needs an NTFS install location and permission to create a'
+    + ' directory junction. Choosing a different install folder, or excluding this'
+    + ' one from real-time antivirus scanning, usually resolves it.');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
