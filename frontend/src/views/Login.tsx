@@ -18,6 +18,7 @@ export function Login({
   const [online, setOnline] = useState<boolean | null>(null);
   const [micOk, setMicOk] = useState<boolean | null>(null);
   const [micInsecure, setMicInsecure] = useState(false);
+  const [micMissing, setMicMissing] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -39,11 +40,15 @@ export function Login({
       return;
     }
     setMicInsecure(false);
+    setMicMissing(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((t) => t.stop());
       setMicOk(true);
-    } catch {
+    } catch (err: any) {
+      if (err.name === "NotFoundError") {
+        setMicMissing(true);
+      }
       setMicOk(false);
     }
   }
@@ -141,6 +146,8 @@ export function Login({
                 it isn't verified (PIVOT uses a private, self-signed certificate);
                 choose <strong>Advanced → Proceed</strong> once, then reload this page.
               </>
+            ) : micMissing ? (
+              "No microphone found. Please connect a microphone and try again."
             ) : (
               "Allow microphone access in your browser to transmit."
             )}

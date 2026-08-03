@@ -238,6 +238,32 @@ describe("Login", () => {
       });
     });
 
+    it("shows missing-mic hint when no microphone is found", async () => {
+      const user = userEvent.setup();
+
+      Object.defineProperty(window, "isSecureContext", { value: true, configurable: true });
+
+      const err = new Error("Requested device not found");
+      err.name = "NotFoundError";
+
+      Object.defineProperty(navigator, "mediaDevices", {
+        value: {
+          getUserMedia: vi.fn().mockRejectedValueOnce(err),
+        },
+        configurable: true,
+      });
+
+      render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
+
+      const checkMicBtn = screen.getByRole("button", { name: /Check microphone/i });
+      await user.click(checkMicBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Microphone blocked/i)).toBeInTheDocument();
+        expect(screen.getByText(/No microphone found/i)).toBeInTheDocument();
+      });
+    });
+
     it("shows allow-access hint when getUserMedia is denied", async () => {
       const user = userEvent.setup();
 
