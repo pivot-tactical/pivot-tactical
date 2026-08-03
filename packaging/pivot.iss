@@ -161,9 +161,30 @@ begin
   // Developer Mode/admin. /E:ON forces command extensions on: mklink is an
   // extension command, so a machine where they are disabled by policy would
   // otherwise fail with "'mklink' is not recognized".
-  Result := Exec(ExpandConstant('{cmd}'),
-                 '/E:ON /C mklink /J "' + CurrentPath + '" "' + AppDir + '"',
-                 '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  // Sequenced, not `Exec(...) and (ResultCode = 0)`: that reads ResultCode in
+  // the same expression that assigns it, and Pascal Script does not promise to
+  // evaluate the left operand first.
+  Result := False;
+  if Exec(ExpandConstant('{cmd}'),
+          '/E:ON /C mklink /J "' + CurrentPath + '" "' + AppDir + '"',
+          '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Result := (ResultCode = 0);
+end;
+
+function FlipTook(const CurrentPath, AppDir: String): Boolean;
+begin
+  // Check the link and the payload SEPARATELY. The obvious test — does
+  // CurrentPath + '\<exe>' exist — is wrong here, because it makes Setup walk
+  // through the junction it has just created, and Setup is precisely the
+  // process that cannot: a hardened installer refuses to follow a reparse point
+  // written by a non-elevated user (the same Redirection Guard behaviour noted
+  // in pivot.updates.layout.Layout.installed_versions). It answers False for a
+  // link that is in fact perfect and that every other process — including PIVOT
+  // itself, launched through this very path — resolves without trouble.
+  //
+  // Neither call below traverses: FindFirst reads the reparse point itself, and
+  // the exe is checked in the real version folder we linked to.
+  Result := IsReparsePoint(CurrentPath) and FileExists(AppDir + '\{#MyAppExeName}');
 end;
 
 procedure FlipCurrentLink();
@@ -177,18 +198,20 @@ begin
   // The same atomic re-point the in-app updater performs (see
   // pivot.updates.layout.Layout.activate). Retried, because an on-access virus
   // scan of the files that just landed can hold the old link open for a moment.
+  //
+  // Nested rather than `Clear(...) and Make(...)`: Pascal Script does not
+  // promise to evaluate operands left to right, and these two are ordered
+  // operations — running Make first would fail on the existing link and let
+  // Clear delete what Make had just built.
   for Attempt := 1 to 3 do
   begin
-    if ClearCurrentLink(CurrentPath) and MakeCurrentLink(CurrentPath, AppDir) then
-      // Only the exe being reachable *through* `current` proves the flip worked.
-      // Every shortcut and the post-install launch resolve that path, so a link
-      // that silently didn't take must be caught here — while Setup can still
-      // say why — rather than at the user's last click or a dead shortcut.
-      if FileExists(CurrentPath + '\{#MyAppExeName}') then
-      begin
-        FlipSucceeded := True;
-        Exit;
-      end;
+    if ClearCurrentLink(CurrentPath) then
+      if MakeCurrentLink(CurrentPath, AppDir) then
+        if FlipTook(CurrentPath, AppDir) then
+        begin
+          FlipSucceeded := True;
+          Exit;
+        end;
     Sleep(500);
   end;
 
