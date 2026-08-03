@@ -36,6 +36,18 @@ def win_tray_module(monkeypatch):
         monkeypatch.setattr(ctypes, "wintypes", MockWintypes(), raising=False)
         monkeypatch.setitem(sys.modules, "ctypes.wintypes", MockWintypes())
         monkeypatch.setattr(ctypes, "windll", MagicMock(), raising=False)
+        # win_tray loads its DLLs with WinDLL(..., use_last_error=True) so that
+        # ctypes.get_last_error() reports the real Win32 error. Hand out one
+        # stable mock per library name, so user32/kernel32/shell32 stay distinct
+        # module attributes that tests can drive independently.
+        _dlls: dict[str, MagicMock] = {}
+        monkeypatch.setattr(
+            ctypes,
+            "WinDLL",
+            lambda name, **kwargs: _dlls.setdefault(name, MagicMock()),
+            raising=False,
+        )
+        monkeypatch.setattr(ctypes, "get_last_error", MagicMock(return_value=0), raising=False)
         # WINFUNCTYPE builds a real callback type on Windows: stand in the
         # cdecl equivalent so WNDPROC works both as a _WNDCLASS field type and
         # as a factory wrapping the bound window procedure.
@@ -136,3 +148,46 @@ def test_quit_exception_logging(win_tray_module, monkeypatch):
     tray._hwnd = None
     tray._quit()
     mock_logger.exception.assert_called_with("Error in on_quit callback")
+
+
+def test_add_icon_raises_when_the_shell_rejects_it(win_tray_module):
+    """A failed Shell_NotifyIcon must raise, not leave a hidden, iconless PIVOT.
+
+    run_with_tray hides the console before this runs, so a silent failure would
+    drop into the message loop with the server running, no tray icon, and no way
+    to quit it. Raising lets the caller restore the console and keep serving.
+    """
+    win_tray_module.user32.LoadIconW.return_value = 7  # HICON is a pointer field
+    win_tray_module.shell32.Shell_NotifyIconW.return_value = 0
+    win_tray_module.ctypes.get_last_error.return_value = 5
+
+    app = win_tray_module.TrayApp("https://192.168.0.2:8080")
+    app._hwnd = 4242
+    with pytest.raises(OSError):
+        app._add_icon()
+
+
+def test_register_class_tolerates_an_already_registered_class(win_tray_module):
+    """Re-registering the window class is expected, not fatal."""
+    win_tray_module.kernel32.GetModuleHandleW.return_value = 1
+    win_tray_module.user32.RegisterClassW.return_value = 0
+    win_tray_module.user32.CreateWindowExW.return_value = 4242
+    win_tray_module.ctypes.get_last_error.return_value = (
+        win_tray_module.ERROR_CLASS_ALREADY_EXISTS
+    )
+
+    app = win_tray_module.TrayApp("https://192.168.0.2:8080")
+    app._create_window()
+
+    assert app._hwnd == 4242
+
+
+def test_register_class_raises_on_a_real_failure(win_tray_module):
+    """Any other RegisterClassW error leaves no class for CreateWindowExW."""
+    win_tray_module.kernel32.GetModuleHandleW.return_value = 1
+    win_tray_module.user32.RegisterClassW.return_value = 0
+    win_tray_module.ctypes.get_last_error.return_value = 8  # ERROR_NOT_ENOUGH_MEMORY
+
+    app = win_tray_module.TrayApp("https://192.168.0.2:8080")
+    with pytest.raises(OSError):
+        app._create_window()
