@@ -96,31 +96,102 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\versions\current\{#MyAppExe
 Filename: "{app}\versions\current\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [Code]
-procedure FlipCurrentLink();
+const
+  // Set on junctions and symlinks; the flag that tells a link apart from the
+  // real directory it stands in for.
+  FILE_ATTR_REPARSE_POINT = $400;
+
+function IsReparsePoint(const Path: String): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := False;
+  // FindFirst on a full path returns that entry itself, and — unlike DirExists,
+  // which resolves the link — still reports a junction whose target has gone
+  // missing. That dangling shape is exactly what a half-finished flip leaves.
+  if FindFirst(Path, FindRec) then
+  begin
+    Result := (FindRec.Attributes and FILE_ATTR_REPARSE_POINT) <> 0;
+    FindClose(FindRec);
+  end;
+end;
+
+function ClearCurrentLink(const CurrentPath: String): Boolean;
+begin
+  if IsReparsePoint(CurrentPath) then
+    // Unlink ONLY. RemoveDir clears the reparse point without following it,
+    // which is the whole point: DelTree would walk through the junction and
+    // delete the contents of the version it points at. When the version being
+    // installed is the one `current` already points at (a repair, or a reinstall
+    // of the same prerelease), that is the bundle [Files] just laid down — the
+    // flip then re-links `current` to an empty folder and the install ends with
+    // "Unable to execute file ... CreateProcess failed; code 2".
+    Result := RemoveDir(CurrentPath)
+  else if DirExists(CurrentPath) then
+    // A *real* directory under this name can only be debris from a botched
+    // earlier flip — no version is ever installed here — so recursing is safe.
+    Result := RemoveDir(CurrentPath) or DelTree(CurrentPath, True, True, True)
+  else
+    Result := True;
+end;
+
+function MakeCurrentLink(const CurrentPath, AppDir: String): Boolean;
 var
   ResultCode: Integer;
+begin
+  // mklink /J — any user can create a junction, unlike a symlink, which needs
+  // Developer Mode/admin. /E:ON forces command extensions on: mklink is an
+  // extension command, so a machine where they are disabled by policy would
+  // otherwise fail with "'mklink' is not recognized".
+  Result := Exec(ExpandConstant('{cmd}'),
+                 '/E:ON /C mklink /J "' + CurrentPath + '" "' + AppDir + '"',
+                 '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+procedure FlipCurrentLink();
+var
   AppDir, CurrentPath: String;
+  Attempt: Integer;
 begin
   CurrentPath := ExpandConstant('{app}\versions\current');
   AppDir := ExpandConstant('{app}\versions\app-{#MyAppVersion}');
 
   // The same atomic re-point the in-app updater performs (see
-  // pivot.updates.layout.Layout.activate): a junction looks like an empty
-  // directory to Windows, so an empty RemoveDir clears the reparse point
-  // without touching the version it pointed at; only a real leftover
-  // directory needs the recursive fallback. Then mklink /J — any user can
-  // create a junction, unlike a symlink, which needs Developer Mode/admin.
-  if DirExists(CurrentPath) then
+  // pivot.updates.layout.Layout.activate). Retried, because an on-access virus
+  // scan of the files that just landed can hold the old link open for a moment.
+  for Attempt := 1 to 3 do
   begin
-    if not RemoveDir(CurrentPath) then
-      DelTree(CurrentPath, True, True, True);
+    if ClearCurrentLink(CurrentPath) and MakeCurrentLink(CurrentPath, AppDir) then
+      // Only the exe being reachable *through* `current` proves the flip worked.
+      // Every shortcut and the post-install launch resolve that path, so a link
+      // that silently didn't take must fail here — while Setup can still say
+      // why — rather than at the user's last click, or later at a dead shortcut.
+      if FileExists(CurrentPath + '\{#MyAppExeName}') then
+        Exit;
+    Sleep(500);
   end;
-  Exec(ExpandConstant('{cmd}'), '/C mklink /J "' + CurrentPath + '" "' + AppDir + '"',
-       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  RaiseException(
+    'Setup could not link' + #13#10 + CurrentPath + #13#10 + 'to this version''s folder.' +
+    #13#10#13#10 +
+    'PIVOT installs each version side by side and points a "current" link at the' +
+    ' active one. That needs an NTFS install location and permission to create a' +
+    ' directory junction. Choosing a different install folder, or excluding this' +
+    ' one from real-time antivirus scanning, usually resolves it.');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
     FlipCurrentLink();
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  // `current` was created from [Code], so the uninstaller has no record of it
+  // and would leave a junction behind pointing at a version it just deleted —
+  // enough to confuse a later reinstall. Unlink it before the version folders go
+  // (ClearCurrentLink never follows it, so this deletes nothing but the link).
+  if CurUninstallStep = usUninstall then
+    ClearCurrentLink(ExpandConstant('{app}\versions\current'));
 end;
