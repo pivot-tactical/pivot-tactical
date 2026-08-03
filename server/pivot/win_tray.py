@@ -14,17 +14,20 @@ background thread while the Win32 message loop owns the main thread (required fo
 ``Shell_NotifyIcon`` and the popup menu).
 """
 
+import logging
 import sys
 import threading
 import webbrowser
 from collections.abc import Callable
 
+logger = logging.getLogger(__name__)
+
 # This module must never be imported on non-Windows platforms.
 if sys.platform != "win32":  # pragma: no cover - guarded by callers
     raise ImportError("win_tray is Windows-only")
 
-import ctypes
-from ctypes import wintypes
+import ctypes  # noqa: E402
+from ctypes import wintypes  # noqa: E402
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
@@ -287,7 +290,7 @@ class TrayApp:
             try:
                 self._on_quit()
             except Exception:
-                pass
+                logger.exception("Error in on_quit callback")
         user32.DestroyWindow(self._hwnd)
 
     # -- setup + loop ------------------------------------------------------ #

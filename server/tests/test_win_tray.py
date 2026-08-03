@@ -120,3 +120,19 @@ def test_create_window_raises_when_window_creation_fails(win_tray_module):
     app = win_tray_module.TrayApp("https://192.168.0.2:8080")
     with pytest.raises(OSError):
         app._create_window()
+
+
+def test_quit_exception_logging(win_tray_module, monkeypatch):
+    # Mock logger to verify exception is called
+    mock_logger = MagicMock()
+    monkeypatch.setattr(win_tray_module, "logger", mock_logger)
+
+    def raising_on_quit():
+        raise Exception("Mock error")
+
+    tray = win_tray_module.TrayApp.__new__(win_tray_module.TrayApp)
+    tray._on_quit = raising_on_quit
+    tray._nid = None
+    tray._hwnd = None
+    tray._quit()
+    mock_logger.exception.assert_called_with("Error in on_quit callback")
