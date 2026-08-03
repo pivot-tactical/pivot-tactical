@@ -7,3 +7,7 @@
 ## 2026-07-13 - [Intl.DateTimeFormat in loops]
 **Learning:** Calling `new Date().toLocaleString` inside loops (like rendering a long list of session history items) is a hidden performance killer because it implicitly creates a new `Intl.DateTimeFormat` instance each time. Profiling shows it takes ~1.9s for 10k iterations vs ~38ms for 10k formats using a cached instance.
 **Action:** Always extract and cache `Intl.DateTimeFormat` instances outside of mapping functions or loops when dealing with lists of data to be formatted, e.g. using a simple Map cache keyed by timezone.
+
+## 2024-08-03 - [Deferred Numpy Processing in High Frequency Accumulation]
+**Learning:** When accumulating numpy arrays from high-frequency calls like `push_tx_audio`, intermediate casting, shaping, or `np.asarray` operations cause noticeable overhead due to extra allocations.
+**Action:** Defer `astype` and `reshape(-1)` to the final `_collect_audio` concatenation step.
