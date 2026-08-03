@@ -341,3 +341,70 @@ describe('InstructorConsole', () => {
     expect(await screen.findByText('No sessions recorded yet.')).toBeInTheDocument();
   });
 });
+
+describe('running event log timestamps', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  // Scope to the event's own row: session divider rows carry a stamp too, so a
+  // bare text query matches more than one element.
+  async function eventRowText(): Promise<string> {
+    const cell = await screen.findByText('helo wrld');
+    return cell.closest('.logrow')!.textContent ?? '';
+  }
+
+  it('shows the date alongside the time', async () => {
+    (api.recentEvents as any).mockResolvedValueOnce([makeEvent()]);
+
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+
+    // timestamp_start is 2026-06-05T12:00:00+00:00.
+    expect(await eventRowText()).toContain('2026-06-05');
+    expect(await eventRowText()).toContain('12:00:00');
+  });
+
+  it('renders the stamp in the configured display timezone, not UTC', async () => {
+    (api.recentEvents as any).mockResolvedValueOnce([makeEvent()]);
+
+    await act(async () => {
+      render(<InstructorConsole timezone="Australia/Sydney" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+
+    // 12:00 UTC on 5 Jun is 22:00 the same day in Sydney (UTC+10, no DST in June).
+    expect(await eventRowText()).toContain('2026-06-05');
+    expect(await eventRowText()).toContain('22:00:00');
+  });
+
+  it('rolls the date over with the timezone, not just the clock', async () => {
+    // 22:30 UTC on 5 Jun is 08:30 on the *6th* in Sydney — the case a time-only
+    // stamp cannot express, and the reason the date is here.
+    (api.recentEvents as any).mockResolvedValueOnce([
+      makeEvent({ timestamp_start: '2026-06-05T22:30:00+00:00' }),
+    ]);
+
+    await act(async () => {
+      render(<InstructorConsole timezone="Australia/Sydney" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+
+    expect(await eventRowText()).toContain('2026-06-06');
+    expect(await eventRowText()).toContain('08:30:00');
+  });
+
+  it('falls back to the stored UTC text when the timezone is rejected', async () => {
+    (api.recentEvents as any).mockResolvedValueOnce([makeEvent()]);
+
+    await act(async () => {
+      render(<InstructorConsole timezone="Not/AZone" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+
+    expect(await eventRowText()).toContain('2026-06-05');
+    expect(await eventRowText()).toContain('12:00:00');
+  });
+});

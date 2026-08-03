@@ -256,7 +256,7 @@ export function InstructorConsole({
       </nav>
 
       <main className="console__body">
-        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} entries={entries} netScenarios={netScenarios} rxLevels={rxLevels} onEventUpdate={updateEvent} />}
+        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} entries={entries} timezone={timezone} netScenarios={netScenarios} rxLevels={rxLevels} onEventUpdate={updateEvent} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
         {tab === "aar" && <AarTab timezone={timezone} />}
         {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} socket={socketRef.current} onRestart={enterRestarting} sessionActive={sessionActive} />}
@@ -283,9 +283,9 @@ function scenarioFor(netScenarios: NetScenario[], hz: number): NetScenario | und
 // handler; the meters poll and decay it at animation rate without re-renders.
 type RxLevels = { current: Record<string, number> };
 
-function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxLevels, onEventUpdate }: {
+function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScenarios, rxLevels, onEventUpdate }: {
   radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
-  entries: LogEntry[]; netScenarios: NetScenario[]; rxLevels: RxLevels;
+  entries: LogEntry[]; timezone: string; netScenarios: NetScenario[]; rxLevels: RxLevels;
   onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
 }) {
   // TX phase per keyed radio (absent = IDLE). Several radios can be keyed at
@@ -399,7 +399,7 @@ function RadiosTab({ radios, socket, audio, onChange, entries, netScenarios, rxL
       {/* Below the radios, right-aligned — out of the way, but never scrolled
           out of sight like a grid tile would be when a row is exactly full. */}
       <button className="instr-radios__add" onClick={addRadio}>+ Add Radio</button>
-      <LiveLogTab entries={entries} onEventUpdate={onEventUpdate} />
+      <LiveLogTab entries={entries} timezone={timezone} onEventUpdate={onEventUpdate} />
     </div>
   );
 }
@@ -565,8 +565,9 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
   );
 }
 
-function LiveLogTab({ entries, onEventUpdate }: {
+function LiveLogTab({ entries, timezone, onEventUpdate }: {
   entries: LogEntry[];
+  timezone: string;
   onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
 }) {
   const [audio] = useState(() => new Audio());
@@ -586,9 +587,11 @@ function LiveLogTab({ entries, onEventUpdate }: {
         {entries.map((entry) => {
           if (entry.kind === "session") {
             const m = entry.marker;
+            const stamp = fmtLogStamp(m.timestamp, timezone);
             return (
               <div className="logrow logrow--session" key={`session-${m.session_id}-${m.type}`}>
-                <span className="mono muted">{m.timestamp.slice(11, 19)}</span>
+                {/* A divider row, not a grid column — room for the full stamp. */}
+                <span className="mono muted">{`${stamp.date} ${stamp.time}`}</span>
                 <span className="logrow__session-label">
                   Session “{m.session_name}” {m.type === "started" ? "started" : "stopped"}
                 </span>
@@ -596,13 +599,17 @@ function LiveLogTab({ entries, onEventUpdate }: {
             );
           }
           const ev = entry.event;
+          const stamp = fmtLogStamp(ev.timestamp_start, timezone);
           return (
             <div className="logrow" key={ev.event_id}>
               <span className="event__play-group">
                 <button className="event__play" onClick={() => play(ev, "clean")} aria-label="Play without noise" title="Play without noise">▶</button>
                 <button className="event__play" onClick={() => play(ev, "dirty")} aria-label="Play with noise (as heard)" title="Play with noise (as heard)">📻</button>
               </span>
-              <span className="mono muted">{ev.timestamp_start.slice(11, 19)}</span>
+              <span className="mono muted logstamp">
+                <span className="logstamp__date">{stamp.date}</span>
+                <span>{stamp.time}</span>
+              </span>
               <span className="mono">{ev.trainee_name}</span>
               <span className="mono">{ev.frequency}</span>
               <span title={ev.tx_mode}>{ev.tx_mode === "Cypher" ? "🔒" : "◌"}</span>
@@ -872,6 +879,43 @@ function fmtDateTime(iso: string, tz: string): string {
     return fmt.format(new Date(iso));
   } catch {
     return iso.slice(0, 16).replace("T", " ");
+  }
+}
+
+// The running log's stamp, split so the row can drop the date when the viewport
+// can't spare the width (see .logstamp__date in styles.css).
+//
+// Deliberately assembled from parts rather than handed to Intl as a whole
+// string: the log is read top-to-bottom as a chronology, so it wants the
+// unambiguous, sortable YYYY-MM-DD HH:MM:SS rather than a locale's own order —
+// 06/05 means two different days either side of the Atlantic, which is exactly
+// the confusion a date is being added to remove. It also keeps the output
+// independent of whatever locale the browser (or CI) happens to run in.
+function fmtLogStamp(iso: string, tz: string): { date: string; time: string } {
+  try {
+    const key = `${tz}|parts`;
+    let fmt = _fmtCache.get(key);
+    if (!fmt) {
+      // hourCycle h23 rather than hour12:false — the latter still renders
+      // midnight as "24" under some locales, which would read as tomorrow.
+      fmt = new Intl.DateTimeFormat("en-GB", {
+        timeZone: tz,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+        hourCycle: "h23",
+      });
+      _fmtCache.set(key, fmt);
+    }
+    const parts = fmt.formatToParts(new Date(iso));
+    const at = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((p) => p.type === type)?.value ?? "";
+    return {
+      date: `${at("year")}-${at("month")}-${at("day")}`,
+      time: `${at("hour")}:${at("minute")}:${at("second")}`,
+    };
+  } catch {
+    // Browser rejected the timezone name: fall back to the stored UTC text.
+    return { date: iso.slice(0, 10), time: iso.slice(11, 19) };
   }
 }
 
