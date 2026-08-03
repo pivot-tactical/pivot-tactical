@@ -439,3 +439,10 @@ def test_emit_to_sink_silently_recovers():
     # _emit_to_sink is a staticmethod
     SessionManager._emit_to_sink(sink, b"data")
     sink.assert_called_once_with(b"data")
+
+def test_session_active(manager):
+    assert not manager.session_active
+    manager.start_session("EX1")
+    assert manager.session_active
+    manager.end_session()
+    assert not manager.session_active
