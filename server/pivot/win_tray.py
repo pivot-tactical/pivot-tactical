@@ -29,9 +29,14 @@ if sys.platform != "win32":  # pragma: no cover - guarded by callers
 import ctypes  # noqa: E402
 from ctypes import wintypes  # noqa: E402
 
-user32 = ctypes.windll.user32
-kernel32 = ctypes.windll.kernel32
-shell32 = ctypes.windll.shell32
+# ``use_last_error=True`` makes ctypes snapshot the Win32 last-error code into a
+# private copy the moment each call returns, read back with
+# ``ctypes.get_last_error()``. Calling ``kernel32.GetLastError()`` afterwards
+# instead reports whatever ctypes' own internals last set, so a failure would be
+# reported with a meaningless error number.
+user32 = ctypes.WinDLL("user32", use_last_error=True)
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+shell32 = ctypes.WinDLL("shell32", use_last_error=True)
 
 # LRESULT / handles are pointer-sized (64-bit on a 64-bit Python). ctypes
 # defaults every function's restype/argtypes to C ``int`` (32-bit), which on x64
@@ -142,6 +147,10 @@ MF_SEPARATOR = 0x0800
 
 SW_HIDE = 0
 SW_SHOW = 5
+
+# RegisterClassW's failure code when the class name is already registered in this
+# process — harmless, and the existing class is reusable.
+ERROR_CLASS_ALREADY_EXISTS = 1410
 
 # Menu command ids.
 ID_OPEN = 1001
@@ -302,14 +311,21 @@ class TrayApp:
         wc.lpfnWndProc = self._wndproc
         wc.hInstance = hinst
         wc.lpszClassName = "PIVOTTrayWindow"
-        user32.RegisterClassW(ctypes.byref(wc))
+        if not user32.RegisterClassW(ctypes.byref(wc)):
+            # Already registered is fine and expected if the tray is set up more
+            # than once in a process — reuse the class. Anything else means
+            # CreateWindowExW below has no class to instantiate, so fail here
+            # where we can still say why.
+            err = ctypes.get_last_error()
+            if err != ERROR_CLASS_ALREADY_EXISTS:
+                raise OSError(err, "RegisterClassW failed for the tray window class")
         # hMenu (10th argument) is 0, not None: its ctypes type is an integer,
         # and integer types reject None.
         self._hwnd = user32.CreateWindowExW(
             0, wc.lpszClassName, "PIVOT", 0, 0, 0, 0, 0, None, 0, hinst, None
         )
         if not self._hwnd:
-            raise OSError(kernel32.GetLastError(), "CreateWindowExW failed for the tray window")
+            raise OSError(ctypes.get_last_error(), "CreateWindowExW failed for the tray window")
 
     def _add_icon(self) -> None:
         hicon = user32.LoadIconW(None, wintypes.LPCWSTR(IDI_APPLICATION))
@@ -321,7 +337,14 @@ class TrayApp:
         nid.uCallbackMessage = WM_TRAYICON
         nid.hIcon = hicon
         nid.szTip = self.tooltip[:127]
-        shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid))
+        # Must be checked. A failure here (Explorer not running yet, or restarting
+        # mid-startup) leaves no icon — and because run_with_tray has already
+        # hidden the console by this point, an unreported failure would drop us
+        # into the message loop with PIVOT running, invisible, and unquittable.
+        # Raising hands control to run_with_tray's fallback, which brings the
+        # console back and keeps serving.
+        if not shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)):
+            raise OSError(ctypes.get_last_error(), "Shell_NotifyIcon(NIM_ADD) failed to add the tray icon")
         self._nid = nid
 
     def run(self) -> None:
