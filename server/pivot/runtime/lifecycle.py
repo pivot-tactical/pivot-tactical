@@ -212,7 +212,7 @@ def app_exe(settings=None) -> str:
         try:
             if candidate.exists():
                 return str(candidate)
-        except OSError:
+        except OSError as exc:
             # Probing the link can fail outright rather than answer False:
             # WinError 448, ERROR_UNTRUSTED_MOUNT_POINT, when `current` was
             # created by a different user than the one reading it. An elevated
@@ -223,7 +223,12 @@ def app_exe(settings=None) -> str:
             # the staged build when an update is pending (see _relauncher_exe),
             # so our own executable is the version we were trying to start.
             # Coming back on the correct version beats not coming back at all.
-            pass
+            #
+            # Say so rather than recovering silently. The relaunch helper points
+            # stdout at relaunch.log, and a degraded start that leaves no trace
+            # is the hardest kind of failure to chase later.
+            print(f"[relaunch] cannot read {candidate}: {exc}")
+            print("[relaunch] falling back to this helper's own executable")
     return sys.executable
 
 

@@ -305,10 +305,15 @@ def _relaunch_after(pid: int, settings: Settings) -> int:
             _apply_staged_for_relaunch(settings)
         except Exception:  # a bad update swap must not stop us coming back up
             traceback.print_exc()
-        print("[relaunch] starting PIVOT again")
         # Go through the `current` link so the freshly activated version is the
         # one that runs — not whatever build this helper happens to live in.
-        spawn_app(app_exe(settings))
+        # Log the resolved path, not just the intent: "started the freshly
+        # activated version" and "fell back to our own exe because the link was
+        # unreadable" are the two outcomes worth telling apart afterwards, and
+        # they are indistinguishable from a bare "starting PIVOT again".
+        target = app_exe(settings)
+        print(f"[relaunch] starting PIVOT again: {target}")
+        spawn_app(target)
         print("[relaunch] done")
         return 0
     except Exception:
