@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pivot.__main__ as entry
 
 
@@ -277,3 +279,104 @@ def test_installer_launches_the_real_version_folder_not_the_link():
     assert entries, "no [Run] entries found in pivot.iss"
     for entry in entries:
         assert r"versions\current" not in entry, entry
+
+
+def test_install_is_writable_for_a_per_user_install(tmp_path):
+    """The default install lives somewhere the user can write — no UAC needed."""
+    from pivot.runtime.lifecycle import install_is_writable
+
+    versions = tmp_path / "versions"
+    assert install_is_writable(versions) is True
+    # The probe must not survive: a stray entry here is picked up by version
+    # discovery walks.
+    assert list(versions.iterdir()) == []
+
+
+def test_install_is_writable_is_false_when_the_tree_cannot_be_created(tmp_path):
+    """An unwritable install (Program Files) is what justifies elevating."""
+    from pivot.runtime.lifecycle import install_is_writable
+
+    # A file where the versions dir should be: mkdir and probe both fail, the
+    # same shape as a directory the process has no write access to.
+    blocker = tmp_path / "versions"
+    blocker.write_text("not a directory")
+
+    assert install_is_writable(blocker) is False
+
+
+def test_relaunch_apply_does_not_elevate_a_writable_install(tmp_path, monkeypatch):
+    """The reported bug: a per-user install prompted for admin credentials.
+
+    Nothing about a LocalAppData install needs elevation — the installer creates
+    that junction unelevated — so the UAC path must not be reached just because
+    we happen not to be admin.
+    """
+    import sys
+
+    import pivot.__main__ as entry
+    from pivot.runtime import lifecycle
+
+    settings = entry.Settings(data_dir=tmp_path / "data", versions_dir=tmp_path / "versions")
+
+    class FakeManager:
+        pending_marker_path = tmp_path / "pending.json"
+
+        def __init__(self, *a, **k):
+            pass
+
+        def read_pending_marker(self, _path):
+            return {"target": "1.2.3"}
+
+    elevated_calls = []
+    monkeypatch.setattr("pivot.updates.manager.UpdateManager", FakeManager)
+    monkeypatch.setattr(lifecycle, "is_elevated", lambda: False)
+    monkeypatch.setattr(lifecycle, "run_elevated_apply",
+                        lambda exe, **k: elevated_calls.append(exe) or 0)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+
+    applied = []
+    monkeypatch.setattr(entry, "_apply_staged", lambda s: applied.append(s))
+
+    entry._apply_staged_for_relaunch(settings)
+
+    assert elevated_calls == [], "writable per-user install must not raise a UAC prompt"
+    assert len(applied) == 1, "the flip should be applied in-process instead"
+
+
+def test_app_exe_survives_an_untraversable_current_link(monkeypatch):
+    """WinError 448 on `current` must not stop the relaunch.
+
+    Reported from a real relaunch.log: an elevated apply created the junction as
+    Administrator, so the non-elevated helper reading it back got
+    ERROR_UNTRUSTED_MOUNT_POINT. The raise escaped app_exe and killed the
+    helper — PIVOT closed on "restart to update" and never came back.
+    """
+    import sys
+
+    from pivot.runtime import lifecycle
+
+    class FakePath:
+        """Stands in for the link probe raising instead of answering False."""
+
+        def __init__(self, value):
+            self._value = str(value)
+
+        @property
+        def name(self):
+            return "PIVOT-Tactical.exe"
+
+        def __truediv__(self, other):
+            return FakePath(f"{self._value}/{other}")
+
+        def exists(self):
+            raise OSError(
+                "[WinError 448] The path cannot be traversed because it "
+                "contains an untrusted mount point"
+            )
+
+    monkeypatch.setattr(lifecycle, "Path", FakePath)
+
+    settings = SimpleNamespace(versions_dir="/anywhere")
+    # Must return something runnable rather than propagate.
+    assert lifecycle.app_exe(settings) == sys.executable

@@ -202,24 +202,33 @@ def _apply_staged(settings: Settings) -> int:
 
 
 def _apply_staged_for_relaunch(settings: Settings) -> None:
-    """Apply a pending update during relaunch, elevating the flip if required.
+    """Apply a pending update during relaunch, elevating the flip only if needed.
 
-    The junction flip needs admin rights in an all-users (Program Files) install
-    — a junction re-pointed by a non-elevated process is rejected on traversal by
-    Windows Redirection Guard (WinError 448). So when something is pending and we
-    are not already elevated, re-run ``--apply-staged`` through a UAC prompt and
-    let the elevated child do the flip. A plain restart (no pending marker) must
-    never prompt, and platforms without this constraint (Linux service, dev runs,
-    already-admin) apply directly in-process.
+    In an all-users (Program Files) install the version tree isn't writable by
+    the person running PIVOT, so the flip has to be re-run through a UAC prompt
+    and performed by an elevated child.
+
+    That is the exception, not the rule. The default install is per-user under
+    ``%LocalAppData%\\Programs`` (packaging/pivot.iss sets
+    ``PrivilegesRequired=lowest`` precisely so self-updates need no admin
+    rights), and there the flip works perfectly well unelevated — the installer
+    itself creates that junction without elevation. Prompting there asks for
+    credentials the user may not even have, to do something they were always
+    allowed to do. So the prompt is gated on the install actually being
+    unwritable, not merely on us not being admin.
+
+    A plain restart (no pending marker) never prompts, and platforms without
+    this constraint (Linux service, dev runs, already-elevated) apply in-process.
     """
-    from pivot.runtime.lifecycle import is_elevated, run_elevated_apply
+    from pivot.runtime.lifecycle import install_is_writable, is_elevated, run_elevated_apply
     from pivot.updates.manager import UpdateManager
 
     mgr = UpdateManager(version_info.version, settings.versions_dir)
     if mgr.read_pending_marker(mgr.pending_marker_path) is None:
         print("No staged update pending.")
         return
-    if sys.platform == "win32" and getattr(sys, "frozen", False) and not is_elevated():
+    if (sys.platform == "win32" and getattr(sys, "frozen", False)
+            and not is_elevated() and not install_is_writable(settings.versions_dir)):
         # Run the flip from the staged build's exe (avoids depending on the
         # current link, which may itself be the broken/untrusted one we're
         # replacing). Fall back to this helper's own exe.
@@ -296,10 +305,15 @@ def _relaunch_after(pid: int, settings: Settings) -> int:
             _apply_staged_for_relaunch(settings)
         except Exception:  # a bad update swap must not stop us coming back up
             traceback.print_exc()
-        print("[relaunch] starting PIVOT again")
         # Go through the `current` link so the freshly activated version is the
         # one that runs — not whatever build this helper happens to live in.
-        spawn_app(app_exe(settings))
+        # Log the resolved path, not just the intent: "started the freshly
+        # activated version" and "fell back to our own exe because the link was
+        # unreadable" are the two outcomes worth telling apart afterwards, and
+        # they are indistinguishable from a bare "starting PIVOT again".
+        target = app_exe(settings)
+        print(f"[relaunch] starting PIVOT again: {target}")
+        spawn_app(target)
         print("[relaunch] done")
         return 0
     except Exception:

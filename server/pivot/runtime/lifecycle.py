@@ -209,8 +209,26 @@ def app_exe(settings=None) -> str:
     exe_name = Path(sys.executable).name
     if settings is not None:
         candidate = Path(settings.versions_dir) / "current" / exe_name
-        if candidate.exists():
-            return str(candidate)
+        try:
+            if candidate.exists():
+                return str(candidate)
+        except OSError as exc:
+            # Probing the link can fail outright rather than answer False:
+            # WinError 448, ERROR_UNTRUSTED_MOUNT_POINT, when `current` was
+            # created by a different user than the one reading it. An elevated
+            # apply used to do exactly that, and the raise propagated out of the
+            # relaunch helper — so PIVOT shut down and never came back.
+            #
+            # Falling through is right, not just safe: the helper is run from
+            # the staged build when an update is pending (see _relauncher_exe),
+            # so our own executable is the version we were trying to start.
+            # Coming back on the correct version beats not coming back at all.
+            #
+            # Say so rather than recovering silently. The relaunch helper points
+            # stdout at relaunch.log, and a degraded start that leaves no trace
+            # is the hardest kind of failure to chase later.
+            print(f"[relaunch] cannot read {candidate}: {exc}")
+            print("[relaunch] falling back to this helper's own executable")
     return sys.executable
 
 
@@ -273,6 +291,35 @@ def is_elevated() -> bool:
         return os.geteuid() == 0
     except AttributeError:  # pragma: no cover - non-POSIX without geteuid
         return False
+
+
+def install_is_writable(versions_dir: Path) -> bool:
+    """Can this process re-point ``current`` without being elevated?
+
+    This is what decides whether applying an update raises a UAC prompt, so it
+    has to distinguish the two install shapes. The default is a *per-user*
+    install under ``%LocalAppData%\\Programs`` — always writable by the person
+    running PIVOT, which is the whole reason packaging/pivot.iss defaults to it
+    (``PrivilegesRequired=lowest``), and which must never prompt. Only an
+    all-users install under Program Files needs the flip run elevated.
+
+    Probes by actually creating a directory rather than reading the ACL:
+    the effective answer depends on the process token, inherited ACEs and the
+    installer's own ``users-modify`` grant on ``versions/``, none of which
+    ``os.access`` models faithfully on Windows. A directory, not a file, because
+    a directory junction is what we are really about to create.
+    """
+    probe = Path(versions_dir) / f".write-probe-{os.getpid()}"
+    try:
+        Path(versions_dir).mkdir(parents=True, exist_ok=True)
+        probe.mkdir()
+    except OSError:
+        return False
+    try:
+        probe.rmdir()
+    except OSError:  # pragma: no cover - created but not removable
+        pass
+    return True
 
 
 def run_elevated_apply(exe: str, timeout: float = 300.0) -> int:  # pragma: no cover - Windows-only
