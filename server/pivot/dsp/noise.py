@@ -205,7 +205,7 @@ class NoiseTexture:
             at = self.rng.integers(0, n, size=n_crashes)
             impulses[at] += self.rng.lognormal(mean=1.0, sigma=0.5, size=n_crashes)
         decay = math.exp(-1.0 / (sr * 0.12))
-        env, zi = sp_signal.lfilter(
+        env, _ = sp_signal.lfilter(
             [1.0], [1.0, -decay], impulses, zi=[self._crash_carry * decay]
         )
         self._crash_carry = float(env[-1])

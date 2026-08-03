@@ -194,3 +194,68 @@ def test_active_version_resolve_error(tmp_path, monkeypatch, error):
 
     monkeypatch.setattr("pathlib.Path.resolve", mock_resolve)
     assert layout.active_version() is None
+
+def test_remove_link_not_exists(tmp_path):
+    from pivot.updates.layout import _remove_link
+
+    link = tmp_path / "does_not_exist"
+    _remove_link(link)
+    assert not link.exists()
+
+
+def test_remove_link_unlink_success(tmp_path, monkeypatch):
+    import os
+
+    from pivot.updates.layout import _remove_link
+
+    link = tmp_path / "fake_link"
+    link.touch()
+
+    unlink_called = []
+
+    def mock_unlink(path):
+        unlink_called.append(path)
+
+    monkeypatch.setattr(os, "unlink", mock_unlink)
+
+    _remove_link(link)
+
+    assert len(unlink_called) == 1
+    assert unlink_called[0] == link
+
+
+def test_prune_no_active_version(tmp_path):
+    from pivot.updates.layout import Layout
+    layout = Layout(tmp_path / "versions")
+    for tag in ["1.0.0", "1.1.0", "1.2.0"]:
+        layout.place_version(tag, _bundle(tmp_path, f"b-{tag}"))
+
+    # no active version
+    layout.prune(keep=2)
+
+    kept = set(layout.installed_versions())
+    assert kept == {"1.2.0", "1.1.0"}
+
+def test_remove_link_unlink_error_fallback(tmp_path, monkeypatch):
+    import os
+
+    from pivot.updates.layout import _remove_link
+
+    link = tmp_path / "fake_link"
+    link.touch()
+
+    def mock_unlink(path):
+        raise OSError("unlink failed")
+
+    rmdir_called = []
+
+    def mock_rmdir(path):
+        rmdir_called.append(path)
+
+    monkeypatch.setattr(os, "unlink", mock_unlink)
+    monkeypatch.setattr(os, "rmdir", mock_rmdir)
+
+    _remove_link(link)
+
+    assert len(rmdir_called) == 1
+    assert rmdir_called[0] == link
