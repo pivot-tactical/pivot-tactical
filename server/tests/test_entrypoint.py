@@ -252,3 +252,28 @@ def test_install_mutex_name_matches_the_installer_script():
 
     iss = Path(__file__).resolve().parents[2] / "packaging" / "pivot.iss"
     assert f"AppMutex={lifecycle._SINGLE_INSTANCE_MUTEX}" in iss.read_text()
+
+
+def test_installer_launches_the_real_version_folder_not_the_link():
+    r"""Setup's own launch must not resolve through ``versions\current``.
+
+    Setup is a hardened installer process and will not traverse a junction
+    written by a non-elevated user, so a [Run] entry pointing through ``current``
+    dies with "CreateProcess failed; code 2" on a link that is perfectly healthy
+    for the Start-menu shortcuts and for PIVOT itself. The shortcuts must keep
+    using the link (they have to track version flips); Setup must not.
+    """
+    from pathlib import Path
+
+    lines = (Path(__file__).resolve().parents[2] / "packaging" / "pivot.iss").read_text().splitlines()
+    start = lines.index("[Run]")
+    section = []
+    for line in lines[start + 1:]:
+        if line.startswith("["):
+            break
+        section.append(line)
+
+    entries = [line for line in section if line.startswith("Filename:")]
+    assert entries, "no [Run] entries found in pivot.iss"
+    for entry in entries:
+        assert r"versions\current" not in entry, entry

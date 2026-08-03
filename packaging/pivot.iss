@@ -98,10 +98,19 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\versions\current\{#MyAppExe
 [Run]
 ; Offer to launch after an interactive install; silent installs skip this
 ; (the in-app update mechanism relaunches PIVOT itself after applying an update).
-; Go through `current` so this always launches whichever build is active — but
-; only once CurrentLinkOK confirms the flip actually took, so a failed flip can
-; never present a Launch checkbox that dies with "CreateProcess failed; code 2".
-Filename: "{app}\versions\current\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "Launch {#MyAppName}"; Check: CurrentLinkOK; Flags: nowait postinstall skipifsilent
+;
+; Launch the REAL version folder, not the `current` link the shortcuts use.
+; Setup cannot follow that junction: it is a hardened installer process, which
+; refuses to traverse a reparse point written by a non-elevated user (the
+; WinError 448 behaviour noted in pivot.updates.layout.Layout.installed_versions).
+; Every other process resolves it fine — Explorer launching the shortcuts, and
+; PIVOT itself — but Setup's own CreateProcess through it fails with
+; "CreateProcess failed; code 2", and its FileExists probe answers False, on a
+; junction that is perfectly healthy. This is the version just installed and
+; activated, so the concrete path launches exactly what `current` points at.
+; Still gated on CurrentLinkOK: if the flip did not take, `current` is wrong and
+; the shortcuts are broken, so offering a launch would be misleading.
+Filename: "{app}\versions\app-{#MyAppVersion}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "Launch {#MyAppName}"; Check: CurrentLinkOK; Flags: nowait postinstall skipifsilent
 
 [Code]
 const
