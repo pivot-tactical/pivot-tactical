@@ -609,6 +609,33 @@ def _process_auto_update(mgr, available: list, token: str | None, result: dict) 
         result["auto_update_error"] = str(exc)
 
 
+def _handle_already_staged(req_tag: str, service) -> dict:
+    if service is not None:
+        service.note_staged(req_tag)
+    return {
+        "staged": True,
+        "tag": req_tag,
+        "already_staged": True,
+        "restart_required": True,
+    }
+
+
+def _download_and_stage(mgr, release, token: str | None, service, req_tag: str) -> str:
+    def _progress(received: int, total: int | None) -> None:
+        if service is not None:
+            service.note_download_progress(req_tag, received, total)
+
+    try:
+        staging_dir = mgr.download_and_stage(release, token, progress_cb=_progress)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if service is not None:
+        service.note_staged(req_tag)
+
+    return str(staging_dir)
+
+
 @router.post("/admin/updates/apply", dependencies=[Depends(require_instructor)])
 def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) -> dict:
     """Apply an update (spec §3.7.5).
@@ -635,14 +662,7 @@ def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) ->
     # Already staged this exact release — skip the redundant download + extract
     # and just tell the client to restart (§3.7.5).
     if mgr.staged_tag() == req.tag:
-        if service is not None:
-            service.note_staged(req.tag)
-        return {
-            "staged": True,
-            "tag": req.tag,
-            "already_staged": True,
-            "restart_required": True,
-        }
+        return _handle_already_staged(req.tag, service)
 
     release = Release(
         tag=req.tag,
@@ -652,22 +672,12 @@ def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) ->
         sig_url=req.sig_url,
     )
 
-    def _progress(received: int, total: int | None) -> None:
-        if service is not None:
-            service.note_download_progress(req.tag, received, total)
-
-    try:
-        staging_dir = mgr.download_and_stage(release, token, progress_cb=_progress)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    if service is not None:
-        service.note_staged(req.tag)
+    staging_dir = _download_and_stage(mgr, release, token, service, req.tag)
 
     return {
         "staged": True,
         "tag": req.tag,
-        "staging": str(staging_dir),
+        "staging": staging_dir,
         "restart_required": True,
     }
 
