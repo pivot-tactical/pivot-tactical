@@ -629,3 +629,56 @@ def test_stage_prevents_path_traversal_zip(tmp_path):
     import pytest
     with pytest.raises(ValueError, match="Path traversal detected"):
         manager.stage(archive, release)
+
+
+def test_activate_same_version_keeps_the_bundle(tmp_path):
+    """Re-activating the tag ``current`` already points at must not gut it.
+
+    The flip removes the existing link before making the new one; if that
+    removal follows the link instead of unlinking it, it deletes the very bundle
+    it is about to re-publish. That leaves ``current`` resolving to an empty
+    folder — on Windows, the installer's post-install launch then fails with
+    "CreateProcess failed; code 2".
+    """
+    from pivot.updates.layout import Layout
+
+    versions = tmp_path / "versions"
+    versions.mkdir()
+    _make_app(versions, "1.0.0")
+    layout = Layout(versions)
+
+    layout.activate("1.0.0")
+    layout.activate("1.0.0")
+
+    assert layout.active_version() == "1.0.0"
+    assert layout.current_exe("PIVOT-Tactical.exe").read_text() == "binary"
+
+
+def test_remove_link_refuses_to_recurse_into_a_held_link(tmp_path, monkeypatch):
+    """A link that can't be unlinked is an error, never a recursive delete.
+
+    Stands in for the Windows case this exists to prevent: a junction held open
+    by an on-access virus scan, where ``rmtree`` would happily walk through the
+    reparse point (``os.path.islink`` reports junctions as False) and wipe the
+    active version's files.
+    """
+    import os as _os
+
+    from pivot.updates import layout as layout_mod
+
+    versions = tmp_path / "versions"
+    versions.mkdir()
+    app_dir = _make_app(versions, "1.0.0")
+    link = versions / "current"
+    link.symlink_to(app_dir, target_is_directory=True)
+
+    def _busy(path, *args, **kwargs):
+        raise OSError("in use")
+
+    monkeypatch.setattr(_os, "unlink", _busy)
+    monkeypatch.setattr(_os, "rmdir", _busy)
+
+    with pytest.raises(OSError, match="Refusing to delete it recursively"):
+        layout_mod._remove_link(link)
+
+    assert (app_dir / "PIVOT-Tactical.exe").read_text() == "binary"

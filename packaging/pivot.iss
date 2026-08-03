@@ -85,42 +85,177 @@ Type: filesandordirs; Name: "{app}\_internal"
 Source: "..\dist\PIVOT-Tactical\*"; DestDir: "{app}\versions\app-{#MyAppVersion}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\versions\current\{#MyAppExeName}"; WorkingDir: "{app}\versions\current"
+; WorkingDir is {app}, NOT the `current` link the exe is launched through.
+; Windows locks a process's current directory, so a PIVOT started from these
+; shortcuts would hold `versions\current` open for as long as it runs — and that
+; is the one directory both this installer and the in-app updater have to unlink
+; to flip to a new version. PIVOT resolves everything it needs from the exe path
+; (see pivot.runtime.lifecycle.install_root), so it never needed the CWD.
+Name: "{group}\{#MyAppName}"; Filename: "{app}\versions\current\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\versions\current\{#MyAppExeName}"; WorkingDir: "{app}\versions\current"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\versions\current\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 ; Offer to launch after an interactive install; silent installs skip this
 ; (the in-app update mechanism relaunches PIVOT itself after applying an update).
-; Go through `current` so this always launches whichever build is active.
-Filename: "{app}\versions\current\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+;
+; Launch the REAL version folder, not the `current` link the shortcuts use.
+; Setup cannot follow that junction: it is a hardened installer process, which
+; refuses to traverse a reparse point written by a non-elevated user (the
+; WinError 448 behaviour noted in pivot.updates.layout.Layout.installed_versions).
+; Every other process resolves it fine — Explorer launching the shortcuts, and
+; PIVOT itself — but Setup's own CreateProcess through it fails with
+; "CreateProcess failed; code 2", and its FileExists probe answers False, on a
+; junction that is perfectly healthy. This is the version just installed and
+; activated, so the concrete path launches exactly what `current` points at.
+; Still gated on CurrentLinkOK: if the flip did not take, `current` is wrong and
+; the shortcuts are broken, so offering a launch would be misleading.
+Filename: "{app}\versions\app-{#MyAppVersion}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "Launch {#MyAppName}"; Check: CurrentLinkOK; Flags: nowait postinstall skipifsilent
 
 [Code]
-procedure FlipCurrentLink();
+const
+  // Set on junctions and symlinks; the flag that tells a link apart from the
+  // real directory it stands in for.
+  FILE_ATTR_REPARSE_POINT = $400;
+
+var
+  // Whether `current` ended up pointing at a version that really has the exe.
+  // Gates the [Run] launch entry via CurrentLinkOK below.
+  FlipSucceeded: Boolean;
+
+function CurrentLinkOK(): Boolean;
+begin
+  Result := FlipSucceeded;
+end;
+
+function IsReparsePoint(const Path: String): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := False;
+  // FindFirst on a full path returns that entry itself, and — unlike DirExists,
+  // which resolves the link — still reports a junction whose target has gone
+  // missing. That dangling shape is exactly what a half-finished flip leaves.
+  if FindFirst(Path, FindRec) then
+  begin
+    Result := (FindRec.Attributes and FILE_ATTR_REPARSE_POINT) <> 0;
+    FindClose(FindRec);
+  end;
+end;
+
+function ClearCurrentLink(const CurrentPath: String): Boolean;
+begin
+  if IsReparsePoint(CurrentPath) then
+    // Unlink ONLY. RemoveDir clears the reparse point without following it,
+    // which is the whole point: DelTree would walk through the junction and
+    // delete the contents of the version it points at. When the version being
+    // installed is the one `current` already points at (a repair, or a reinstall
+    // of the same prerelease), that is the bundle [Files] just laid down — the
+    // flip then re-links `current` to an empty folder and the install ends with
+    // "Unable to execute file ... CreateProcess failed; code 2".
+    Result := RemoveDir(CurrentPath)
+  else if DirExists(CurrentPath) then
+    // A *real* directory under this name can only be debris from a botched
+    // earlier flip — no version is ever installed here — so recursing is safe.
+    Result := RemoveDir(CurrentPath) or DelTree(CurrentPath, True, True, True)
+  else
+    Result := True;
+end;
+
+function MakeCurrentLink(const CurrentPath, AppDir: String): Boolean;
 var
   ResultCode: Integer;
+begin
+  // mklink /J — any user can create a junction, unlike a symlink, which needs
+  // Developer Mode/admin. /E:ON forces command extensions on: mklink is an
+  // extension command, so a machine where they are disabled by policy would
+  // otherwise fail with "'mklink' is not recognized".
+  // Sequenced, not `Exec(...) and (ResultCode = 0)`: that reads ResultCode in
+  // the same expression that assigns it, and Pascal Script does not promise to
+  // evaluate the left operand first.
+  Result := False;
+  if Exec(ExpandConstant('{cmd}'),
+          '/E:ON /C mklink /J "' + CurrentPath + '" "' + AppDir + '"',
+          '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Result := (ResultCode = 0);
+end;
+
+function FlipTook(const CurrentPath, AppDir: String): Boolean;
+begin
+  // Check the link and the payload SEPARATELY. The obvious test — does
+  // CurrentPath + '\<exe>' exist — is wrong here, because it makes Setup walk
+  // through the junction it has just created, and Setup is precisely the
+  // process that cannot: a hardened installer refuses to follow a reparse point
+  // written by a non-elevated user (the same Redirection Guard behaviour noted
+  // in pivot.updates.layout.Layout.installed_versions). It answers False for a
+  // link that is in fact perfect and that every other process — including PIVOT
+  // itself, launched through this very path — resolves without trouble.
+  //
+  // Neither call below traverses: FindFirst reads the reparse point itself, and
+  // the exe is checked in the real version folder we linked to.
+  Result := IsReparsePoint(CurrentPath) and FileExists(AppDir + '\{#MyAppExeName}');
+end;
+
+procedure FlipCurrentLink();
+var
   AppDir, CurrentPath: String;
+  Attempt: Integer;
 begin
   CurrentPath := ExpandConstant('{app}\versions\current');
   AppDir := ExpandConstant('{app}\versions\app-{#MyAppVersion}');
 
   // The same atomic re-point the in-app updater performs (see
-  // pivot.updates.layout.Layout.activate): a junction looks like an empty
-  // directory to Windows, so an empty RemoveDir clears the reparse point
-  // without touching the version it pointed at; only a real leftover
-  // directory needs the recursive fallback. Then mklink /J — any user can
-  // create a junction, unlike a symlink, which needs Developer Mode/admin.
-  if DirExists(CurrentPath) then
+  // pivot.updates.layout.Layout.activate). Retried, because an on-access virus
+  // scan of the files that just landed can hold the old link open for a moment.
+  //
+  // Nested rather than `Clear(...) and Make(...)`: Pascal Script does not
+  // promise to evaluate operands left to right, and these two are ordered
+  // operations — running Make first would fail on the existing link and let
+  // Clear delete what Make had just built.
+  for Attempt := 1 to 3 do
   begin
-    if not RemoveDir(CurrentPath) then
-      DelTree(CurrentPath, True, True, True);
+    if ClearCurrentLink(CurrentPath) then
+      if MakeCurrentLink(CurrentPath, AppDir) then
+        if FlipTook(CurrentPath, AppDir) then
+        begin
+          FlipSucceeded := True;
+          Exit;
+        end;
+    Sleep(500);
   end;
-  Exec(ExpandConstant('{cmd}'), '/C mklink /J "' + CurrentPath + '" "' + AppDir + '"',
-       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  // Reported, not raised: an exception here surfaces as "Runtime error (at
+  // 11:1368)" — which reads as a crash in Setup — and does not stop Setup
+  // reaching the Finished page anyway. CurrentLinkOK suppresses the launch.
+  // NB: never start a continuation line with #13/#10 — ISPP reads a leading '#'
+  // as a preprocessor directive and aborts before the [Code] section compiles.
+  MsgBox(
+    'Setup could not point' + #13#10
+    + CurrentPath + #13#10
+    + 'at this version''s folder, so PIVOT has not been activated.' + #13#10 + #13#10
+    + 'The usual cause is PIVOT still running: it keeps that link open, and on'
+    + ' Windows a folder cannot be unlinked while a running program is using it.'
+    + ' PIVOT hides in the notification area (system tray) rather than showing a'
+    + ' window, so check there — quit it from the tray icon, then run this'
+    + ' installer again.' + #13#10 + #13#10
+    + 'Failing that, the install location must be on an NTFS drive and allow'
+    + ' creating a directory junction; excluding the folder from real-time'
+    + ' antivirus scanning also resolves it.',
+    mbError, MB_OK);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
     FlipCurrentLink();
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  // `current` was created from [Code], so the uninstaller has no record of it
+  // and would leave a junction behind pointing at a version it just deleted —
+  // enough to confuse a later reinstall. Unlink it before the version folders go
+  // (ClearCurrentLink never follows it, so this deletes nothing but the link).
+  if CurUninstallStep = usUninstall then
+    ClearCurrentLink(ExpandConstant('{app}\versions\current'));
 end;
