@@ -275,6 +275,35 @@ def is_elevated() -> bool:
         return False
 
 
+def install_is_writable(versions_dir: Path) -> bool:
+    """Can this process re-point ``current`` without being elevated?
+
+    This is what decides whether applying an update raises a UAC prompt, so it
+    has to distinguish the two install shapes. The default is a *per-user*
+    install under ``%LocalAppData%\\Programs`` — always writable by the person
+    running PIVOT, which is the whole reason packaging/pivot.iss defaults to it
+    (``PrivilegesRequired=lowest``), and which must never prompt. Only an
+    all-users install under Program Files needs the flip run elevated.
+
+    Probes by actually creating a directory rather than reading the ACL:
+    the effective answer depends on the process token, inherited ACEs and the
+    installer's own ``users-modify`` grant on ``versions/``, none of which
+    ``os.access`` models faithfully on Windows. A directory, not a file, because
+    a directory junction is what we are really about to create.
+    """
+    probe = Path(versions_dir) / f".write-probe-{os.getpid()}"
+    try:
+        Path(versions_dir).mkdir(parents=True, exist_ok=True)
+        probe.mkdir()
+    except OSError:
+        return False
+    try:
+        probe.rmdir()
+    except OSError:  # pragma: no cover - created but not removable
+        pass
+    return True
+
+
 def run_elevated_apply(exe: str, timeout: float = 300.0) -> int:  # pragma: no cover - Windows-only
     """Re-run ``--apply-staged`` elevated (UAC) and wait for it to finish.
 
