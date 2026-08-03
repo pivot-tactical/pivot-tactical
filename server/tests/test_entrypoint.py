@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pivot.__main__ as entry
 
 
@@ -340,3 +342,41 @@ def test_relaunch_apply_does_not_elevate_a_writable_install(tmp_path, monkeypatc
 
     assert elevated_calls == [], "writable per-user install must not raise a UAC prompt"
     assert len(applied) == 1, "the flip should be applied in-process instead"
+
+
+def test_app_exe_survives_an_untraversable_current_link(monkeypatch):
+    """WinError 448 on `current` must not stop the relaunch.
+
+    Reported from a real relaunch.log: an elevated apply created the junction as
+    Administrator, so the non-elevated helper reading it back got
+    ERROR_UNTRUSTED_MOUNT_POINT. The raise escaped app_exe and killed the
+    helper — PIVOT closed on "restart to update" and never came back.
+    """
+    import sys
+
+    from pivot.runtime import lifecycle
+
+    class FakePath:
+        """Stands in for the link probe raising instead of answering False."""
+
+        def __init__(self, value):
+            self._value = str(value)
+
+        @property
+        def name(self):
+            return "PIVOT-Tactical.exe"
+
+        def __truediv__(self, other):
+            return FakePath(f"{self._value}/{other}")
+
+        def exists(self):
+            raise OSError(
+                "[WinError 448] The path cannot be traversed because it "
+                "contains an untrusted mount point"
+            )
+
+    monkeypatch.setattr(lifecycle, "Path", FakePath)
+
+    settings = SimpleNamespace(versions_dir="/anywhere")
+    # Must return something runnable rather than propagate.
+    assert lifecycle.app_exe(settings) == sys.executable

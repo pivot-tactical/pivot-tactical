@@ -209,8 +209,21 @@ def app_exe(settings=None) -> str:
     exe_name = Path(sys.executable).name
     if settings is not None:
         candidate = Path(settings.versions_dir) / "current" / exe_name
-        if candidate.exists():
-            return str(candidate)
+        try:
+            if candidate.exists():
+                return str(candidate)
+        except OSError:
+            # Probing the link can fail outright rather than answer False:
+            # WinError 448, ERROR_UNTRUSTED_MOUNT_POINT, when `current` was
+            # created by a different user than the one reading it. An elevated
+            # apply used to do exactly that, and the raise propagated out of the
+            # relaunch helper — so PIVOT shut down and never came back.
+            #
+            # Falling through is right, not just safe: the helper is run from
+            # the staged build when an update is pending (see _relauncher_exe),
+            # so our own executable is the version we were trying to start.
+            # Coming back on the correct version beats not coming back at all.
+            pass
     return sys.executable
 
 
