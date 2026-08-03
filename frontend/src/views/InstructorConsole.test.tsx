@@ -365,9 +365,12 @@ describe('running event log timestamps', () => {
       render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
     });
 
-    // timestamp_start is 2026-06-05T12:00:00+00:00.
-    expect(await eventRowText()).toContain('2026-06-05');
-    expect(await eventRowText()).toContain('12:00:00');
+    // timestamp_start is 2026-06-05T12:00:00+00:00. Assert the two spans
+    // exactly, so the DD MMM YY HH:MM:SS shape itself is pinned.
+    const cell = await screen.findByText('helo wrld');
+    const row = cell.closest('.logrow')!;
+    expect(row.querySelector('.logstamp__date')!.textContent).toBe('05 Jun 26');
+    expect(row.querySelector('.logstamp')!.children[1].textContent).toBe('12:00:00');
   });
 
   it('renders the stamp in the configured display timezone, not UTC', async () => {
@@ -378,7 +381,7 @@ describe('running event log timestamps', () => {
     });
 
     // 12:00 UTC on 5 Jun is 22:00 the same day in Sydney (UTC+10, no DST in June).
-    expect(await eventRowText()).toContain('2026-06-05');
+    expect(await eventRowText()).toContain('05 Jun 26');
     expect(await eventRowText()).toContain('22:00:00');
   });
 
@@ -393,7 +396,7 @@ describe('running event log timestamps', () => {
       render(<InstructorConsole timezone="Australia/Sydney" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
     });
 
-    expect(await eventRowText()).toContain('2026-06-06');
+    expect(await eventRowText()).toContain('06 Jun 26');
     expect(await eventRowText()).toContain('08:30:00');
   });
 
@@ -404,7 +407,7 @@ describe('running event log timestamps', () => {
       render(<InstructorConsole timezone="Not/AZone" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
     });
 
-    expect(await eventRowText()).toContain('2026-06-05');
+    expect(await eventRowText()).toContain('05 Jun 26');
     expect(await eventRowText()).toContain('12:00:00');
   });
 });

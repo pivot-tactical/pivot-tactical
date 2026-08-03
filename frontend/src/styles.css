@@ -351,8 +351,8 @@ body {
 
 .logcard { flex: 1 1 0; min-height: 180px; display: flex; flex-direction: column; }
 .log { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
-/* Column 2 fits "YYYY-MM-DD HH:MM:SS" on one line at this font size. */
-.logrow { display: grid; grid-template-columns: 64px 152px 110px 100px 24px 130px 1fr; align-items: center; gap: 10px; padding: 7px 6px; border-bottom: 1px solid var(--line); font-size: 13px; }
+/* Column 2 fits "03 Aug 26 03:30:34" on one line at this font size. */
+.logrow { display: grid; grid-template-columns: 64px 146px 110px 100px 24px 130px 1fr; align-items: center; gap: 10px; padding: 7px 6px; border-bottom: 1px solid var(--line); font-size: 13px; }
 /* Date and time sit side by side so the date can be dropped on narrow screens
    (see the max-width rule below) without disturbing the rest of the row. */
 .logstamp { display: flex; gap: 6px; white-space: nowrap; }

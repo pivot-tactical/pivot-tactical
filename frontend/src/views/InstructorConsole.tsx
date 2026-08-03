@@ -882,15 +882,19 @@ function fmtDateTime(iso: string, tz: string): string {
   }
 }
 
-// The running log's stamp, split so the row can drop the date when the viewport
-// can't spare the width (see .logstamp__date in styles.css).
+const _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// The running log's stamp — "03 Aug 26 03:30:34" — split so the row can drop the
+// date when the viewport can't spare the width (see .logstamp__date in
+// styles.css).
 //
-// Deliberately assembled from parts rather than handed to Intl as a whole
-// string: the log is read top-to-bottom as a chronology, so it wants the
-// unambiguous, sortable YYYY-MM-DD HH:MM:SS rather than a locale's own order —
-// 06/05 means two different days either side of the Atlantic, which is exactly
-// the confusion a date is being added to remove. It also keeps the output
-// independent of whatever locale the browser (or CI) happens to run in.
+// Assembled from parts against a pinned locale rather than handed to Intl as a
+// whole string. A named month is what makes it unambiguous: 06/05 is two
+// different days either side of the Atlantic, which is exactly the confusion a
+// date is being added to remove. Pinning the locale then keeps the month
+// spelling and the field order identical wherever it renders, so the output
+// doesn't drift with the browser's (or CI's) own locale.
 function fmtLogStamp(iso: string, tz: string): { date: string; time: string } {
   try {
     const key = `${tz}|parts`;
@@ -900,7 +904,7 @@ function fmtLogStamp(iso: string, tz: string): { date: string; time: string } {
       // midnight as "24" under some locales, which would read as tomorrow.
       fmt = new Intl.DateTimeFormat("en-GB", {
         timeZone: tz,
-        year: "numeric", month: "2-digit", day: "2-digit",
+        year: "2-digit", month: "short", day: "2-digit",
         hour: "2-digit", minute: "2-digit", second: "2-digit",
         hourCycle: "h23",
       });
@@ -910,12 +914,16 @@ function fmtLogStamp(iso: string, tz: string): { date: string; time: string } {
     const at = (type: Intl.DateTimeFormatPartTypes) =>
       parts.find((p) => p.type === type)?.value ?? "";
     return {
-      date: `${at("year")}-${at("month")}-${at("day")}`,
+      date: `${at("day")} ${at("month")} ${at("year")}`,
       time: `${at("hour")}:${at("minute")}:${at("second")}`,
     };
   } catch {
-    // Browser rejected the timezone name: fall back to the stored UTC text.
-    return { date: iso.slice(0, 10), time: iso.slice(11, 19) };
+    // Browser rejected the timezone name: fall back to the stored UTC text,
+    // reshaped to the same layout so the column doesn't change form.
+    return {
+      date: `${iso.slice(8, 10)} ${_MONTHS[Number(iso.slice(5, 7)) - 1] ?? "???"} ${iso.slice(2, 4)}`,
+      time: iso.slice(11, 19),
+    };
   }
 }
 
