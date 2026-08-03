@@ -349,6 +349,14 @@ def main(argv: list[str] | None = None) -> int:
         return _rollback(settings, args.rollback or None)
     if args.relaunch_after is not None:
         return _relaunch_after(args.relaunch_after, settings)
+    # Announce ourselves to the Windows installer before doing any real work, so
+    # a Setup started while PIVOT is running asks the user to close it rather
+    # than installing over a live one it cannot re-point (see
+    # pivot.runtime.lifecycle.publish_install_mutex).
+    from pivot.runtime.lifecycle import publish_install_mutex
+
+    publish_install_mutex()
+
     db = init_database(settings)
     manager = SessionManager(db, settings)
 

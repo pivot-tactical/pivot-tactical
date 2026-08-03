@@ -85,21 +85,39 @@ Type: filesandordirs; Name: "{app}\_internal"
 Source: "..\dist\PIVOT-Tactical\*"; DestDir: "{app}\versions\app-{#MyAppVersion}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\versions\current\{#MyAppExeName}"; WorkingDir: "{app}\versions\current"
+; WorkingDir is {app}, NOT the `current` link the exe is launched through.
+; Windows locks a process's current directory, so a PIVOT started from these
+; shortcuts would hold `versions\current` open for as long as it runs — and that
+; is the one directory both this installer and the in-app updater have to unlink
+; to flip to a new version. PIVOT resolves everything it needs from the exe path
+; (see pivot.runtime.lifecycle.install_root), so it never needed the CWD.
+Name: "{group}\{#MyAppName}"; Filename: "{app}\versions\current\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\versions\current\{#MyAppExeName}"; WorkingDir: "{app}\versions\current"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\versions\current\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 ; Offer to launch after an interactive install; silent installs skip this
 ; (the in-app update mechanism relaunches PIVOT itself after applying an update).
-; Go through `current` so this always launches whichever build is active.
-Filename: "{app}\versions\current\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+; Go through `current` so this always launches whichever build is active — but
+; only once CurrentLinkOK confirms the flip actually took, so a failed flip can
+; never present a Launch checkbox that dies with "CreateProcess failed; code 2".
+Filename: "{app}\versions\current\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "Launch {#MyAppName}"; Check: CurrentLinkOK; Flags: nowait postinstall skipifsilent
 
 [Code]
 const
   // Set on junctions and symlinks; the flag that tells a link apart from the
   // real directory it stands in for.
   FILE_ATTR_REPARSE_POINT = $400;
+
+var
+  // Whether `current` ended up pointing at a version that really has the exe.
+  // Gates the [Run] launch entry via CurrentLinkOK below.
+  FlipSucceeded: Boolean;
+
+function CurrentLinkOK(): Boolean;
+begin
+  Result := FlipSucceeded;
+end;
 
 function IsReparsePoint(const Path: String): Boolean;
 var
@@ -164,23 +182,34 @@ begin
     if ClearCurrentLink(CurrentPath) and MakeCurrentLink(CurrentPath, AppDir) then
       // Only the exe being reachable *through* `current` proves the flip worked.
       // Every shortcut and the post-install launch resolve that path, so a link
-      // that silently didn't take must fail here — while Setup can still say
-      // why — rather than at the user's last click, or later at a dead shortcut.
+      // that silently didn't take must be caught here — while Setup can still
+      // say why — rather than at the user's last click or a dead shortcut.
       if FileExists(CurrentPath + '\{#MyAppExeName}') then
+      begin
+        FlipSucceeded := True;
         Exit;
+      end;
     Sleep(500);
   end;
 
+  // Reported, not raised: an exception here surfaces as "Runtime error (at
+  // 11:1368)" — which reads as a crash in Setup — and does not stop Setup
+  // reaching the Finished page anyway. CurrentLinkOK suppresses the launch.
   // NB: never start a continuation line with #13/#10 — ISPP reads a leading '#'
   // as a preprocessor directive and aborts before the [Code] section compiles.
-  RaiseException(
-    'Setup could not link' + #13#10
+  MsgBox(
+    'Setup could not point' + #13#10
     + CurrentPath + #13#10
-    + 'to this version''s folder.' + #13#10 + #13#10
-    + 'PIVOT installs each version side by side and points a "current" link at the'
-    + ' active one. That needs an NTFS install location and permission to create a'
-    + ' directory junction. Choosing a different install folder, or excluding this'
-    + ' one from real-time antivirus scanning, usually resolves it.');
+    + 'at this version''s folder, so PIVOT has not been activated.' + #13#10 + #13#10
+    + 'The usual cause is PIVOT still running: it keeps that link open, and on'
+    + ' Windows a folder cannot be unlinked while a running program is using it.'
+    + ' PIVOT hides in the notification area (system tray) rather than showing a'
+    + ' window, so check there — quit it from the tray icon, then run this'
+    + ' installer again.' + #13#10 + #13#10
+    + 'Failing that, the install location must be on an NTFS drive and allow'
+    + ' creating a directory junction; excluding the folder from real-time'
+    + ' antivirus scanning also resolves it.',
+    mbError, MB_OK);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

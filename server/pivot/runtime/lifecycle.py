@@ -46,6 +46,37 @@ def install_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+# The name packaging/pivot.iss declares as AppMutex. Keep the two in step.
+_SINGLE_INSTANCE_MUTEX = "PIVOT-Tactical-Single-Instance"
+
+# Held for the life of the process; a mutex dies with its last handle.
+_mutex_handle: int | None = None
+
+
+def publish_install_mutex() -> None:
+    """Create the named mutex the Windows installer watches for.
+
+    Inno Setup's ``AppMutex`` is what makes Setup stop and say "close PIVOT
+    before continuing" instead of installing over a live one. It only works if
+    something actually creates the name — nothing did, so Setup went ahead
+    silently every time. That matters beyond tidiness: a running PIVOT holds the
+    ``versions/current`` link open, and the installer cannot flip to the new
+    version until it exits. Best-effort and Windows-only; failing to publish the
+    mutex must never stop the server from starting.
+    """
+    global _mutex_handle
+    if sys.platform != "win32" or _mutex_handle is not None:  # pragma: no cover
+        return
+    try:  # pragma: no cover - Windows-only
+        import ctypes
+
+        handle = ctypes.windll.kernel32.CreateMutexW(None, False, _SINGLE_INSTANCE_MUTEX)
+        if handle:
+            _mutex_handle = handle
+    except Exception:
+        pass
+
+
 # Windows process-creation flags (avoid importing for their values on POSIX).
 _DETACHED_PROCESS = 0x00000008
 _CREATE_NEW_PROCESS_GROUP = 0x00000200
@@ -150,6 +181,15 @@ def spawn_relauncher(settings=None) -> None:
     """
     exe = _relauncher_exe(settings)
     kwargs: dict = {"close_fds": True}
+    # Never let the helper's working directory sit inside the versions tree.
+    # Windows locks a process's CWD, and this helper is the one that flips
+    # `versions/current` — inheriting ours would have it holding open the very
+    # link it has to unlink, which is precisely the deadlock when PIVOT was
+    # started from a shortcut pointing into `current`.
+    try:
+        kwargs["cwd"] = str(install_root())
+    except Exception:
+        pass
     if sys.platform == "win32":  # pragma: no cover - Windows-only
         kwargs["creationflags"] = (
             _DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW

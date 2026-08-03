@@ -202,3 +202,53 @@ def test_lan_ip_fallback_on_oserror(monkeypatch):
 
     assert ip == "127.0.0.1"
     mock_socket_instance.connect.assert_called_once_with(("8.8.8.8", 80))
+
+
+def test_spawn_relauncher_works_outside_the_versions_tree(monkeypatch):
+    """The relaunch helper must not have its CWD inside ``versions/``.
+
+    Windows locks a process's current directory, and this helper is the one that
+    unlinks ``versions/current`` to flip versions. Launched from a shortcut whose
+    WorkingDir pointed into ``current``, it inherited that CWD and held open the
+    very link it had to remove — the install/update then failed to activate.
+    """
+    from pathlib import Path
+
+    from pivot.runtime import lifecycle
+
+    captured = {}
+
+    def fake_popen(argv, **kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(lifecycle.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(lifecycle, "_relauncher_exe", lambda settings: "pivot.exe")
+    monkeypatch.setattr(lifecycle, "install_root", lambda: Path("/opt/pivot"))
+
+    lifecycle.spawn_relauncher()
+
+    assert captured["cwd"] == str(Path("/opt/pivot"))
+    assert "versions" not in Path(captured["cwd"]).parts
+
+
+def test_publish_install_mutex_is_a_noop_off_windows(monkeypatch):
+    """The installer's AppMutex is Windows-only; elsewhere it must do nothing."""
+    from pivot.runtime import lifecycle
+
+    monkeypatch.setattr(lifecycle.sys, "platform", "linux")
+    monkeypatch.setattr(lifecycle, "_mutex_handle", None)
+
+    lifecycle.publish_install_mutex()
+
+    assert lifecycle._mutex_handle is None
+
+
+def test_install_mutex_name_matches_the_installer_script():
+    """A name that drifts from pivot.iss silently disables Setup's check."""
+    from pathlib import Path
+
+    from pivot.runtime import lifecycle
+
+    iss = Path(__file__).resolve().parents[2] / "packaging" / "pivot.iss"
+    assert f"AppMutex={lifecycle._SINGLE_INSTANCE_MUTEX}" in iss.read_text()
