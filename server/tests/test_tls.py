@@ -1,4 +1,4 @@
-"""Self-signed TLS for the secure-context fix (mic capture over the LAN)."""
+"""Self-signed TLS for the secure context requirement (mic capture over the LAN)."""
 
 from __future__ import annotations
 

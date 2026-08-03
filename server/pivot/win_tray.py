@@ -40,25 +40,31 @@ LRESULT = ctypes.c_ssize_t
 HMENU = ctypes.c_uint64
 HWND = wintypes.HWND
 
+# CreateWindowExW's parameter list, kept as a module constant so the call site
+# can be checked against it in tests. Note that HMENU is an *integer* type:
+# ctypes rejects ``None`` for those ("argument 10: TypeError: wrong type"), so
+# the hMenu slot must be passed as 0, not None.
+CREATE_WINDOW_EX_ARGTYPES = [
+    wintypes.DWORD,  # dwExStyle
+    wintypes.LPCWSTR,  # lpClassName
+    wintypes.LPCWSTR,  # lpWindowName
+    wintypes.DWORD,  # dwStyle
+    ctypes.c_int,  # X
+    ctypes.c_int,  # Y
+    ctypes.c_int,  # nWidth
+    ctypes.c_int,  # nHeight
+    HWND,  # hWndParent
+    HMENU,  # hMenu
+    wintypes.HINSTANCE,  # hInstance
+    wintypes.LPVOID,  # lpParam
+]
+
 
 def _configure_win32_prototypes() -> None:
     user32.DefWindowProcW.restype = LRESULT
     user32.DefWindowProcW.argtypes = [HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
     user32.CreateWindowExW.restype = HWND
-    user32.CreateWindowExW.argtypes = [
-        wintypes.DWORD,
-        wintypes.LPCWSTR,
-        wintypes.LPCWSTR,
-        wintypes.DWORD,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        HWND,
-        HMENU,
-        wintypes.HINSTANCE,
-        wintypes.LPVOID,
-    ]
+    user32.CreateWindowExW.argtypes = CREATE_WINDOW_EX_ARGTYPES
     user32.DestroyWindow.argtypes = [HWND]
     user32.ShowWindow.argtypes = [HWND, ctypes.c_int]
     user32.SetForegroundWindow.restype = wintypes.BOOL
@@ -294,9 +300,13 @@ class TrayApp:
         wc.hInstance = hinst
         wc.lpszClassName = "PIVOTTrayWindow"
         user32.RegisterClassW(ctypes.byref(wc))
+        # hMenu (10th argument) is 0, not None: its ctypes type is an integer,
+        # and integer types reject None.
         self._hwnd = user32.CreateWindowExW(
-            0, wc.lpszClassName, "PIVOT", 0, 0, 0, 0, 0, None, None, hinst, None
+            0, wc.lpszClassName, "PIVOT", 0, 0, 0, 0, 0, None, 0, hinst, None
         )
+        if not self._hwnd:
+            raise OSError(kernel32.GetLastError(), "CreateWindowExW failed for the tray window")
 
     def _add_icon(self) -> None:
         hicon = user32.LoadIconW(None, wintypes.LPCWSTR(IDI_APPLICATION))
@@ -326,9 +336,20 @@ def run_with_tray(serve: Callable[[], None], url: str, tooltip: str = "PIVOT —
 
     ``serve`` should block (it runs uvicorn). Quitting from the tray menu tears
     the icon down and exits the process — uvicorn dies with the daemon thread.
+
+    The tray is a convenience, never a prerequisite: if any part of it fails
+    (a Win32 call, or Explorer not running to host the icon) the console comes
+    back and the server keeps serving instead of taking the whole app down.
     """
     hide_console()
-    threading.Thread(target=serve, name="pivot-server", daemon=True).start()
-    app = TrayApp(url, on_quit=lambda: None, tooltip=tooltip)
-    app.run()
+    thread = threading.Thread(target=serve, name="pivot-server", daemon=True)
+    thread.start()
+    try:
+        app = TrayApp(url, on_quit=lambda: None, tooltip=tooltip)
+        app.run()
+    except Exception as exc:  # pragma: no cover - Win32 failure path
+        _show_console(True)
+        print(f"  NOTE: the tray icon could not be created ({exc}).")
+        print("  PIVOT is still running — close this window to stop it.")
+        thread.join()
     # Tray loop returned (Quit chosen): drop out so the process exits.
