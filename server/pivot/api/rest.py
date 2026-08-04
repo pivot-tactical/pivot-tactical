@@ -89,7 +89,7 @@ def login(
         if not req.password or not auth.verify(req.password):
             raise HTTPException(status_code=401, detail="invalid instructor password")
         token = auth.issue_token()
-        response.set_cookie(key="pivot_token", value=token, httponly=True, samesite="lax")
+        response.set_cookie(key="pivot_token", value=token, httponly=True, secure=True, samesite="lax")
         return LoginResponse(
             role="instructor",
             token=None,
@@ -114,7 +114,7 @@ def refresh_token(response: Response, auth=Depends(get_auth)) -> dict:
     mid-exercise). A failure (401) means the token is gone — show the login.
     """
     token = auth.issue_token()
-    response.set_cookie(key="pivot_token", value=token, httponly=True, samesite="lax")
+    response.set_cookie(key="pivot_token", value=token, httponly=True, secure=True, samesite="lax")
     return {"token": None, "must_change_password": auth.is_default()}
 
 
@@ -124,7 +124,7 @@ def logout(request: Request, response: Response, auth=Depends(get_auth)) -> dict
     from pivot.api.deps import _extract_token
 
     auth.revoke(_extract_token(request, request.headers.get("authorization")))
-    response.delete_cookie(key="pivot_token", httponly=True, samesite="lax")
+    response.delete_cookie(key="pivot_token", httponly=True, secure=True, samesite="lax")
     return {"ok": True}
 
 
