@@ -20,8 +20,6 @@ from pivot.dsp.noise import NoiseTexture, noise_component_weights
 SR = 16_000
 FRAME = 320  # 20 ms
 
-NET = 14_250_000.0
-
 
 def _conditions(mhz: float, **scenario):
     profile = BandProfile()
