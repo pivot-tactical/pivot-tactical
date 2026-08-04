@@ -40,4 +40,14 @@ describe('App', () => {
       expect(screen.getByText(/Log in as instructor/i)).toBeInTheDocument();
     });
   });
+
+  it('handles api.status rejection without crashing and renders login view', async () => {
+    vi.mocked(api.status).mockRejectedValueOnce(new Error('Network error'));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Log in as instructor/i)).toBeInTheDocument();
+    });
+  });
 });
