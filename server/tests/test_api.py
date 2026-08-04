@@ -830,6 +830,7 @@ def test_logout_clears_cookie_and_revokes_token(client, monkeypatch):
     assert 'pivot_token=""' in set_cookie
     assert "Max-Age=0" in set_cookie
     assert "HttpOnly" in set_cookie
+    assert "Secure" in set_cookie
 
 
 def test_logout_with_authorization_header(client, monkeypatch):
