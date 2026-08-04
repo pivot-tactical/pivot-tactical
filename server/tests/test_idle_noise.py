@@ -223,11 +223,11 @@ def test_noise_stops_after_session_ends(manager):
 
 def test_idle_noise_amplitude():
     from pivot.dsp.noise import (
-        idle_noise_amplitude,
-        IDLE_NOISE_RMS_NOISY,
-        IDLE_NOISE_RMS_CLEAN,
-        _IDLE_SNR_FLOOR_DB,
         _IDLE_SNR_CEIL_DB,
+        _IDLE_SNR_FLOOR_DB,
+        IDLE_NOISE_RMS_CLEAN,
+        IDLE_NOISE_RMS_NOISY,
+        idle_noise_amplitude,
     )
 
     # Below floor SNR

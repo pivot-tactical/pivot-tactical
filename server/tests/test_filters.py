@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 
 from pivot.dsp.filters import (
-    cached_butter,
     bandpass,
     bandstop,
+    cached_butter,
     highpass,
     lowpass,
     normalise_rms,

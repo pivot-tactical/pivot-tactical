@@ -221,7 +221,9 @@ def test_ptt_click_level():
     assert np.allclose(click1 * 2, click2)
 # --- fading ---------------------------------------------------------------- #
 import dataclasses
+
 from pivot.dsp.fading import apply_fading, flat_fading_gain
+
 
 def test_flat_fading_gain_empty():
     rng = np.random.default_rng(0)

@@ -763,7 +763,9 @@ def test_maybe_start_transcription_no_whisper():
 
 def test_auth_refresh_mocked(settings):
     from unittest.mock import MagicMock
+
     from fastapi.testclient import TestClient
+
     from pivot.api.app import create_app
     from pivot.api.deps import get_auth, require_instructor
 
@@ -788,6 +790,7 @@ def test_auth_refresh_mocked(settings):
 
 def test_session_events_mocked(client, monkeypatch):
     from unittest.mock import MagicMock
+
     from pivot.api.deps import get_manager
 
     mock_manager = MagicMock()
@@ -810,6 +813,7 @@ def test_session_events_mocked(client, monkeypatch):
 
 def test_logout_clears_cookie_and_revokes_token(client, monkeypatch):
     from unittest.mock import MagicMock
+
     from pivot.api.deps import get_auth
 
     mock_auth = MagicMock()
@@ -835,6 +839,7 @@ def test_logout_clears_cookie_and_revokes_token(client, monkeypatch):
 
 def test_logout_with_authorization_header(client, monkeypatch):
     from unittest.mock import MagicMock
+
     from pivot.api.deps import get_auth
 
     mock_auth = MagicMock()
@@ -852,6 +857,7 @@ def test_logout_with_authorization_header(client, monkeypatch):
 
 def test_logout_no_token(client, monkeypatch):
     from unittest.mock import MagicMock
+
     from pivot.api.deps import get_auth
 
     mock_auth = MagicMock()

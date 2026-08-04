@@ -110,7 +110,7 @@ def test_resolve_timezone_key_error_fallback():
         assert resolve_timezone("Some/Zone").key == "UTC"
 
 def test_get_version_info_without_buildinfo(monkeypatch):
-    from pivot.version import get_version_info, __version__
+    from pivot.version import __version__, get_version_info
     monkeypatch.setattr("pivot.version._read_buildinfo", lambda: None)
     monkeypatch.setattr("pivot.version._discover_git_sha", lambda: "abcdef1")
     info = get_version_info()
@@ -119,7 +119,7 @@ def test_get_version_info_without_buildinfo(monkeypatch):
     assert info.build_date == "dev"
 
 def test_get_version_info_with_buildinfo_no_override(monkeypatch):
-    from pivot.version import get_version_info, __version__
+    from pivot.version import __version__, get_version_info
     monkeypatch.setattr("pivot.version._read_buildinfo", lambda: ("1234567", "2026-01-01", None))
     info = get_version_info()
     assert info.version == __version__

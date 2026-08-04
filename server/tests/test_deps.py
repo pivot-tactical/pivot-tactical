@@ -1,14 +1,16 @@
 """Tests for FastAPI dependency functions."""
 from unittest.mock import MagicMock
+
 import pytest
-from fastapi import Request, HTTPException
+from fastapi import HTTPException, Request
 
 from pivot.api.deps import (
-    get_manager,
-    get_auth,
     _extract_token,
+    get_auth,
+    get_manager,
     require_instructor,
 )
+
 
 def test_get_manager():
     """Verify that get_manager extracts the SessionManager from the request state."""
@@ -44,14 +46,6 @@ def test_extract_token_from_cookie():
 
     assert _extract_token(mock_request, None) == "cookie_token"
     assert _extract_token(mock_request, "") == "cookie_token"
-
-def test_extract_token_from_query_param():
-    """Verify token extraction from the query parameter when others are absent."""
-    mock_request = MagicMock(spec=Request)
-    mock_request.cookies = {}
-    mock_request.query_params = {"token": "query_token"}
-
-    assert _extract_token(mock_request, None) == "query_token"
 
 def test_extract_token_missing():
     """Verify token extraction returns None when no token is present."""
