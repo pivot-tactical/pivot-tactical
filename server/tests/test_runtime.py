@@ -1,9 +1,8 @@
 """Integration tests for the live SessionManager (spec §3.2-§3.5)."""
 
-from unittest.mock import Mock
-
 import numpy as np
 import pytest
+from unittest.mock import Mock
 
 from pivot.audio.render import AarCryptoView, PlaybackMode, render_event
 from pivot.core.crypto import Audibility, RadioMode, SyncStatus

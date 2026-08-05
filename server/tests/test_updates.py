@@ -12,8 +12,8 @@ from pivot.updates.manager import (
     default_asset_pattern,
     filter_channel,
     order_releases,
-    sha256_of,
     verify_sha256,
+    sha256_of,
 )
 from pivot.version import SemVer
 
@@ -578,9 +578,9 @@ def test_offline_import_verification(tmp_path):
 
 def test_stage_prevents_path_traversal_tar(tmp_path):
     import tarfile
+    from pivot.updates.manager import UpdateManager, Release
 
     from pivot.updates.layout import Layout
-    from pivot.updates.manager import Release, UpdateManager
     layout = Layout(tmp_path / "app")
     manager = UpdateManager(layout, versions_dir=tmp_path / "versions")
 
@@ -606,9 +606,9 @@ def test_stage_prevents_path_traversal_tar(tmp_path):
 
 def test_stage_prevents_path_traversal_zip(tmp_path):
     import zipfile
+    from pivot.updates.manager import UpdateManager, Release
 
     from pivot.updates.layout import Layout
-    from pivot.updates.manager import Release, UpdateManager
     layout = Layout(tmp_path / "app")
     manager = UpdateManager(layout, versions_dir=tmp_path / "versions")
 
