@@ -218,6 +218,7 @@ export function InstructorConsole({
 
   async function toggleSession() {
     if (sessionActive) {
+      if (!window.confirm("Are you sure you want to stop the current session?")) return;
       await api.endSession();
       setSessionActive(false);
     } else {
@@ -370,6 +371,7 @@ function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScen
     onChange([...radios, r]);
   }
   async function removeRadio(id: string) {
+    if (!window.confirm("Are you sure you want to remove this radio?")) return;
     await api.removeInstructorRadio(id);
     delete rxLevels.current[id];
     // Local filter for snappiness; the server's instructor_radios broadcast
@@ -834,7 +836,10 @@ function renderDiff(original: string | null, edited: string): React.ReactNode {
 }
 
 function MonitorTab({ terminals }: { terminals: Terminal[] }) {
-  async function kick(id: string) { await api.scenario({ kick_trainee_id: id }); }
+  async function kick(id: string, name: string) {
+    if (!window.confirm(`Are you sure you want to disconnect trainee ${name}?`)) return;
+    await api.scenario({ kick_trainee_id: id });
+  }
   return (
     <section className="card pad">
       <h3>Connected Terminals ({terminals.length})</h3>
@@ -848,7 +853,7 @@ function MonitorTab({ terminals }: { terminals: Terminal[] }) {
               <td>{t.mode}</td>
               <td>{t.status}</td>
               <td className="mono muted">{t.last_activity.slice(11, 19)}</td>
-              <td><button className="btn btn--ghost" onClick={() => kick(t.radio_id)}>Kick</button></td>
+              <td><button className="btn btn--ghost" onClick={() => kick(t.radio_id, t.name)}>Kick</button></td>
             </tr>
           ))}
           {terminals.length === 0 && <tr><td colSpan={6} className="muted">No trainees connected.</td></tr>}
