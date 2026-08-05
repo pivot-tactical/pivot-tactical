@@ -743,7 +743,7 @@ async def test_schedule_on_air():
 
 @patch("importlib.util.find_spec", return_value=MagicMock())
 @patch("pivot.transcription.worker.TranscriptionWorker")
-def test_maybe_start_transcription_success(MockWorker, mock_find_spec):
+def test_maybe_start_transcription_success(MockWorker, _):
     manager = MagicMock()
     cfg = MagicMock()
     worker = _maybe_start_transcription(manager, cfg)
