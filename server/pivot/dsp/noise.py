@@ -64,8 +64,6 @@ def band_noise(
     return normalise_rms(mix)
 
 
-
-
 # --------------------------------------------------------------------------- #
 # ITU-R P.372 layered noise model
 # --------------------------------------------------------------------------- #
@@ -135,7 +133,8 @@ class _SlowEnvelope:
         dt = n / sample_rate
         a = math.exp(-dt / self.tau_s)
         self.value = (
-            self.mean + (prev - self.mean) * a
+            self.mean
+            + (prev - self.mean) * a
             + self.sigma * math.sqrt(max(0.0, 1.0 - a * a)) * float(rng.standard_normal())
         )
         return np.linspace(prev, self.value, n, endpoint=False, dtype=np.float32)
@@ -183,7 +182,7 @@ class NoiseTexture:
         self._man = _SlowEnvelope(tau_s=12.0, sigma=0.25, mean=1.0)
         # Interference swell: induced interference surges rather than droning.
         self._surge = _SlowEnvelope(tau_s=5.0, sigma=0.45, mean=1.0)
-        self._crash_carry = 0.0     # exponential tail of the last static crash
+        self._crash_carry = 0.0  # exponential tail of the last static crash
         self._tones: list[_Heterodyne] = []
         # Power-line buzz: fixed random harmonic phases for this net.
         self._buzz_phases = self.rng.uniform(0.0, 2.0 * np.pi, size=32)
@@ -205,9 +204,7 @@ class NoiseTexture:
             at = self.rng.integers(0, n, size=n_crashes)
             impulses[at] += self.rng.lognormal(mean=1.0, sigma=0.5, size=n_crashes)
         decay = math.exp(-1.0 / (sr * 0.12))
-        env, _ = sp_signal.lfilter(
-            [1.0], [1.0, -decay], impulses, zi=[self._crash_carry * decay]
-        )
+        env, _ = sp_signal.lfilter([1.0], [1.0, -decay], impulses, zi=[self._crash_carry * decay])
         self._crash_carry = float(env[-1])
         crashes = env.astype(np.float32) * white_noise(n, self.rng)
         return (rumble + crashes) * storm
@@ -216,7 +213,7 @@ class NoiseTexture:
         """Local hash: broadband pinkish noise, mains buzz, ignition ticks."""
         sr = self.sample_rate
         activity = np.clip(self._man.step(n, sr, self.rng), 0.4, 1.8)
-        hash_ = (0.7 * pink_noise(n, self.rng) + 0.3 * white_noise(n, self.rng))
+        hash_ = 0.7 * pink_noise(n, self.rng) + 0.3 * white_noise(n, self.rng)
 
         # Power-line buzz: odd-ish harmonics of 100 Hz through the voice band.
         t = (self._t + np.arange(n)) / sr
@@ -276,8 +273,10 @@ class NoiseTexture:
         high, because the steady bed underneath it does not dip."""
         sr = self.sample_rate
         t = (self._t + np.arange(n)) / sr
-        am = 0.5 * (1.0 + np.sin(2.0 * np.pi * 90.0 * t)) * (
-            0.5 + 0.5 * np.sin(2.0 * np.pi * 13.0 * t)
+        am = (
+            0.5
+            * (1.0 + np.sin(2.0 * np.pi * 90.0 * t))
+            * (0.5 + 0.5 * np.sin(2.0 * np.pi * 13.0 * t))
         )
         # Continuous broadband bed (the actual masker) + a deeply-modulated
         # warble on top (the audible menace). Independent carriers so the bed
@@ -349,7 +348,7 @@ def add_noise_for_snr(
 # or jammed net hisses hard, clean UHF barely whispers — so an operator can tell
 # a live channel from a dead one by ear (§3.2.2). These are RMS amplitudes; the
 # idle floor fades linearly (in SNR) between them.
-IDLE_NOISE_RMS_NOISY = 0.22   # loudest hiss, at/below the low-HF SNR floor
+IDLE_NOISE_RMS_NOISY = 0.22  # loudest hiss, at/below the low-HF SNR floor
 IDLE_NOISE_RMS_CLEAN = 0.035  # faint hiss on a clean UHF channel
 _IDLE_SNR_FLOOR_DB = 6.0
 _IDLE_SNR_CEIL_DB = 32.0

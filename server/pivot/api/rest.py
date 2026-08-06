@@ -89,7 +89,9 @@ def login(
         if not req.password or not auth.verify(req.password):
             raise HTTPException(status_code=401, detail="invalid instructor password")
         token = auth.issue_token()
-        response.set_cookie(key="pivot_token", value=token, httponly=True, secure=True, samesite="lax")
+        response.set_cookie(
+            key="pivot_token", value=token, httponly=True, secure=True, samesite="lax"
+        )
         return LoginResponse(
             role="instructor",
             token=None,
@@ -576,6 +578,7 @@ def _live_update_check(manager) -> dict:
 
 def _format_release(r, cur_semver) -> dict:
     from pivot.updates.manager import classify_release
+
     return {
         "tag": r.tag,
         "name": r.name,

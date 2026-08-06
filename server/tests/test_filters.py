@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 
 from pivot.dsp.filters import (
-    cached_butter,
     bandpass,
     bandstop,
+    cached_butter,
     highpass,
     lowpass,
     normalise_rms,
@@ -14,16 +14,19 @@ from pivot.dsp.filters import (
 
 SR = 16000
 
+
 @pytest.fixture(autouse=True)
 def clear_filter_cache():
     cached_butter.cache_clear()
     yield
     cached_butter.cache_clear()
 
+
 def test_normalise_rms_zeros():
     x = np.zeros(100, dtype=np.float32)
     out = normalise_rms(x)
     assert np.array_equal(out, x)
+
 
 def test_normalise_rms_sine_wave():
     t = np.linspace(0, 1, 44100, endpoint=False)
@@ -31,21 +34,24 @@ def test_normalise_rms_sine_wave():
     out = normalise_rms(x, target=0.5)
     assert np.isclose(rms(out), 0.5, rtol=1e-5)
 
+
 def test_normalise_rms_noise():
     rng = np.random.default_rng(42)
     x = rng.standard_normal(44100)
     out = normalise_rms(x, target=2.0)
     assert np.isclose(rms(out), 2.0, rtol=1e-5)
 
+
 def test_normalise_rms_very_quiet():
     x = np.ones(100, dtype=np.float32) * 1e-13
     out = normalise_rms(x, target=1.0)
     assert np.array_equal(out, x)
 
+
 def test_highpass_attenuates_low_frequencies():
     t = np.arange(SR) / SR
     low_freq = np.sin(2 * np.pi * 100 * t)  # 100 Hz
-    high_freq = np.sin(2 * np.pi * 5000 * t) # 5000 Hz
+    high_freq = np.sin(2 * np.pi * 5000 * t)  # 5000 Hz
     signal = low_freq + high_freq
 
     filtered = highpass(signal, cutoff_hz=1000, sample_rate=SR)
@@ -62,10 +68,11 @@ def test_highpass_attenuates_low_frequencies():
     assert filt_low < orig_low * 0.1, "Low frequency was not significantly attenuated"
     assert filt_high > orig_high * 0.9, "High frequency was significantly attenuated"
 
+
 def test_lowpass_attenuates_high_frequencies():
     t = np.arange(SR) / SR
     low_freq = np.sin(2 * np.pi * 100 * t)  # 100 Hz
-    high_freq = np.sin(2 * np.pi * 5000 * t) # 5000 Hz
+    high_freq = np.sin(2 * np.pi * 5000 * t)  # 5000 Hz
     signal = low_freq + high_freq
 
     filtered = lowpass(signal, cutoff_hz=1000, sample_rate=SR)
@@ -82,11 +89,12 @@ def test_lowpass_attenuates_high_frequencies():
     assert filt_high < orig_high * 0.1, "High frequency was not significantly attenuated"
     assert filt_low > orig_low * 0.9, "Low frequency was significantly attenuated"
 
+
 def test_bandstop_attenuates_mid_frequencies():
     t = np.arange(SR) / SR
-    low_freq = np.sin(2 * np.pi * 100 * t)   # 100 Hz
+    low_freq = np.sin(2 * np.pi * 100 * t)  # 100 Hz
     mid_freq = np.sin(2 * np.pi * 1000 * t)  # 1000 Hz
-    high_freq = np.sin(2 * np.pi * 5000 * t) # 5000 Hz
+    high_freq = np.sin(2 * np.pi * 5000 * t)  # 5000 Hz
     signal = low_freq + mid_freq + high_freq
 
     filtered = bandstop(signal, low_hz=800, high_hz=1200, sample_rate=SR)
@@ -106,11 +114,12 @@ def test_bandstop_attenuates_mid_frequencies():
     assert filt_low > orig_low * 0.9, "Low frequency was significantly attenuated"
     assert filt_high > orig_high * 0.9, "High frequency was significantly attenuated"
 
+
 def test_bandpass_attenuates_out_of_band_frequencies():
     t = np.arange(SR) / SR
-    low_freq = np.sin(2 * np.pi * 100 * t)   # 100 Hz
+    low_freq = np.sin(2 * np.pi * 100 * t)  # 100 Hz
     mid_freq = np.sin(2 * np.pi * 1000 * t)  # 1000 Hz
-    high_freq = np.sin(2 * np.pi * 5000 * t) # 5000 Hz
+    high_freq = np.sin(2 * np.pi * 5000 * t)  # 5000 Hz
     signal = low_freq + mid_freq + high_freq
 
     filtered = bandpass(signal, low_hz=800, high_hz=1200, sample_rate=SR)
@@ -130,12 +139,14 @@ def test_bandpass_attenuates_out_of_band_frequencies():
     assert filt_low < orig_low * 0.1, "Low frequency was not significantly attenuated"
     assert filt_high < orig_high * 0.1, "High frequency was not significantly attenuated"
 
+
 def test_filters_handle_empty_arrays():
     empty = np.array([], dtype=np.float32)
     assert highpass(empty, 1000, SR).size == 0
     assert lowpass(empty, 1000, SR).size == 0
     assert bandpass(empty, 800, 1200, SR).size == 0
     assert bandstop(empty, 800, 1200, SR).size == 0
+
 
 def test_bandstop_short_input():
     # Test fallback to sosfilt for short arrays in _safe_filtfilt
@@ -146,6 +157,7 @@ def test_bandstop_short_input():
     filtered = bandstop(short_input, low_hz=800, high_hz=1200, sample_rate=SR, order=2)
     assert filtered.shape == (8,)
     # Just checking it returns an array of the same shape without crashing
+
 
 def test_bandstop_frequency_rejection():
     """Verify correct frequency rejection for bandstop (notch) filter."""
@@ -175,17 +187,21 @@ def test_bandstop_frequency_rejection():
 
     # Verify passband high is preserved (> 90%)
     assert fft_out[f_pass2] > fft_in[f_pass2] * 0.90
+
+
 def test_slow_random_empty():
     rng = np.random.default_rng(42)
     out = slow_random(0, 16000, 1.0, rng)
     assert out.size == 0
     assert out.dtype == np.float32
 
+
 def test_slow_random_shape_and_type():
     rng = np.random.default_rng(42)
     out = slow_random(16000, 16000, 1.0, rng)
     assert out.shape == (16000,)
     assert out.dtype == np.float32
+
 
 def test_slow_random_reproducibility():
     rng1 = np.random.default_rng(42)
@@ -195,6 +211,7 @@ def test_slow_random_reproducibility():
     out2 = slow_random(16000, 16000, 1.0, rng2)
 
     assert np.array_equal(out1, out2)
+
 
 def test_slow_random_different_rates():
     rng1 = np.random.default_rng(42)
@@ -206,6 +223,7 @@ def test_slow_random_different_rates():
     fast_diff = np.mean(np.abs(np.diff(fast)))
     slow_diff = np.mean(np.abs(np.diff(slow)))
     assert fast_diff > slow_diff * 10
+
 
 def test_slow_random_bounds():
     rng = np.random.default_rng(42)

@@ -61,11 +61,17 @@ def apply_fading(
 
     n = signal_in.size
     if not conditions.selective_fading:
-        gain = flat_fading_gain(n, sample_rate, conditions.fading_depth_db, conditions.fading_rate_hz, rng)
+        gain = flat_fading_gain(
+            n, sample_rate, conditions.fading_depth_db, conditions.fading_rate_hz, rng
+        )
         return (signal_in * gain).astype(np.float32)
 
     low = lowpass(signal_in, crossover_hz, sample_rate)
     high = highpass(signal_in, crossover_hz, sample_rate)
-    g_low = flat_fading_gain(n, sample_rate, conditions.fading_depth_db, conditions.fading_rate_hz, rng)
-    g_high = flat_fading_gain(n, sample_rate, conditions.fading_depth_db, conditions.fading_rate_hz * 1.3, rng)
+    g_low = flat_fading_gain(
+        n, sample_rate, conditions.fading_depth_db, conditions.fading_rate_hz, rng
+    )
+    g_high = flat_fading_gain(
+        n, sample_rate, conditions.fading_depth_db, conditions.fading_rate_hz * 1.3, rng
+    )
     return (low * g_low + high * g_high).astype(np.float32)

@@ -381,7 +381,9 @@ def test_read_schema_version_invalid_fallback():
         conn.execute(text("INSERT INTO config (key, value) VALUES ('schema_version', 'invalid')"))
         assert _read_schema_version(conn) == 0
 
-        conn.execute(text("UPDATE config SET value = '\"not-an-int\"' WHERE key = 'schema_version'"))
+        conn.execute(
+            text("UPDATE config SET value = '\"not-an-int\"' WHERE key = 'schema_version'")
+        )
         assert _read_schema_version(conn) == 0
 
         conn.execute(text("UPDATE config SET value = 'null' WHERE key = 'schema_version'"))

@@ -1,14 +1,17 @@
 """Tests for FastAPI dependency functions."""
+
 from unittest.mock import MagicMock
+
 import pytest
-from fastapi import Request, HTTPException
+from fastapi import HTTPException, Request
 
 from pivot.api.deps import (
-    get_manager,
-    get_auth,
     _extract_token,
+    get_auth,
+    get_manager,
     require_instructor,
 )
+
 
 def test_get_manager():
     """Verify that get_manager extracts the SessionManager from the request state."""
@@ -18,6 +21,7 @@ def test_get_manager():
 
     assert get_manager(mock_request) is mock_manager
 
+
 def test_get_auth():
     """Verify that get_auth extracts the AuthService from the request state."""
     mock_request = MagicMock(spec=Request)
@@ -25,6 +29,7 @@ def test_get_auth():
     mock_request.app.state.auth = mock_auth
 
     assert get_auth(mock_request) is mock_auth
+
 
 def test_extract_token_from_header():
     """Verify token extraction from the Authorization header."""
@@ -36,6 +41,7 @@ def test_extract_token_from_header():
     assert _extract_token(mock_request, "bearer another_token") == "another_token"
     assert _extract_token(mock_request, "Bearer   spaced_token  ") == "spaced_token"
 
+
 def test_extract_token_from_cookie():
     """Verify token extraction from the pivot_token cookie when header is absent."""
     mock_request = MagicMock(spec=Request)
@@ -45,13 +51,15 @@ def test_extract_token_from_cookie():
     assert _extract_token(mock_request, None) == "cookie_token"
     assert _extract_token(mock_request, "") == "cookie_token"
 
-def test_extract_token_from_query_param():
+
+def test_extract_token_from_query_param_ignored():
     """Verify token extraction from the query parameter when others are absent."""
     mock_request = MagicMock(spec=Request)
     mock_request.cookies = {}
     mock_request.query_params = {"token": "query_token"}
 
-    assert _extract_token(mock_request, None) == "query_token"
+    assert _extract_token(mock_request, None) is None
+
 
 def test_extract_token_missing():
     """Verify token extraction returns None when no token is present."""
@@ -60,6 +68,7 @@ def test_extract_token_missing():
     mock_request.query_params = {}
 
     assert _extract_token(mock_request, None) is None
+
 
 def test_require_instructor_valid():
     """Verify require_instructor allows access with a valid token."""
@@ -73,6 +82,7 @@ def test_require_instructor_valid():
     # Should not raise any exception
     require_instructor(mock_request, "Bearer valid_token")
     mock_auth.validate.assert_called_once_with("valid_token")
+
 
 def test_require_instructor_invalid():
     """Verify require_instructor raises HTTPException(401) with an invalid token."""

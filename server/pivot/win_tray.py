@@ -344,7 +344,9 @@ class TrayApp:
         # Raising hands control to run_with_tray's fallback, which brings the
         # console back and keeps serving.
         if not shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)):
-            raise OSError(ctypes.get_last_error(), "Shell_NotifyIcon(NIM_ADD) failed to add the tray icon")
+            raise OSError(
+                ctypes.get_last_error(), "Shell_NotifyIcon(NIM_ADD) failed to add the tray icon"
+            )
         self._nid = nid
 
     def run(self) -> None:

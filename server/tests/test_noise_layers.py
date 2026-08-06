@@ -41,7 +41,7 @@ def test_weights_sum_to_one_across_range():
 def test_atmospheric_dominates_low_hf_and_vanishes_above():
     low = noise_component_weights(2e6)
     vhf = noise_component_weights(145e6)
-    assert low.atmospheric > 0.5            # lightning rules the bottom of HF
+    assert low.atmospheric > 0.5  # lightning rules the bottom of HF
     assert vhf.atmospheric == pytest.approx(0.0, abs=1e-6)
 
 
@@ -161,8 +161,9 @@ def test_idle_noise_louder_with_interference():
     eng = DspEngine(sample_rate=SR)
     rng = np.random.default_rng(8)
     quiet = eng.render_idle_noise(SR, _conditions(145.5), rng=rng)
-    loud = eng.render_idle_noise(SR, _conditions(145.5, interference=1.0),
-                                 rng=np.random.default_rng(8))
+    loud = eng.render_idle_noise(
+        SR, _conditions(145.5, interference=1.0), rng=np.random.default_rng(8)
+    )
     assert rms(loud) > rms(quiet)
 
 
@@ -182,10 +183,16 @@ def test_clear_render_degrades_with_interference():
         b = voice - voice.mean()
         return float(np.sum(a * b) / np.sqrt(np.sum(a * a) * np.sum(b * b)))
 
-    clean = render_reception(Reception.CLEAR, voice, _conditions(145.5), SR,
-                             rng=np.random.default_rng(1))
-    hit = render_reception(Reception.CLEAR, voice, _conditions(145.5, interference=1.0), SR,
-                           rng=np.random.default_rng(1))
+    clean = render_reception(
+        Reception.CLEAR, voice, _conditions(145.5), SR, rng=np.random.default_rng(1)
+    )
+    hit = render_reception(
+        Reception.CLEAR,
+        voice,
+        _conditions(145.5, interference=1.0),
+        SR,
+        rng=np.random.default_rng(1),
+    )
     assert corr(clean) > corr(hit)
 
 
@@ -210,12 +217,19 @@ def test_jamming_buries_the_voice():
     from pivot.dsp.engine import render_reception
 
     voice = _voiced()
-    clean = render_reception(Reception.CLEAR, voice, _conditions(145.5), SR,
-                             rng=np.random.default_rng(1))
-    jammed = render_reception(Reception.CLEAR, voice, _conditions(145.5, jammed=True), SR,
-                              rng=np.random.default_rng(1))
-    hit = render_reception(Reception.CLEAR, voice, _conditions(145.5, interference=1.0), SR,
-                           rng=np.random.default_rng(1))
+    clean = render_reception(
+        Reception.CLEAR, voice, _conditions(145.5), SR, rng=np.random.default_rng(1)
+    )
+    jammed = render_reception(
+        Reception.CLEAR, voice, _conditions(145.5, jammed=True), SR, rng=np.random.default_rng(1)
+    )
+    hit = render_reception(
+        Reception.CLEAR,
+        voice,
+        _conditions(145.5, interference=1.0),
+        SR,
+        rng=np.random.default_rng(1),
+    )
 
     # The clean channel carries the voice; the jammed one barely correlates.
     assert _abs_corr(clean, voice) > 0.4
@@ -232,10 +246,12 @@ def test_masking_is_competing_noise_not_a_louder_blast():
     from pivot.dsp.engine import render_reception
 
     voice = _voiced()
-    clean = render_reception(Reception.CLEAR, voice, _conditions(145.5), SR,
-                             rng=np.random.default_rng(2))
-    jammed = render_reception(Reception.CLEAR, voice, _conditions(145.5, jammed=True), SR,
-                              rng=np.random.default_rng(2))
+    clean = render_reception(
+        Reception.CLEAR, voice, _conditions(145.5), SR, rng=np.random.default_rng(2)
+    )
+    jammed = render_reception(
+        Reception.CLEAR, voice, _conditions(145.5, jammed=True), SR, rng=np.random.default_rng(2)
+    )
     assert rms(jammed) <= 2.0 * rms(clean)
 
 
@@ -248,14 +264,15 @@ def test_jammer_leaves_no_gap_to_hear_voice_through():
     from pivot.dsp.filters import bandpass
 
     voice = _voiced(3.0)
-    out = render_reception(Reception.CLEAR, voice, _conditions(145.5, jammed=True), SR,
-                           rng=np.random.default_rng(1))
+    out = render_reception(
+        Reception.CLEAR, voice, _conditions(145.5, jammed=True), SR, rng=np.random.default_rng(1)
+    )
     vb = bandpass(voice, 300.0, 3000.0, SR)
     ob = bandpass(out[: voice.size], 300.0, 3000.0, SR)
     W = int(0.04 * SR)
     worst = 0.0
     for i in range(vb.size // W):
-        a, b = vb[i * W:(i + 1) * W], ob[i * W:(i + 1) * W]
+        a, b = vb[i * W : (i + 1) * W], ob[i * W : (i + 1) * W]
         if rms(a) < 1e-3:
             continue
         aa, bb = a - a.mean(), b - b.mean()
@@ -275,12 +292,15 @@ def test_jammed_render_masks_even_with_stale_shallow_snr():
     from pivot.dsp.engine import render_reception
 
     voice = _voiced()
-    fresh = render_reception(Reception.CLEAR, voice, _conditions(145.5, jammed=True), SR,
-                             rng=np.random.default_rng(1))
+    fresh = render_reception(
+        Reception.CLEAR, voice, _conditions(145.5, jammed=True), SR, rng=np.random.default_rng(1)
+    )
     stale = render_reception(
-        Reception.CLEAR, voice,
+        Reception.CLEAR,
+        voice,
         replace(_conditions(145.5, jammed=True), snr_db=-6.0),  # legacy profile
-        SR, rng=np.random.default_rng(1),
+        SR,
+        rng=np.random.default_rng(1),
     )
     assert _abs_corr(fresh, voice) < 0.15
     assert _abs_corr(stale, voice) < 0.15

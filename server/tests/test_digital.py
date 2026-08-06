@@ -27,8 +27,11 @@ def _cadenced_voice(seconds: float = 3.0) -> tuple[np.ndarray, np.ndarray]:
     """A formant-ish voice with syllable cadence; returns (voice, pause_mask)."""
     t = np.arange(int(seconds * SR)) / SR
     cadence = np.clip(np.sin(2 * np.pi * 3.5 * t), 0, 1) ** 0.6
-    v = (np.sin(2 * np.pi * 220 * t) + 0.5 * np.sin(2 * np.pi * 600 * t)
-         + 0.3 * np.sin(2 * np.pi * 1500 * t)) * cadence
+    v = (
+        np.sin(2 * np.pi * 220 * t)
+        + 0.5 * np.sin(2 * np.pi * 600 * t)
+        + 0.3 * np.sin(2 * np.pi * 1500 * t)
+    ) * cadence
     v = (v / np.max(np.abs(v))).astype(np.float32)
     return v, cadence < 0.01
 
@@ -51,7 +54,7 @@ def _env_corr(x: np.ndarray, ref: np.ndarray) -> float:
 
 
 def _quiet_frame_fraction(x: np.ndarray, thresh: float = 0.01) -> float:
-    energies = [rms(x[i * FRAME:(i + 1) * FRAME]) for i in range(x.size // FRAME)]
+    energies = [rms(x[i * FRAME : (i + 1) * FRAME]) for i in range(x.size // FRAME)]
     return float(np.mean(np.array(energies) < thresh))
 
 
@@ -82,8 +85,9 @@ def test_digital_voice_is_narrowband():
     """MELP is a narrowband coder: content above the passband doesn't survive."""
     t = np.arange(SR) / SR
     tone_5k = (0.5 * np.sin(2 * np.pi * 5000 * t)).astype(np.float32)
-    out = render_reception(Reception.DIGITAL, tone_5k, _conditions(), SR,
-                           rng=np.random.default_rng(2))
+    out = render_reception(
+        Reception.DIGITAL, tone_5k, _conditions(), SR, rng=np.random.default_rng(2)
+    )
     assert rms(out) < 0.1 * rms(tone_5k)
 
 
@@ -116,10 +120,12 @@ def test_digital_falls_off_a_cliff_not_a_slope():
     """A few dB spans the difference between clean copy and unusable garble."""
     voice, _ = _cadenced_voice()
     base = _conditions()
-    good = render_reception(Reception.DIGITAL, voice, replace(base, snr_db=8.0), SR,
-                            rng=np.random.default_rng(1))
-    below = render_reception(Reception.DIGITAL, voice, replace(base, snr_db=-4.0), SR,
-                             rng=np.random.default_rng(1))
+    good = render_reception(
+        Reception.DIGITAL, voice, replace(base, snr_db=8.0), SR, rng=np.random.default_rng(1)
+    )
+    below = render_reception(
+        Reception.DIGITAL, voice, replace(base, snr_db=-4.0), SR, rng=np.random.default_rng(1)
+    )
     assert _env_corr(good, voice) > 0.95
     assert _env_corr(below, voice) < 0.6
     # Below the cliff the audio clips out: many frames are hard-muted.
@@ -133,10 +139,8 @@ def test_digital_failure_includes_garble_not_noise():
     continuous noise bed at the same SNR, which fills every frame."""
     voice, _ = _cadenced_voice()
     cond = replace(_conditions(), snr_db=-4.0)
-    below = render_reception(Reception.DIGITAL, voice, cond, SR,
-                             rng=np.random.default_rng(5))
-    analog = render_reception(Reception.CLEAR, voice, cond, SR,
-                              rng=np.random.default_rng(5))
+    below = render_reception(Reception.DIGITAL, voice, cond, SR, rng=np.random.default_rng(5))
+    analog = render_reception(Reception.CLEAR, voice, cond, SR, rng=np.random.default_rng(5))
     # Some audio still comes through (garble bursts / squawks)…
     assert rms(below) > 0.005
     # …but most of the time is hard silence, where analog is wall-to-wall noise.
@@ -148,10 +152,12 @@ def test_jamming_defeats_digital_voice_too():
     """Under jamming essentially nothing decodes: near-silence with at most the
     odd squawk — cypher does not defeat the jammer."""
     voice, _ = _cadenced_voice()
-    jammed = render_reception(Reception.DIGITAL, voice, _conditions(jammed=True), SR,
-                              rng=np.random.default_rng(1))
-    good = render_reception(Reception.DIGITAL, voice, _conditions(), SR,
-                            rng=np.random.default_rng(1))
+    jammed = render_reception(
+        Reception.DIGITAL, voice, _conditions(jammed=True), SR, rng=np.random.default_rng(1)
+    )
+    good = render_reception(
+        Reception.DIGITAL, voice, _conditions(), SR, rng=np.random.default_rng(1)
+    )
     assert _quiet_frame_fraction(jammed) > 0.7
     assert rms(jammed) < 0.5 * rms(good)
 
@@ -164,7 +170,7 @@ def test_engine_keeps_per_net_digital_state():
     cond = _conditions(14.25)
     d1 = eng._digital_voice(cond, None)
     d2 = eng._digital_voice(cond, None)
-    assert d1 is d2                      # same net -> continuous decoder state
+    assert d1 is d2  # same net -> continuous decoder state
     assert eng._digital_voice(_conditions(145.5), None) is not d1
     assert isinstance(eng._digital_voice(cond, np.random.default_rng(1)), DigitalVoice)
 
@@ -174,8 +180,11 @@ def test_mixer_renders_digital_reception():
 
     frame = (0.3 * np.sin(2 * np.pi * 440 * np.arange(FRAME) / SR)).astype(np.float32)
     rendered = render_net_frame(
-        {"tx": frame}, _conditions(), {Reception.DIGITAL, Reception.HASH},
-        DspEngine(SR), rng=np.random.default_rng(0),
+        {"tx": frame},
+        _conditions(),
+        {Reception.DIGITAL, Reception.HASH},
+        DspEngine(SR),
+        rng=np.random.default_rng(0),
     )
     assert set(rendered) == {Reception.DIGITAL, Reception.HASH}
     assert rendered[Reception.DIGITAL].shape == frame.shape
@@ -196,8 +205,7 @@ def test_streaming_frames_match_engine_contract():
     eng = DspEngine(sample_rate=SR)
     voice, _ = _cadenced_voice(2.0)
     cond = _conditions()
-    outs = [eng.render_digital(voice[i:i + FRAME], cond)
-            for i in range(0, FRAME * 80, FRAME)]
+    outs = [eng.render_digital(voice[i : i + FRAME], cond) for i in range(0, FRAME * 80, FRAME)]
     stream = np.concatenate(outs)
     assert stream.size == FRAME * 80
     assert np.isfinite(stream).all()

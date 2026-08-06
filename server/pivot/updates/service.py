@@ -199,8 +199,15 @@ class UpdateService:
         mgr = UpdateManager(self._version, self._versions_dir, include_prereleases=include_pre)
         staged = mgr.staged_tag()
 
-        self._merge({"checking": True, "channel": channel, "auto_update": auto,
-                     "updater": self._updater_kind(), "staged_tag": staged})
+        self._merge(
+            {
+                "checking": True,
+                "channel": channel,
+                "auto_update": auto,
+                "updater": self._updater_kind(),
+                "staged_tag": staged,
+            }
+        )
 
         try:
             raw = self._fetch(repo, token)
@@ -210,8 +217,15 @@ class UpdateService:
             # failures that don't affect ordinary browsing (the browser uses the
             # OS proxy/cert store; this stdlib urllib request does not) (§3.7.3).
             log.warning("update check for %r failed: %s", repo, exc)
-            self._merge({"reachable": False, "error": str(exc), "checking": False,
-                         "last_checked": to_iso_utc(utc_now()), "staged_tag": staged})
+            self._merge(
+                {
+                    "reachable": False,
+                    "error": str(exc),
+                    "checking": False,
+                    "last_checked": to_iso_utc(utc_now()),
+                    "staged_tag": staged,
+                }
+            )
             return self.snapshot()
 
         cur = SemVer.parse(self._version)
@@ -280,15 +294,15 @@ class UpdateService:
         target = available[0]
         # Broadcast a downloading state so the UI shows progress before
         # the potentially-slow download completes.
-        self._merge({**update, "auto_state": "downloading",
-                     "auto_message": f"Downloading {target.tag}…"})
+        self._merge(
+            {**update, "auto_state": "downloading", "auto_message": f"Downloading {target.tag}…"}
+        )
         try:
             result = self._apply(target, cfg)
             applied_ok = bool(result.get("applied"))
             update["auto_state"] = "applied" if applied_ok else "error"
             update["auto_message"] = result.get("message", "") or (
-                f"Updating to {target.tag}." if applied_ok
-                else "Auto-update failed."
+                f"Updating to {target.tag}." if applied_ok else "Auto-update failed."
             )
             if applied_ok:
                 update["staged_tag"] = mgr.staged_tag() or target.tag
@@ -305,16 +319,23 @@ class UpdateService:
         mgr = UpdateManager(self._version, self._versions_dir)
         # Already staged — don't re-download/re-extract on the next poll tick.
         if mgr.staged_tag() == release.tag:
-            return {"applied": True, "via": "staged",
-                    "message": f"{release.tag} already staged — restart to apply."}
+            return {
+                "applied": True,
+                "via": "staged",
+                "message": f"{release.tag} already staged — restart to apply.",
+            }
 
         token = str(cfg.get("github_token") or "") or None
         mgr.download_and_stage(
-            release, token,
+            release,
+            token,
             progress_cb=lambda rec, tot: self.note_download_progress(release.tag, rec, tot),
         )
-        return {"applied": True, "via": "staged",
-                "message": f"{release.tag} staged — restart to apply."}
+        return {
+            "applied": True,
+            "via": "staged",
+            "message": f"{release.tag} staged — restart to apply.",
+        }
 
     # -- internal ---------------------------------------------------------- #
 

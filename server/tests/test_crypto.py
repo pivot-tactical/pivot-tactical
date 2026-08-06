@@ -52,9 +52,7 @@ def test_any_cypher_collision_is_jam():
 
 def test_keyed_listener_hears_nothing():
     # Half-duplex simplex: a transmitting station is deaf (§3.4.6).
-    assert (
-        resolve_listener(P, [P], listener_is_transmitting=True) is Reception.SILENCE
-    )
+    assert resolve_listener(P, [P], listener_is_transmitting=True) is Reception.SILENCE
 
 
 def test_listener_with_no_transmitters_hears_silence():

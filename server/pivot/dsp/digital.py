@@ -64,8 +64,8 @@ _BURST_CARRY = 0.35
 # frame repeat, or a hard mute. Deep past the cliff (jamming) the decoder
 # mostly stays muted — squelch silence with the odd squawk.
 _P_GARBLE, _P_REPEAT = 0.45, 0.25
-_DEEP_LOSS_P_ERR = 0.95     # past this, treat as "nothing is getting through"
-_DEEP_P_GARBLE = 0.12       # rare squawks over silence
+_DEEP_LOSS_P_ERR = 0.95  # past this, treat as "nothing is getting through"
+_DEEP_P_GARBLE = 0.12  # rare squawks over silence
 
 # Boundary ramp so mutes/garbles clip in and out without clicks (~3 ms).
 _RAMP_MS = 3.0
@@ -100,8 +100,7 @@ class DigitalVoice:
         self._sos: list[np.ndarray] = []
         self._zi: list[np.ndarray] = []
         for lo, hi in zip(edges[:-1], edges[1:], strict=False):
-            sos = cached_butter(2, (lo / nyq, min(hi / nyq, 0.999)),
-                                   btype="bandpass", output="sos")
+            sos = cached_butter(2, (lo / nyq, min(hi / nyq, 0.999)), btype="bandpass", output="sos")
             self._sos.append(sos)
             self._zi.append(np.zeros((sos.shape[0], 2)))
         # Per-band fast envelope followers (~8 ms) for the intra-frame flatten.
@@ -163,9 +162,9 @@ class DigitalVoice:
         dt = self.frame / self.sample_rate
         a = math.exp(-dt / self._wobble_tau_s)
         sigma = max(0.0, float(conditions.fading_depth_db)) / 4.0
-        self._wobble = a * self._wobble + sigma * math.sqrt(
-            max(0.0, 1.0 - a * a)
-        ) * float(self.rng.standard_normal())
+        self._wobble = a * self._wobble + sigma * math.sqrt(max(0.0, 1.0 - a * a)) * float(
+            self.rng.standard_normal()
+        )
         return self._wobble
 
     def _garble(self, source: np.ndarray) -> np.ndarray:
@@ -234,11 +233,14 @@ class DigitalVoice:
                 out = np.pad(out, (0, vocoded.size - out.size))
             out = self._apply_ramps(out.astype(np.float32), fade_in=True, fade_out=True)
         else:  # garble
-            source = vocoded if rms(vocoded) > 1e-4 else (
-                self._last_good if self._last_good is not None else vocoded
+            source = (
+                vocoded
+                if rms(vocoded) > 1e-4
+                else (self._last_good if self._last_good is not None else vocoded)
             )
-            out = self._apply_ramps(self._garble(source[: vocoded.size]),
-                                    fade_in=True, fade_out=True)
+            out = self._apply_ramps(
+                self._garble(source[: vocoded.size]), fade_in=True, fade_out=True
+            )
         self._prev_errored = True
         return out.astype(np.float32)
 

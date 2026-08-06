@@ -172,9 +172,7 @@ def test_register_class_tolerates_an_already_registered_class(win_tray_module):
     win_tray_module.kernel32.GetModuleHandleW.return_value = 1
     win_tray_module.user32.RegisterClassW.return_value = 0
     win_tray_module.user32.CreateWindowExW.return_value = 4242
-    win_tray_module.ctypes.get_last_error.return_value = (
-        win_tray_module.ERROR_CLASS_ALREADY_EXISTS
-    )
+    win_tray_module.ctypes.get_last_error.return_value = win_tray_module.ERROR_CLASS_ALREADY_EXISTS
 
     app = win_tray_module.TrayApp("https://192.168.0.2:8080")
     app._create_window()

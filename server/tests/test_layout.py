@@ -195,6 +195,7 @@ def test_active_version_resolve_error(tmp_path, monkeypatch, error):
     monkeypatch.setattr("pathlib.Path.resolve", mock_resolve)
     assert layout.active_version() is None
 
+
 def test_remove_link_not_exists(tmp_path):
     from pivot.updates.layout import _remove_link
 
@@ -226,6 +227,7 @@ def test_remove_link_unlink_success(tmp_path, monkeypatch):
 
 def test_prune_no_active_version(tmp_path):
     from pivot.updates.layout import Layout
+
     layout = Layout(tmp_path / "versions")
     for tag in ["1.0.0", "1.1.0", "1.2.0"]:
         layout.place_version(tag, _bundle(tmp_path, f"b-{tag}"))
@@ -235,6 +237,7 @@ def test_prune_no_active_version(tmp_path):
 
     kept = set(layout.installed_versions())
     assert kept == {"1.2.0", "1.1.0"}
+
 
 def test_remove_link_unlink_error_fallback(tmp_path, monkeypatch):
     import os
