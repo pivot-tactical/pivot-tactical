@@ -13,3 +13,6 @@
 ## 2026-07-22 - Differentiating Multiple Interactive Controls for Screen Readers
 **Learning:** In contexts with multiple identical interactive controls (like the per-radio `InstrRadioCard` tuning buttons, mode dial, volume slider, PTT, etc.), using static `aria-label`s or `title`s (like "Decrease frequency" or "Headset volume") leads to a poor screen reader experience, as users can't distinguish *which* radio they are controlling.
 **Action:** Injected context-specific information (e.g., `aria-label={"Decrease frequency on " + radio.name}`) into all duplicated controls to improve screen reader accessibility and differentiation. Added `ariaLabel` prop to `VolumeSlider` to support this override while keeping it backwards-compatible.
+## 2024-08-05 - Confirmation Dialogs Not Required
+**Learning:** The PR to add confirmation dialogs to destructive actions was rejected. These actions (removing a radio, kicking a trainee, stopping a session) do not require confirmation dialogs in this application.
+**Action:** Do not add confirmation dialogs to these actions in the future.
