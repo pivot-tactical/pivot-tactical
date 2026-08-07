@@ -304,27 +304,29 @@ export function Radio({
         <SevenSegmentClock timezone={timezone} />
       </header>
 
-      {radios.map((r, i) => (
-        <RadioPanel
-          key={r.radioId}
-          radio={r}
-          index={i + 1}
-          multi={radios.length > 1}
-          phase={phases[r.radioId] ?? "IDLE"}
-          focused={focused === r.radioId}
-          muted={focused !== null && focused !== r.radioId}
-          spaceTarget={focused === r.radioId || (focused === null && i === 0)}
-          socket={socket}
-          audio={audio.current}
-          rxLevels={rxLevels}
-          onTune={retune}
-          onMode={changeMode}
-          onStart={startTx}
-          onEnd={endTx}
-          onFocus={() => setFocused((f) => (f === r.radioId ? null : r.radioId))}
-          onRemove={removeRadio}
-        />
-      ))}
+      <div className="radio__panels">
+        {radios.map((r, i) => (
+          <RadioPanel
+            key={r.radioId}
+            radio={r}
+            index={i + 1}
+            multi={radios.length > 1}
+            phase={phases[r.radioId] ?? "IDLE"}
+            focused={focused === r.radioId}
+            muted={focused !== null && focused !== r.radioId}
+            spaceTarget={focused === r.radioId || (focused === null && i === 0)}
+            socket={socket}
+            audio={audio.current}
+            rxLevels={rxLevels}
+            onTune={retune}
+            onMode={changeMode}
+            onStart={startTx}
+            onEnd={endTx}
+            onFocus={() => setFocused((f) => (f === r.radioId ? null : r.radioId))}
+            onRemove={removeRadio}
+          />
+        ))}
+      </div>
 
       {radios.length < MAX_RADIOS && (
         <button className="radio__add" onClick={addRadio}>
