@@ -186,6 +186,7 @@ def test_crypto_sync_tone_presets(preset):
     tone = crypto_sync_tone(SR, preset=preset)
     assert tone.size > 0 and np.isfinite(tone).all()
 
+
 def test_ptt_click_duration_and_bounds():
     click = ptt_click(SR, level=0.5)
     assert click.size == int(SR * 0.012)
@@ -196,11 +197,13 @@ def test_ptt_click_duration_and_bounds():
     short_click = ptt_click(10)
     assert short_click.size == 1
 
+
 def test_squelch_tail_duration_and_bounds():
     tail = squelch_tail(SR, tail_ms=10.0, level=0.08)
     assert tail.size == int(SR * 10.0 / 1000.0)
     assert np.isfinite(tail).all()
     assert np.max(np.abs(tail)) > 0.0
+
 
 # --- ptt click ------------------------------------------------------------- #
 
@@ -219,9 +222,13 @@ def test_ptt_click_level():
     click1 = ptt_click(SR, level=0.5)
     click2 = ptt_click(SR, level=1.0)
     assert np.allclose(click1 * 2, click2)
+
+
 # --- fading ---------------------------------------------------------------- #
 import dataclasses
+
 from pivot.dsp.fading import apply_fading, flat_fading_gain
+
 
 def test_flat_fading_gain_empty():
     rng = np.random.default_rng(0)
@@ -229,12 +236,14 @@ def test_flat_fading_gain_empty():
     assert gain.size == 0
     assert np.array_equal(gain, np.array([], dtype=np.float32))
 
+
 def test_flat_fading_gain_zero_depth():
     rng = np.random.default_rng(0)
     gain = flat_fading_gain(SR, SR, 0.01, 1.0, rng)
     assert gain.shape == (SR,)
     assert np.allclose(gain, 1.0)
     assert gain.dtype == np.float32
+
 
 def test_flat_fading_gain_determinism():
     rng1 = np.random.default_rng(42)
@@ -244,6 +253,7 @@ def test_flat_fading_gain_determinism():
     gain2 = flat_fading_gain(SR, SR, 20.0, 1.0, rng2)
 
     assert np.array_equal(gain1, gain2)
+
 
 def test_flat_fading_gain_distribution():
     rng = np.random.default_rng(0)
@@ -255,18 +265,20 @@ def test_flat_fading_gain_distribution():
     assert np.all(gain >= 0)
 
     gain_db = 20.0 * np.log10(gain + 1e-9)
-    assert np.max(gain_db) <= 3.0 + 1e-5 # max is 3dB boost
+    assert np.max(gain_db) <= 3.0 + 1e-5  # max is 3dB boost
 
     # Check that significant dips occur, approaching -depth (at least half depth)
     assert np.min(gain_db) < -depth * 0.5
     # Ensure it's clipped at -depth
     assert np.min(gain_db) >= -depth - 1e-5
 
+
 def test_apply_fading_empty_signal():
     cond = BandProfile().conditions_at(145e6)
     rng = np.random.default_rng(0)
     out = apply_fading(np.array([], dtype=np.float32), SR, cond, rng)
     assert out.size == 0
+
 
 def test_apply_fading_bypassed_when_depth_is_zero():
     voice = speech_like()
@@ -275,6 +287,7 @@ def test_apply_fading_bypassed_when_depth_is_zero():
     rng = np.random.default_rng(0)
     out = apply_fading(voice, SR, cond, rng)
     assert np.array_equal(out, voice)
+
 
 def test_apply_fading_non_selective():
     voice = speech_like(seconds=4.0)
@@ -285,28 +298,30 @@ def test_apply_fading_non_selective():
     assert out.shape == voice.shape
     assert not np.array_equal(out, voice)
 
-    rms_diff = np.sqrt(np.mean((out - voice)**2))
+    rms_diff = np.sqrt(np.mean((out - voice) ** 2))
     assert rms_diff > 0.05
 
     env_in = envelope_follower(voice, SR)
     env_out = envelope_follower(out, SR)
     assert norm_corr(env_out, env_in) < 0.98
 
+
 def test_apply_fading_selective():
     voice = speech_like(seconds=4.0)
-    cond = BandProfile().conditions_at(14e6) # HF band
+    cond = BandProfile().conditions_at(14e6)  # HF band
     cond = dataclasses.replace(cond, fading_depth_db=20.0, selective_fading=True)
     rng = np.random.default_rng(0)
     out = apply_fading(voice, SR, cond, rng)
     assert out.shape == voice.shape
     assert not np.array_equal(out, voice)
 
-    rms_diff = np.sqrt(np.mean((out - voice)**2))
+    rms_diff = np.sqrt(np.mean((out - voice) ** 2))
     assert rms_diff > 0.05
 
     env_in = envelope_follower(voice, SR)
     env_out = envelope_follower(out, SR)
     assert norm_corr(env_out, env_in) < 0.98
+
 
 def test_soft_clip_bounds_and_linearity():
     from pivot.dsp.filters import soft_clip

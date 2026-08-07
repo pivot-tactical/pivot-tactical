@@ -196,10 +196,12 @@ def test_radio_status_strings():
     reg.sync_complete("a")
     assert reg.get("a").status == "transmitting"
 
+
 def test_render_map_empty():
     reg = RadioRegistry()
     rmap = reg.render_map_for_net(14_250_000)
     assert rmap == {}
+
 
 def test_render_map_isolated_nets():
     reg = RadioRegistry()
@@ -214,6 +216,7 @@ def test_render_map_isolated_nets():
     assert "b" in rmap_7
     assert "a" not in rmap_7
 
+
 def test_render_map_no_transmitters():
     reg = RadioRegistry()
     reg.add(make_radio("a", 14_250_000))
@@ -222,6 +225,7 @@ def test_render_map_no_transmitters():
     rmap = reg.render_map_for_net(14_250_000)
     assert rmap["a"] is Reception.SILENCE
     assert rmap["b"] is Reception.SILENCE
+
 
 def test_render_map_plain_collision():
     reg = RadioRegistry()
@@ -237,6 +241,7 @@ def test_render_map_plain_collision():
     # Transmitters cannot hear while transmitting
     assert rmap["tx1"] is Reception.SILENCE
     assert rmap["tx2"] is Reception.SILENCE
+
 
 def test_render_map_mixed_reception():
     reg = RadioRegistry()

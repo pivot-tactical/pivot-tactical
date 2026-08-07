@@ -3,10 +3,10 @@ import io
 import zipfile
 from pathlib import Path
 
+from pivot.audio.recording import session_dir_name
 from pivot.core.crypto import Audibility, RadioMode, SyncStatus
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
-from pivot.audio.recording import session_dir_name
 from pivot.db.models import TranscriptionStatus
 from pivot.exporting import export_csv, export_text, export_zip
 
@@ -67,7 +67,10 @@ def test_export_marks_edited_transcripts(database):
             dsp_profile={},
         )
         repo.set_transcription(
-            s, event.event_id, text_value="helo wrld", confidence=0.4,
+            s,
+            event.event_id,
+            text_value="helo wrld",
+            confidence=0.4,
             status=TranscriptionStatus.DONE,
         )
         repo.edit_transcription(s, event.event_id, "Hello World")

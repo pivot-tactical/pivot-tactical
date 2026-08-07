@@ -35,13 +35,13 @@ class RadioMode(StrEnum):
 class Reception(StrEnum):
     """What a listener hears for a given moment of audio."""
 
-    SILENCE = "silence"                 # nothing on frequency, or listener is keyed
-    CLEAR = "clear"                     # analog voice through the band DSP chain
-    DIGITAL = "digital"                 # decoded digital voice (Cypher TX → Cypher RX):
-                                        # the MELP vocoder's reconstruction (§3.4.1)
-    HASH = "hash"                       # encrypted garble (Cypher TX → Plain RX)
-    PLAIN_COLLISION = "plain_collision" # two+ plain voices overlapping/chaotic
-    CRYPTO_JAM = "crypto_jam"           # cypher collision jam during overlap
+    SILENCE = "silence"  # nothing on frequency, or listener is keyed
+    CLEAR = "clear"  # analog voice through the band DSP chain
+    DIGITAL = "digital"  # decoded digital voice (Cypher TX → Cypher RX):
+    # the MELP vocoder's reconstruction (§3.4.1)
+    HASH = "hash"  # encrypted garble (Cypher TX → Plain RX)
+    PLAIN_COLLISION = "plain_collision"  # two+ plain voices overlapping/chaotic
+    CRYPTO_JAM = "crypto_jam"  # cypher collision jam during overlap
 
 
 class Audibility(StrEnum):

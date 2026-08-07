@@ -7,6 +7,7 @@ from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
 from pivot.exporting import export_zip
 
+
 def test_export_zip_path_traversal(database, settings, tmp_path):
     with database.session() as s:
         cfg = ConfigStore(s)

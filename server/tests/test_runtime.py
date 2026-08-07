@@ -1,8 +1,9 @@
 """Integration tests for the live SessionManager (spec §3.2-§3.5)."""
 
+from unittest.mock import Mock
+
 import numpy as np
 import pytest
-from unittest.mock import Mock
 
 from pivot.audio.render import AarCryptoView, PlaybackMode, render_event
 from pivot.core.crypto import Audibility, RadioMode, SyncStatus
@@ -282,12 +283,12 @@ def test_route_tx_frame_records_crypto_sync_lead_in(manager):
     assert manager.registry.get("tx").on_air is False  # still in crypto sync
 
     frame = (0.3 * np.sin(2 * np.pi * 440 * np.arange(320) / 16000)).astype(np.float32)
-    manager.route_tx_frame("tx", frame)          # arrives DURING sync (not on air)
-    assert rx_frames == []                        # nothing rendered while syncing
+    manager.route_tx_frame("tx", frame)  # arrives DURING sync (not on air)
+    assert rx_frames == []  # nothing rendered while syncing
     manager.ptt_sync_complete("tx")
-    manager.route_tx_frame("tx", frame)          # arrives once on air
+    manager.route_tx_frame("tx", frame)  # arrives once on air
 
-    event = manager.ptt_end("tx")                # no explicit audio -> uses the tap
+    event = manager.ptt_end("tx")  # no explicit audio -> uses the tap
     # Both 20 ms frames captured (sync lead-in + on-air), not just the on-air one.
     assert event["duration_ms"] >= 39
 
@@ -309,11 +310,16 @@ def test_remove_instructor_radio_renumbers_default_labels(manager):
     manager.add_instructor_radio()
     manager.add_instructor_radio("EAGLE EYE")
     assert [r["name"] for r in manager.instructor_radios()] == [
-        "INSTRUCTOR (Radio 1)", "INSTRUCTOR (Radio 2)", "INSTRUCTOR (EAGLE EYE)"]
+        "INSTRUCTOR (Radio 1)",
+        "INSTRUCTOR (Radio 2)",
+        "INSTRUCTOR (EAGLE EYE)",
+    ]
 
     manager.remove_instructor_radio(r1["radio_id"])
     assert [r["name"] for r in manager.instructor_radios()] == [
-        "INSTRUCTOR (Radio 1)", "INSTRUCTOR (EAGLE EYE)"]
+        "INSTRUCTOR (Radio 1)",
+        "INSTRUCTOR (EAGLE EYE)",
+    ]
     # The next default label continues from the list position, no duplicates.
     added = manager.add_instructor_radio()
     assert added["name"] == "INSTRUCTOR (Radio 3)"
@@ -321,7 +327,10 @@ def test_remove_instructor_radio_renumbers_default_labels(manager):
     # The renumbering reached the DB too, so it survives a restart.
     resumed = SessionManager(manager.db, manager.settings)
     assert [r["name"] for r in resumed.instructor_radios()] == [
-        "INSTRUCTOR (Radio 1)", "INSTRUCTOR (EAGLE EYE)", "INSTRUCTOR (Radio 3)"]
+        "INSTRUCTOR (Radio 1)",
+        "INSTRUCTOR (EAGLE EYE)",
+        "INSTRUCTOR (Radio 3)",
+    ]
 
 
 def test_instructor_radio_watcher_fires_and_removal_detaches_sink(manager):
@@ -434,11 +443,13 @@ def test_monitor_snapshot_shows_freq_and_mode(manager):
     assert "145.500" in me["frequency"]
     assert me["band_region"] == "VHF"
 
+
 def test_emit_to_sink_silently_recovers():
     sink = Mock(side_effect=Exception("Test error"))
     # _emit_to_sink is a staticmethod
     SessionManager._emit_to_sink(sink, b"data")
     sink.assert_called_once_with(b"data")
+
 
 def test_session_active(manager):
     assert not manager.session_active

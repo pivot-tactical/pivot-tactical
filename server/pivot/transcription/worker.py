@@ -177,6 +177,8 @@ class TranscriptionWorker:
         if self._transcriber is None or key != self._transcriber_key:
             from pivot.transcription.whisper import FasterWhisperTranscriber
 
-            self._transcriber = FasterWhisperTranscriber(model_size=model, compute_type=compute_type)
+            self._transcriber = FasterWhisperTranscriber(
+                model_size=model, compute_type=compute_type
+            )
             self._transcriber_key = key
         return self._transcriber

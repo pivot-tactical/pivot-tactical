@@ -22,7 +22,7 @@ from importlib import metadata
 # Strong copyleft that must never be linked into the distributed exe (§13.7).
 # Catches both the acronyms (GPL/AGPL) and the spelled-out names.
 _DENY_PATTERNS = [
-    re.compile(r"\bA?GPL", re.IGNORECASE),                   # GPL / AGPL acronyms
+    re.compile(r"\bA?GPL", re.IGNORECASE),  # GPL / AGPL acronyms
     re.compile(r"Affero General Public License", re.IGNORECASE),
     re.compile(r"\bGeneral Public License", re.IGNORECASE),  # spelled-out GPL
 ]
@@ -30,10 +30,10 @@ _DENY_PATTERNS = [
 # "Lesser General Public License" (LGPL) is allowed despite containing the GPL
 # substring, and any "... with a linking exception" (PyInstaller) is allowed.
 _ALLOW_LICENSE_PATTERNS = [
-    re.compile(r"LGPL", re.IGNORECASE),                          # weak copyleft, dynamic link
+    re.compile(r"LGPL", re.IGNORECASE),  # weak copyleft, dynamic link
     re.compile(r"Lesser General Public License", re.IGNORECASE),
     re.compile(r"Library General Public License", re.IGNORECASE),  # historical LGPL name
-    re.compile(r"exception", re.IGNORECASE),                     # linking/classpath exceptions
+    re.compile(r"exception", re.IGNORECASE),  # linking/classpath exceptions
 ]
 # Distributions allow-listed by name (build tools not shipped in the binary).
 _ALLOW_DISTRIBUTIONS = {

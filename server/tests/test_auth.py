@@ -118,6 +118,7 @@ def test_tampered_token_is_rejected(database):
     forged = f"{version}.{int(exp_s) + 10_000_000}.{nonce}.{sig}"
     assert auth.validate(forged) is False
 
+
 def test_is_default_delegates_to_verify(database):
     auth = AuthService(database)
     with patch.object(auth, "verify", return_value=True) as mock_verify:

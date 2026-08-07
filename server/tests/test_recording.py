@@ -52,20 +52,19 @@ def test_session_dir_name_uses_name_and_dtg():
 
 
 def test_relative_audio_path_is_human_readable():
-    path = relative_audio_path(
-        "Night Nav Ex", SESSION_START, EVENT_START, "John Smith", EVENT_ID
-    )
-    assert (
-        path
-        == "night-nav-ex_2026-07-11_14-00-00Z/2026-07-11_14-30-22Z_john-smith_a1b2c3d4.wav"
-    )
+    path = relative_audio_path("Night Nav Ex", SESSION_START, EVENT_START, "John Smith", EVENT_ID)
+    assert path == "night-nav-ex_2026-07-11_14-00-00Z/2026-07-11_14-30-22Z_john-smith_a1b2c3d4.wav"
 
 
 def test_relative_audio_path_all_events_share_session_folder():
     """Two events in the same session land in one folder regardless of trainee."""
     a = relative_audio_path("Ex", SESSION_START, EVENT_START, "Alpha", EVENT_ID)
     b = relative_audio_path(
-        "Ex", SESSION_START, "2026-07-11T14:31:00+00:00", "Bravo", "ffffffff-0000-4000-8000-000000000000"
+        "Ex",
+        SESSION_START,
+        "2026-07-11T14:31:00+00:00",
+        "Bravo",
+        "ffffffff-0000-4000-8000-000000000000",
     )
     assert a.split("/")[0] == b.split("/")[0]
     assert a != b

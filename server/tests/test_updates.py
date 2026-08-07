@@ -12,8 +12,8 @@ from pivot.updates.manager import (
     default_asset_pattern,
     filter_channel,
     order_releases,
-    verify_sha256,
     sha256_of,
+    verify_sha256,
 )
 from pivot.version import SemVer
 
@@ -80,7 +80,7 @@ def test_filter_channel():
         rel("1.0.0"),
         rel("1.1.0-rc.1", prerelease=True),
         rel("1.2.0"),
-        rel("2.0.0-beta", prerelease=True)
+        rel("2.0.0-beta", prerelease=True),
     ]
     # Test stable only (exclude prereleases)
     stable = filter_channel(rels, include_prereleases=False)
@@ -323,8 +323,13 @@ def test_download_accepts_valid_signature(tmp_path, monkeypatch):
     _patch_download(monkeypatch, archive, sig_b64)
 
     mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
-    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
-                  sha256_url="http://x/a.zip.sha256", sig_url="http://x/a.zip.sig")
+    rel = Release(
+        tag="1.1.0",
+        asset_url="http://x/a.zip",
+        asset_name="a.zip",
+        sha256_url="http://x/a.zip.sha256",
+        sig_url="http://x/a.zip.sig",
+    )
     dest = mgr.download(rel)
     assert dest.read_bytes() == archive
 
@@ -337,8 +342,13 @@ def test_download_rejects_bad_signature(tmp_path, monkeypatch):
     _patch_download(monkeypatch, archive, wrong_sig)
 
     mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
-    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
-                  sha256_url="http://x/a.zip.sha256", sig_url="http://x/a.zip.sig")
+    rel = Release(
+        tag="1.1.0",
+        asset_url="http://x/a.zip",
+        asset_name="a.zip",
+        sha256_url="http://x/a.zip.sha256",
+        sig_url="http://x/a.zip.sig",
+    )
     with pytest.raises(ValueError, match="not trusted"):
         mgr.download(rel)
     # The rejected download must not be left on disk to be staged.
@@ -354,8 +364,13 @@ def test_download_allows_unsigned_release_when_no_sig_published(tmp_path, monkey
     _patch_download(monkeypatch, archive, "unused")
 
     mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
-    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
-                  sha256_url="http://x/a.zip.sha256", sig_url="")  # no signature
+    rel = Release(
+        tag="1.1.0",
+        asset_url="http://x/a.zip",
+        asset_name="a.zip",
+        sha256_url="http://x/a.zip.sha256",
+        sig_url="",
+    )  # no signature
     dest = mgr.download(rel)
     assert dest.read_bytes() == archive
 
@@ -419,8 +434,13 @@ def test_download_and_stage_skips_redownload_when_already_staged(tmp_path, monke
     monkeypatch.setattr(mgrmod, "_http_get", fake_get)
 
     mgr = UpdateManager("1.0.0", versions_dir=tmp_path / "versions")
-    rel = Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip",
-                  sha256_url="http://x/a.zip.sha256", sig_url="http://x/a.zip.sig")
+    rel = Release(
+        tag="1.1.0",
+        asset_url="http://x/a.zip",
+        asset_name="a.zip",
+        sha256_url="http://x/a.zip.sha256",
+        sig_url="http://x/a.zip.sig",
+    )
     first = mgr.download_and_stage(rel)
     second = mgr.download_and_stage(rel)
 
@@ -576,11 +596,13 @@ def test_offline_import_verification(tmp_path):
     assert mgr.verify_import_package(pkg, digest) is True
     assert mgr.verify_import_package(pkg, "00") is False
 
+
 def test_stage_prevents_path_traversal_tar(tmp_path):
     import tarfile
-    from pivot.updates.manager import UpdateManager, Release
 
     from pivot.updates.layout import Layout
+    from pivot.updates.manager import Release, UpdateManager
+
     layout = Layout(tmp_path / "app")
     manager = UpdateManager(layout, versions_dir=tmp_path / "versions")
 
@@ -601,14 +623,17 @@ def test_stage_prevents_path_traversal_tar(tmp_path):
         tf.add(tmp_path / "evil.txt", arcname="../evil.txt")
 
     import pytest
+
     with pytest.raises(ValueError, match="Path traversal detected"):
         manager.stage(archive, release)
 
+
 def test_stage_prevents_path_traversal_zip(tmp_path):
     import zipfile
-    from pivot.updates.manager import UpdateManager, Release
 
     from pivot.updates.layout import Layout
+    from pivot.updates.manager import Release, UpdateManager
+
     layout = Layout(tmp_path / "app")
     manager = UpdateManager(layout, versions_dir=tmp_path / "versions")
 
@@ -627,6 +652,7 @@ def test_stage_prevents_path_traversal_zip(tmp_path):
         zf.writestr("../evil.txt", "evil")
 
     import pytest
+
     with pytest.raises(ValueError, match="Path traversal detected"):
         manager.stage(archive, release)
 
