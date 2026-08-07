@@ -2,9 +2,9 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 
-from pivot.api.ws import _cancel, _safe
+from pivot.api.ws import _cancel, _instructor_session, _safe, _trainee_session
 from pivot.core.radios import RadioBusyError
 
 
@@ -69,3 +69,29 @@ async def test_safe_value_error():
     mock_ws.send_json.assert_called_once_with(
         {"type": "error", "payload": {"detail": "Invalid Value"}}
     )
+
+
+@pytest.mark.asyncio
+async def test_trainee_session_disconnect():
+    mock_ws = AsyncMock(spec=WebSocket)
+    mock_ws.query_params.get.return_value = "test"
+    mock_ws.receive.side_effect = WebSocketDisconnect()
+    mock_manager = MagicMock()
+    mock_manager.login.return_value = {"radio_id": "r1", "epoch": 123}
+
+    await _trainee_session(mock_ws, mock_manager)
+
+    mock_ws.receive.assert_called_once()
+    mock_manager.disconnect.assert_called_once_with("test", epoch=123)
+
+
+@pytest.mark.asyncio
+async def test_instructor_session_disconnect():
+    mock_ws = AsyncMock(spec=WebSocket)
+    mock_ws.receive.side_effect = WebSocketDisconnect()
+    mock_manager = MagicMock()
+    mock_manager.instructor_radios.return_value = [{"radio_id": "r1"}]
+
+    await _instructor_session(mock_ws, mock_manager)
+
+    mock_ws.receive.assert_called_once()
