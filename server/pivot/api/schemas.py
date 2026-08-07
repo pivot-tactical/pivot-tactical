@@ -22,6 +22,7 @@ class LoginResponse(BaseModel):
     # Trainee radio fields (absent for instructors):
     trainee_id: str | None = None
     radio_id: str | None = None
+    name: str | None = None  # callsign, and the label of the terminal's radio
     frequency: str | None = None
     frequency_hz: float | None = None
     mode: str | None = None

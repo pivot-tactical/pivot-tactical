@@ -87,21 +87,31 @@ export class PivotSocket {
     this.audioHandler = handler;
   }
 
-  // Trainee PTT/control (operates the socket's own radio).
-  pttStart(frequency: string, txMode: string) {
-    this.send("ptt_start", { frequency, tx_mode: txMode });
+  // Trainee PTT/control. A terminal may run several radios, so each message
+  // names the one it drives; omitting the id targets the terminal's own radio.
+  pttStart(frequency: string, txMode: string, radioId?: string) {
+    this.send("ptt_start", { frequency, tx_mode: txMode, radio_id: radioId });
   }
-  pttEnd() {
-    this.send("ptt_end", {});
+  pttEnd(radioId?: string) {
+    this.send("ptt_end", { radio_id: radioId });
   }
-  pttAbort() {
-    this.send("ptt_abort", {});
+  pttAbort(radioId?: string) {
+    this.send("ptt_abort", { radio_id: radioId });
   }
-  tune(frequency: string) {
-    this.send("tune", { frequency });
+  tune(frequency: string, radioId?: string) {
+    this.send("tune", { frequency, radio_id: radioId });
   }
-  modeChange(mode: string) {
-    this.send("mode_change", { mode });
+  modeChange(mode: string, radioId?: string) {
+    this.send("mode_change", { mode, radio_id: radioId });
+  }
+  // Extra trainee radios (§3.2.2). `slot` names the radio (2…N) so a terminal
+  // that reconnects can re-declare the radios it is still showing — and get the
+  // same ids, frequencies and modes back — rather than losing them on a blip.
+  addRadio(slot: number, frequency?: string, mode?: string) {
+    this.send("add_radio", { slot, frequency, mode });
+  }
+  removeRadio(radioId: string) {
+    this.send("remove_radio", { radio_id: radioId });
   }
 
   // Instructor control (targets a specific instructor radio by id).

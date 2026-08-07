@@ -1109,3 +1109,152 @@ def test_event_audio_422_on_render_failure(client, monkeypatch):
     r = client.get(f"/api/events/{event['event_id']}/audio?mode=clean")
     assert r.status_code == 422
     assert "mocked render error" in r.text
+
+
+def test_trainee_websocket_adds_drives_and_removes_extra_radios(client):
+    """A trainee runs several radios on one socket (§3.2.2): each is added by
+    slot, tuned and keyed by radio_id, and heard by the rest of its net."""
+    client.post("/api/admin/session/start", json={"name": "MULTI-RADIO"})
+    manager = client.app.state.manager
+    # A listener on the second radio's net so its transmission classifies Heard.
+    manager.login("LISTENER", "listener-1")
+    manager.tune("listener-1", "145.500 MHz")
+
+    with client.websocket_connect("/ws?name=ECHO&trainee_id=multi-1") as wsconn:
+        wsconn.receive_json()  # welcome
+        wsconn.receive_json()  # band profile
+
+        wsconn.send_json({"type": "add_radio", "payload": {"slot": 2}})
+        added = _recv_until(wsconn, "radio_added")["payload"]
+        rid = added["radio_id"]
+        assert rid == "multi-1#2"
+        assert added["name"] == "ECHO/R2"
+
+        # Tuning the added radio leaves the terminal's own radio alone.
+        wsconn.send_json({"type": "tune", "payload": {"radio_id": rid, "frequency": "145.500 MHz"}})
+        assert "145.500" in _recv_until(wsconn, "tuned")["payload"]["frequency"]
+        assert manager.registry.get("multi-1").frequency_hz == 7_000_000.0
+
+        # …and keying it keys only it.
+        wsconn.send_json({"type": "ptt_start", "payload": {"radio_id": rid, "tx_mode": "Plain"}})
+        assert _recv_until(wsconn, "ptt_started")["payload"]["radio_id"] == rid
+        assert not manager.registry.get("multi-1").transmitting
+        wsconn.send_json({"type": "ptt_end", "payload": {"radio_id": rid}})
+        ended = _recv_until(wsconn, "ptt_ended")["payload"]
+        assert ended["radio_id"] == rid
+        assert ended["audibility"] == "Heard"
+        assert ended["trainee_name"] == "ECHO/R2"
+
+        wsconn.send_json({"type": "remove_radio", "payload": {"radio_id": rid}})
+        assert _recv_until(wsconn, "radio_removed")["payload"]["radio_id"] == rid
+        assert manager.registry.get(rid) is None
+
+
+def test_trainee_control_messages_default_to_the_terminals_own_radio(client):
+    """Messages without a radio_id still drive the radio the trainee logged in
+    with, and a terminal can only drive radios it owns."""
+    manager = client.app.state.manager
+    manager.login("OTHER", "other-1")
+
+    with client.websocket_connect("/ws?name=FOX&trainee_id=own-1") as wsconn:
+        wsconn.receive_json()  # welcome
+        wsconn.receive_json()  # band profile
+
+        wsconn.send_json({"type": "tune", "payload": {"frequency": "30.100 MHz"}})
+        ack = _recv_until(wsconn, "tuned")["payload"]
+        assert ack["radio_id"] == "own-1" and ack["band_region"] == "VHF"
+
+        # Another terminal's radio is not addressable from this socket.
+        wsconn.send_json(
+            {"type": "tune", "payload": {"radio_id": "other-1", "frequency": "40.000 MHz"}}
+        )
+        assert "not this terminal's radio" in _recv_until(wsconn, "error")["payload"]["detail"]
+        assert manager.registry.get("other-1").frequency_hz == 7_000_000.0
+
+
+def test_trainee_audio_frames_are_tagged_with_radio_id(client):
+    """A terminal's radios share one playback stream, so each rendered frame is
+    prefixed with the radio that received it ([1-byte len][id][PCM…])."""
+    from pivot.audio.pcm import float32_to_pcm16
+
+    client.post("/api/admin/session/start", json={"name": "TRAINEE-TAG"})
+
+    with client.websocket_connect("/ws?name=RX&trainee_id=rx-tag") as rx:
+        rx.receive_json()  # welcome
+        rx.receive_json()  # band profile
+        rx.send_json({"type": "add_radio", "payload": {"slot": 2, "frequency": "40.000 MHz"}})
+        rid = _recv_until(rx, "radio_added")["payload"]["radio_id"]
+
+        with client.websocket_connect("/ws?name=TX&trainee_id=tag-tx2") as tx:
+            tx.receive_json()  # welcome
+            tx.receive_json()  # band profile
+            tx.send_json(
+                {"type": "ptt_start", "payload": {"frequency": "40.000 MHz", "tx_mode": "Plain"}}
+            )
+            _recv_until(tx, "ptt_started")
+            tx.send_bytes(
+                float32_to_pcm16(
+                    (0.2 * np.sin(2 * np.pi * 440 * np.arange(1600) / 16000)).astype(np.float32)
+                )
+            )
+
+            data = _recv_bytes(rx)
+            length = data[0]
+            # The added radio is the one on that net, so it is the tagged source.
+            assert data[1 : 1 + length].decode("ascii") == rid
+            assert (len(data) - 1 - length) % 2 == 0  # remaining bytes are PCM16
+            tx.send_json({"type": "ptt_end", "payload": {}})
+
+
+def test_trainee_extra_radios_go_when_the_terminal_disconnects(client):
+    manager = client.app.state.manager
+    with client.websocket_connect("/ws?name=GOLF&trainee_id=gone-1") as wsconn:
+        wsconn.receive_json()  # welcome
+        wsconn.receive_json()  # band profile
+        wsconn.send_json({"type": "add_radio", "payload": {"slot": 2}})
+        rid = _recv_until(wsconn, "radio_added")["payload"]["radio_id"]
+        assert manager.registry.get(rid) is not None
+
+    assert manager.registry.get(rid) is None
+    assert manager.registry.get("gone-1") is None
+
+
+def test_trainee_hears_both_of_its_radios_at_once(client):
+    """The point of the extra radios: a trainee monitors two nets at the same
+    time, and the frames arrive tagged so each is heard on its own radio (and
+    can be muted independently by the radio view's Focus control)."""
+    from pivot.audio.pcm import float32_to_pcm16
+
+    client.post("/api/admin/session/start", json={"name": "TWO-NETS"})
+    voice = float32_to_pcm16(
+        (0.2 * np.sin(2 * np.pi * 440 * np.arange(1600) / 16000)).astype(np.float32)
+    )
+
+    with client.websocket_connect("/ws?name=ECHO&trainee_id=two-nets") as rx:
+        rx.receive_json()  # welcome
+        rx.receive_json()  # band profile
+        rx.send_json({"type": "tune", "payload": {"frequency": "7.000 MHz"}})
+        _recv_until(rx, "tuned")
+        rx.send_json({"type": "add_radio", "payload": {"slot": 2, "frequency": "145.500 MHz"}})
+        second = _recv_until(rx, "radio_added")["payload"]["radio_id"]
+
+        for tid, freq in (("hf-tx", "7.000 MHz"), ("vhf-tx", "145.500 MHz")):
+            with client.websocket_connect(f"/ws?name={tid}&trainee_id={tid}") as tx:
+                tx.receive_json()  # welcome
+                tx.receive_json()  # band profile
+                tx.send_json({"type": "ptt_start", "payload": {"frequency": freq}})
+                _recv_until(tx, "ptt_started")
+                tx.send_bytes(voice)
+                tx.send_json({"type": "ptt_end", "payload": {}})
+                _recv_until(tx, "ptt_ended")
+
+        tags = set()
+        for _ in range(60):
+            msg = rx.receive()
+            if msg.get("bytes") is None:
+                continue
+            data = msg["bytes"]
+            tags.add(data[1 : 1 + data[0]].decode("ascii"))
+            if {"two-nets", second} <= tags:
+                break
+        assert {"two-nets", second} <= tags, f"only heard {tags}"

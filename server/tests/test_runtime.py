@@ -457,3 +457,150 @@ def test_session_active(manager):
     assert manager.session_active
     manager.end_session()
     assert not manager.session_active
+
+
+# --- extra trainee radios (§3.2.2) ----------------------------------------- #
+
+
+def test_trainee_can_run_several_radios_on_independent_nets(manager):
+    """A trainee adds radios the way the instructor does: each one tunes and
+    keys on its own frequency, and hears its own net."""
+    manager.start_session("EX")
+    manager.login("ALPHA", "t-1")
+    manager.tune("t-1", "7.100 MHz")
+
+    second = manager.add_trainee_radio("t-1")
+    assert second["radio_id"] == "t-1#2"
+    assert second["name"] == "ALPHA/R2"
+
+    manager.tune(second["radio_id"], "145.500 MHz")
+    assert manager.registry.get("t-1").frequency_hz == 7_100_000.0
+    assert manager.registry.get("t-1#2").frequency_hz == 145_500_000.0
+    # Independent nets: neither radio is a listener on the other's channel.
+    assert not manager.registry.same_net(7_100_000.0, 145_500_000.0)
+
+    # Keying one leaves the other idle.
+    manager.ptt_start("t-1#2")
+    assert manager.registry.get("t-1#2").transmitting
+    assert not manager.registry.get("t-1").transmitting
+    manager.ptt_end("t-1#2")
+
+    assert [r["radio_id"] for r in manager.trainee_radios("t-1")] == ["t-1", "t-1#2"]
+
+
+def test_trainee_radios_are_heard_by_the_rest_of_the_net(manager):
+    """An added radio is a full station: another trainee on that frequency
+    hears it, and the transmission is logged under the radio's own name."""
+    manager.start_session("EX")
+    manager.login("ALPHA", "t-1")
+    manager.login("BRAVO", "t-2")
+    manager.tune("t-2", "145.500 MHz")
+    rid = manager.add_trainee_radio("t-1", frequency="145.500 MHz")["radio_id"]
+
+    manager.ptt_start(rid)
+    event = manager.ptt_end(rid)
+    assert event["audibility"] == Audibility.HEARD.value
+    assert event["trainee_name"] == "ALPHA/R2"
+
+
+def test_add_trainee_radio_fills_the_lowest_free_slot(manager):
+    manager.login("ALPHA", "t-1")
+    a = manager.add_trainee_radio("t-1")["radio_id"]
+    b = manager.add_trainee_radio("t-1")["radio_id"]
+    assert (a, b) == ("t-1#2", "t-1#3")
+
+    manager.remove_trainee_radio("t-1", "t-1#2")
+    assert manager.add_trainee_radio("t-1")["radio_id"] == "t-1#2"
+
+
+def test_re_adding_a_live_slot_restores_it_rather_than_duplicating(manager):
+    """A reconnecting terminal re-declares the radios it is still showing: the
+    same slot comes back with the state the client passed, not a second radio."""
+    manager.login("ALPHA", "t-1")
+    manager.add_trainee_radio("t-1", slot=2)
+    again = manager.add_trainee_radio("t-1", slot=2, frequency="145.500 MHz", mode=RadioMode.CYPHER)
+    assert again["radio_id"] == "t-1#2"
+    assert again["frequency_hz"] == 145_500_000.0
+    assert again["mode"] == "Cypher"
+    assert len(manager.trainee_radios("t-1")) == 2
+
+
+def test_trainee_radio_limits(manager):
+    from pivot.runtime.manager import MAX_TRAINEE_RADIOS
+
+    manager.login("ALPHA", "t-1")
+    for _ in range(MAX_TRAINEE_RADIOS - 1):
+        manager.add_trainee_radio("t-1")
+    with pytest.raises(ValueError):
+        manager.add_trainee_radio("t-1")
+    with pytest.raises(ValueError):
+        manager.add_trainee_radio("t-1", slot=99)
+    with pytest.raises(KeyError):
+        manager.add_trainee_radio("nobody")
+
+
+def test_remove_trainee_radio_rejects_the_terminals_own_and_other_owners(manager):
+    manager.login("ALPHA", "t-1")
+    manager.login("BRAVO", "t-2")
+    rid = manager.add_trainee_radio("t-1")["radio_id"]
+
+    assert manager.remove_trainee_radio("t-1", "t-1") is False  # goes with the terminal
+    assert manager.remove_trainee_radio("t-2", rid) is False  # not BRAVO's radio
+    assert manager.registry.get(rid) is not None
+    assert manager.remove_trainee_radio("t-1", rid) is True
+    assert manager.registry.get(rid) is None
+
+
+def test_removing_a_keyed_radio_takes_it_off_the_air(manager):
+    manager.start_session("EX")
+    manager.login("ALPHA", "t-1")
+    rid = manager.add_trainee_radio("t-1", frequency="145.500 MHz")["radio_id"]
+    manager.ptt_start(rid)
+
+    frames = []
+    manager.register_audio_sink(rid, frames.append)
+    assert manager.remove_trainee_radio("t-1", rid) is True
+    assert rid not in manager._active_tx
+    assert manager._audio_sinks.get(rid) is None
+
+
+def test_disconnect_drops_every_radio_the_terminal_was_running(manager):
+    manager.start_session("EX")
+    manager.login("ALPHA", "t-1")
+    extra = manager.add_trainee_radio("t-1")["radio_id"]
+
+    manager.disconnect("t-1")
+    assert manager.registry.get("t-1") is None
+    assert manager.registry.get(extra) is None
+    assert manager.trainee_radios("t-1") == []
+
+
+def test_extra_radios_do_not_clobber_the_persisted_terminal_state(manager):
+    """radio_state is one row per terminal, so only the radio the trainee
+    logged in with is persisted — an extra radio's tune must not overwrite it."""
+    manager.start_session("EX")
+    manager.login("ALPHA", "t-1")
+    manager.tune("t-1", "7.100 MHz")
+    rid = manager.add_trainee_radio("t-1")["radio_id"]
+    manager.tune(rid, "145.500 MHz")
+
+    with manager.db.session() as s:
+        state = repo.get_radio_state(s, manager.current_session_id, "t-1")
+        assert "7.100" in state.frequency
+
+    # A rejoin resumes on the terminal's own frequency, with no extra radios.
+    manager.disconnect("t-1")
+    info = manager.login("ALPHA", "t-1")
+    assert info["frequency_hz"] == 7_100_000.0
+    assert [r["radio_id"] for r in manager.trainee_radios("t-1")] == ["t-1"]
+
+
+def test_kick_by_any_of_a_terminals_radio_ids(manager):
+    """The monitor lists a row per radio, so a kick may name an extra one."""
+    manager.login("ALPHA", "t-1")
+    extra = manager.add_trainee_radio("t-1")["radio_id"]
+
+    assert manager.kick(extra) is True
+    assert "t-1" not in manager.terminals
+    assert manager.registry.get("t-1") is None
+    assert manager.registry.get(extra) is None
