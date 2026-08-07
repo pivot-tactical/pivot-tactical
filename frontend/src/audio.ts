@@ -61,9 +61,8 @@ function floatToPcm16(f32: Float32Array): ArrayBuffer {
 }
 
 function pcm16ToFloat(buf: ArrayBuffer): Float32Array {
-  const i16 = new Int16Array(buf);
-  const f32 = new Float32Array(i16.length);
-  for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 0x8000;
+  const f32 = new Float32Array(new Int16Array(buf));
+  for (let i = 0; i < f32.length; i++) f32[i] *= 0.000030517578125;
   return f32;
 }
 
