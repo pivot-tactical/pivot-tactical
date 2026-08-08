@@ -28,7 +28,7 @@ import { PivotSocket } from "../ws";
 // (the instructor has RX NOISE OFF for the same job).
 
 const STEP_HZ = 12_500; // tuning step / channel raster (12.5 kHz)
-const MAX_RADIOS = 9; // matches the server cap and the Shift+digit PTT hotkeys
+const MAX_RADIOS = 9; // matches the server cap and the numpad PTT hotkeys
 
 function snapToStep(hz: number): number {
   return Math.round(hz / STEP_HZ) * STEP_HZ;
@@ -222,43 +222,29 @@ export function Radio({
     [socket, phases]
   );
 
-  // PTT hotkeys (§3.2.2): the spacebar keys the focused radio — the one being
-  // listened to — falling back to the terminal's own radio, and Shift + a
-  // radio's number keys that one, so any open net can be answered by hand.
+  // PTT hotkey (§3.2.2): the numpad key with a radio's number keys that radio —
+  // one key per radio, so any open net can be answered by hand without first
+  // choosing which radio the keyboard is pointed at. Matched on e.code, which is
+  // the physical key, so it works with Num Lock off.
   useEffect(() => {
-    const target = (): TraineeRadio =>
-      radiosRef.current.find((r) => r.radioId === focused) ?? radiosRef.current[0];
     const numbered = (e: KeyboardEvent): TraineeRadio | undefined => {
-      const m = e.code.match(/^Digit([1-9])$/);
+      const m = e.code.match(/^Numpad([1-9])$/);
       return m ? radiosRef.current[parseInt(m[1], 10) - 1] : undefined;
     };
     const down = (e: KeyboardEvent) => {
       if (isTyping(e) || e.repeat) return;
-      if (e.shiftKey) {
-        const r = numbered(e);
-        if (r) {
-          e.preventDefault();
-          startTx(r);
-        }
-        return;
-      }
-      if (e.code === "Space") {
+      const r = numbered(e);
+      if (r) {
         e.preventDefault();
-        startTx(target());
+        startTx(r);
       }
     };
     const up = (e: KeyboardEvent) => {
       if (isTyping(e)) return;
-      // Shift may already be released by the time the digit comes up.
       const r = numbered(e);
       if (r) {
         e.preventDefault();
         endTx(r);
-        return;
-      }
-      if (e.code === "Space") {
-        e.preventDefault();
-        endTx(target());
       }
     };
     window.addEventListener("keydown", down);
@@ -267,7 +253,7 @@ export function Radio({
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [startTx, endTx, focused]);
+  }, [startTx, endTx]);
 
   // --- radio set ---
   function addRadio() {
@@ -314,7 +300,6 @@ export function Radio({
             phase={phases[r.radioId] ?? "IDLE"}
             focused={focused === r.radioId}
             muted={focused !== null && focused !== r.radioId}
-            spaceTarget={focused === r.radioId || (focused === null && i === 0)}
             socket={socket}
             audio={audio.current}
             rxLevels={rxLevels}
@@ -348,7 +333,6 @@ function RadioPanel({
   phase,
   focused,
   muted,
-  spaceTarget,
   socket,
   audio,
   rxLevels,
@@ -365,7 +349,6 @@ function RadioPanel({
   phase: TxPhase;
   focused: boolean;
   muted: boolean;
-  spaceTarget: boolean;
   socket: PivotSocket;
   audio: AudioIO;
   rxLevels: RxLevels;
@@ -419,8 +402,8 @@ function RadioPanel({
   }
 
   // Confirm the typed frequency and hand focus back to the page — otherwise it
-  // stays in the entry box and the spacebar PTT (§3.4.5) just types spaces
-  // into it instead of keying up.
+  // stays in the entry box and the numpad PTT (§3.4.5) just types digits into
+  // it instead of keying up.
   function confirmEntry() {
     const v = parseFloat(entry);
     if (!isNaN(v)) applyTune(v * 1e6);
@@ -549,19 +532,16 @@ function RadioPanel({
         }}
       >
         <span className="ptt__state">{phaseLabel(phase)}</span>
-        <span className="ptt__hint">{hotkeyHint(multi, index, spaceTarget)}</span>
+        <span className="ptt__hint">{hotkeyHint(index)}</span>
       </button>
     </div>
   );
 }
 
-// What keys this radio: the spacebar follows the focused radio (the one being
-// listened to), and every radio within reach of the number row shows its own
-// Shift + digit combo so there is no ambiguity about which one keys up.
-function hotkeyHint(multi: boolean, index: number, spaceTarget: boolean): string {
-  if (!multi) return "HOLD / SPACE";
-  const keys = [spaceTarget ? "SPACE" : null, index <= 9 ? `SHIFT+${index}` : null].filter(Boolean);
-  return keys.length ? `HOLD · ${keys.join(" · ")}` : "HOLD";
+// What keys this radio: every radio within reach of the numpad shows its own
+// key, so there is no ambiguity about which one keys up.
+function hotkeyHint(index: number): string {
+  return index <= 9 ? `HOLD · NUMPAD ${index}` : "HOLD";
 }
 
 function phaseLabel(phase: TxPhase): string {

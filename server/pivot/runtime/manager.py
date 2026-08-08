@@ -56,7 +56,7 @@ _DEFAULT_RADIO_LABEL = re.compile(r"^Radio \d+$")
 # A trainee terminal may run more than one radio (§3.2.2): the terminal's own
 # radio is slot 1 and keeps the trainee_id as its radio_id, and each extra radio
 # the trainee adds takes the next free slot as "<trainee_id>#<slot>". Capped at
-# the number of Shift+digit PTT hotkeys the radio view offers.
+# the number of numpad PTT hotkeys the radio view offers.
 MAX_TRAINEE_RADIOS = 9
 
 

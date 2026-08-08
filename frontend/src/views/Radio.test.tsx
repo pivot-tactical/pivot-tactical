@@ -195,27 +195,48 @@ describe('Radio', () => {
     expect(mockSocket.pttEnd).toHaveBeenCalledWith('radio1');
   });
 
-  it('handles PTT via spacebar', async () => {
+  it('handles PTT via the radio\'s numpad key', async () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    expect(ptt('ALPHA')).toHaveTextContent('HOLD · NUMPAD 1');
 
-    // Space down
+    // Numpad 1 down
     await act(async () => {
-      fireEvent.keyDown(window, { code: 'Space' });
+      fireEvent.keyDown(window, { code: 'Numpad1' });
     });
 
     expect(mockSocket.pttStart).toHaveBeenCalledWith('7.0000 MHz', 'Plain', 'radio1');
 
-    // Space up
-    fireEvent.keyUp(window, { code: 'Space' });
+    // Numpad 1 up
+    fireEvent.keyUp(window, { code: 'Numpad1' });
     expect(mockSocket.pttEnd).toHaveBeenCalledWith('radio1');
   });
 
-  it('ignores PTT via spacebar when typing in an input', async () => {
+  it('ignores the spacebar — every radio is keyed by its numpad key', async () => {
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+
+    await act(async () => {
+      fireEvent.keyDown(window, { code: 'Space' });
+    });
+
+    expect(mockSocket.pttStart).not.toHaveBeenCalled();
+  });
+
+  it('ignores a numpad key with no radio behind it', async () => {
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+
+    await act(async () => {
+      fireEvent.keyDown(window, { code: 'Numpad4' });
+    });
+
+    expect(mockSocket.pttStart).not.toHaveBeenCalled();
+  });
+
+  it('ignores PTT via the numpad when typing in an input', async () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
     const entryInput = screen.getByLabelText('Frequency in MHz on ALPHA');
 
     await act(async () => {
-      fireEvent.keyDown(entryInput, { code: 'Space', target: entryInput });
+      fireEvent.keyDown(entryInput, { code: 'Numpad1', target: entryInput });
     });
 
     expect(mockSocket.pttStart).not.toHaveBeenCalled();
@@ -292,11 +313,11 @@ describe('Radio', () => {
     expect(audioModule.saveVolume).toHaveBeenCalledWith('trainee', 0.8);
   });
 
-  it('ignores e.repeat on spacebar keydown', async () => {
+  it('ignores e.repeat on a numpad keydown', async () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
 
     await act(async () => {
-      fireEvent.keyDown(window, { code: 'Space', repeat: true });
+      fireEvent.keyDown(window, { code: 'Numpad1', repeat: true });
     });
 
     expect(mockSocket.pttStart).not.toHaveBeenCalled();
@@ -341,12 +362,13 @@ describe('Radio', () => {
     fireEvent.mouseUp(ptt('ALPHA/R2'));
     expect(mockSocket.pttEnd).toHaveBeenCalledWith('trainee-1#2');
 
-    // Shift + the radio's number keys it too.
+    // The radio's own numpad key keys it too.
+    expect(ptt('ALPHA/R2')).toHaveTextContent('HOLD · NUMPAD 2');
     await act(async () => {
-      fireEvent.keyDown(window, { code: 'Digit2', shiftKey: true });
+      fireEvent.keyDown(window, { code: 'Numpad2' });
     });
     expect(mockSocket.pttStart).toHaveBeenLastCalledWith('145.5125 MHz', 'Plain', 'trainee-1#2');
-    fireEvent.keyUp(window, { code: 'Digit2' });
+    fireEvent.keyUp(window, { code: 'Numpad2' });
     expect(mockSocket.pttEnd).toHaveBeenLastCalledWith('trainee-1#2');
 
     fireEvent.click(screen.getByLabelText('Remove ALPHA/R2'));
@@ -407,18 +429,24 @@ describe('Radio', () => {
     expect(screen.getByLabelText('Focus ALPHA/R2')).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('keys the focused radio with the spacebar', async () => {
+  it('leaves the PTT keys alone when a radio is focused — focus only mutes', async () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
     act(() => { handlers['radio_added'](addedRadio({ frequency_hz: 145_500_000 })); });
     fireEvent.click(screen.getByLabelText('Focus ALPHA/R2'));
 
+    // Each numpad key still keys its own radio, focused or not.
     await act(async () => {
-      fireEvent.keyDown(window, { code: 'Space' });
+      fireEvent.keyDown(window, { code: 'Numpad1' });
     });
-    expect(mockSocket.pttStart).toHaveBeenCalledWith('145.5000 MHz', 'Plain', 'trainee-1#2');
+    expect(mockSocket.pttStart).toHaveBeenLastCalledWith('7.0000 MHz', 'Plain', 'radio1');
+    fireEvent.keyUp(window, { code: 'Numpad1' });
 
-    fireEvent.keyUp(window, { code: 'Space' });
-    expect(mockSocket.pttEnd).toHaveBeenCalledWith('trainee-1#2');
+    await act(async () => {
+      fireEvent.keyDown(window, { code: 'Numpad2' });
+    });
+    expect(mockSocket.pttStart).toHaveBeenLastCalledWith('145.5000 MHz', 'Plain', 'trainee-1#2');
+    fireEvent.keyUp(window, { code: 'Numpad2' });
+    expect(mockSocket.pttEnd).toHaveBeenLastCalledWith('trainee-1#2');
   });
 
   it('routes received audio to the radio that heard it', () => {

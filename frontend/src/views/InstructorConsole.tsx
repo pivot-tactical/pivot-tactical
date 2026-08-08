@@ -342,21 +342,23 @@ function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScen
     else socket.instrPttEnd(r.radio_id);
   }, [socket, phases, audio]);
 
-  // Per-radio PTT hotkey: Shift + the radio's number (§3.4.5). Each card shows
-  // its own combo so there is no ambiguity about which radio keys up. Held by
-  // the digit's keydown/keyup; e.code stays "Digit#" regardless of Shift.
+  // Per-radio PTT hotkey: the numpad key with the radio's number (§3.4.5) — one
+  // key per radio, laid out like a keying panel under the operating hand. Each
+  // card shows its own key so there is no ambiguity about which radio keys up.
+  // Matched on e.code, which is the physical key, so it works with Num Lock off.
   useEffect(() => {
+    const numbered = (e: KeyboardEvent): RadioState | undefined => {
+      const m = e.code.match(/^Numpad([1-9])$/);
+      return m ? radios[parseInt(m[1], 10) - 1] : undefined;
+    };
     const down = (e: KeyboardEvent) => {
-      if (!e.shiftKey || e.repeat || typing(e)) return;
-      const m = e.code.match(/^Digit([1-9])$/);
-      if (!m) return;
-      const r = radios[parseInt(m[1], 10) - 1];
+      if (e.repeat || typing(e)) return;
+      const r = numbered(e);
       if (r) { e.preventDefault(); startTx(r); }
     };
     const up = (e: KeyboardEvent) => {
-      const m = e.code.match(/^Digit([1-9])$/);
-      if (!m) return;
-      const r = radios[parseInt(m[1], 10) - 1];
+      if (typing(e)) return;
+      const r = numbered(e);
       if (r) { e.preventDefault(); endTx(r); }
     };
     window.addEventListener("keydown", down); window.addEventListener("keyup", up);
@@ -405,8 +407,8 @@ function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScen
 }
 
 // One instructor radio rendered like the trainee panel: large frequency display
-// + tuning, the Plain/Cypher dial, a signal indicator, its own PTT keyed by
-// Shift + the card's number (shown on the control so there is no confusion),
+// + tuning, the Plain/Cypher dial, a signal indicator, its own PTT keyed by the
+// numpad key with the card's number (shown on the control so there is no doubt),
 // and the channel-effects controls — per-net interference and jamming applied
 // to whatever frequency this radio is tuned to (§3.1.5).
 function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels, onStart, onEnd, onRemove }: {
@@ -418,7 +420,7 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
   const [volume, setVolume] = useState(() => loadVolume(`instr.${radio.radio_id}`));
   const entryRef = useRef<HTMLInputElement>(null);
   const transmitting = phase !== "IDLE";
-  const shortcut = index <= 9 ? `SHIFT + ${index}` : null;
+  const shortcut = index <= 9 ? `NUMPAD ${index}` : null;
 
   const interference = scenario?.interference ?? 0;
   const jammed = scenario?.jammed ?? false;
@@ -463,7 +465,7 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
     const snapped = Math.max(1.6e6, Math.min(3e9, snapToStep(hz)));
     socket?.instrTune(radio.radio_id, `${fmtMHz(snapped)} MHz`);
   }
-  // Confirm a typed frequency and hand focus back so the Shift+# PTT keys up
+  // Confirm a typed frequency and hand focus back so the numpad PTT keys up
   // instead of typing into the box.
   function confirmEntry() {
     const v = parseFloat(entry);
