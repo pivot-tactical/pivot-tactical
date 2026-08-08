@@ -79,11 +79,23 @@ the instructor password. Everything transmitted on the net is recorded and
 transcribed.
 
 **Trainees (browser).** Enter a callsign to join, tune the radio (type a
-frequency or step up/down), choose Plain or Cypher, and **hold PTT / spacebar**
-to transmit. A live ops-room clock shows the configured time zone. Trainees only
-operate their own radio — no settings, no logs. Whether anyone hears you depends
-on who else is tuned to your frequency and their crypto mode — just like a real
-radio.
+frequency or step up/down), choose Plain or Cypher, and **hold PTT** to transmit.
+A live ops-room clock shows the configured time zone. Trainees only operate their
+own radios — no settings, no logs. Whether anyone hears you depends on who else
+is tuned to your frequency and their crypto mode — just like a real radio.
+
+**Add Radio** gives a trainee another radio on the same screen, each tuning,
+transmitting and listening on its own frequency, and **✕** puts one away again.
+With several nets open the noise floors stack up, so each radio also has a
+**Focus** button: click it to mute every other radio while you read that one, and
+click it again to bring them back. (The instructor doesn't need Focus — an
+instructor radio can drop the channel noise from its own receive with
+**RX Noise**.)
+
+**PTT keys.** Every radio — trainee or instructor — is keyed by the **numpad key
+with its number**: numpad 1 keys radio 1, numpad 2 keys radio 2, and so on, up to
+9. One key per radio, held down like a pressel, so any open net can be answered
+without reaching for the mouse. Each PTT control shows its own key.
 
 **After Action Review (AAR).** Open the AAR from the browser to replay a session:
 a timeline of every transmission with timestamp, callsign, frequency, who copied

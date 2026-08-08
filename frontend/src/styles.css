@@ -106,6 +106,53 @@ body {
 .freq__entry { width: 160px; text-align: center; font-size: 20px; }
 .radio__row { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin: 26px 0; }
 
+/* A terminal running more than one radio gets a panel per radio, laid out left
+   to right and wrapping to another row when the viewport runs out of width (the
+   same auto-fit grid the instructor console uses) — side by side beats a long
+   vertical scroll when several nets are being watched at once. */
+.radio__panels {
+  display: grid;
+  /* min(…, 100%) lets a track shrink on a narrow viewport instead of
+     overflowing the container. */
+  grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));
+  gap: 16px;
+  align-content: start;
+}
+.radio__panelhead { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.radio__num {
+  flex-shrink: 0; width: 26px; height: 26px; display: grid; place-items: center;
+  border: 1px solid var(--green); border-radius: 7px; background: #11251a;
+  color: var(--green); font-size: 13px; font-weight: 600;
+}
+.radio__name { flex: 1; color: var(--muted); letter-spacing: 1px; font-size: 13px; }
+.radio__mutetag { color: var(--amber); font-size: 10px; letter-spacing: 2px; }
+.radio__remove { padding: 4px 10px; }
+/* Muted by another radio's FOCUS: still live and still metering, just silent. */
+.radio__panel--muted { opacity: 0.72; border-color: #2a2f28; }
+/* Widen the column so more than one radio actually fits across; a lone radio
+   keeps the centred single-panel width it has always had. */
+.radio--multi { max-width: 1400px; }
+/* Grid rows stretch their cards to a common height, so the PTT is pushed to the
+   bottom of each — the row of controls above it can differ in height without
+   leaving one card's PTT floating mid-air. */
+.radio--multi .radio__panel { padding: 16px; display: flex; flex-direction: column; }
+.radio--multi .ptt { margin-top: auto; padding: 18px; }
+.radio--multi .freq__display { font-size: 44px; }
+.radio--multi .freq__unit { font-size: 16px; }
+.radio--multi .freq__controls { flex-wrap: wrap; }
+.radio--multi .freq__entry { width: 120px; font-size: 18px; }
+.radio--multi .radio__row { margin: 16px 0; flex-wrap: wrap; }
+.radio--multi .ptt__state { font-size: 20px; }
+/* Add Radio as a compact ghost button under the panels, matching the console. */
+.radio__add:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
+.radio__add {
+  align-self: flex-end; margin-top: 16px;
+  border: 1px dashed var(--line); border-radius: 10px;
+  background: transparent; color: var(--muted); font: inherit; cursor: pointer;
+  padding: 7px 16px; letter-spacing: 1px;
+}
+.radio__add:hover { color: var(--green); border-color: var(--green); }
+
 /* ---------- mode dial (Plain/Cypher rotary switch) ---------- */
 .dial:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 .dial {
@@ -163,6 +210,8 @@ body {
 .rxctl .volume { flex: 1; }
 .rxctl .btn { padding: 4px 12px; white-space: nowrap; margin-bottom: 2px; }
 .btn--warn { border-color: var(--amber); color: var(--amber); background: #241c0c; }
+/* FOCUS engaged — this radio is the only one being heard. */
+.btn--focus { border-color: var(--cyan); color: var(--cyan); background: #0d2422; }
 
 /* ---------- PTT ---------- */
 .ptt {
