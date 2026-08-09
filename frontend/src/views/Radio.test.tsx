@@ -125,20 +125,35 @@ describe('Radio', () => {
     expect(mockSocket.on).toHaveBeenCalledWith('tuned', expect.any(Function));
   });
 
-  it('handles tuning up and down', () => {
+  it('steps up and down by the band\'s increment', () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
 
     const decBtn = screen.getByLabelText('Decrease frequency on ALPHA');
     const incBtn = screen.getByLabelText('Increase frequency on ALPHA');
 
+    // HF steps in 1 kHz, the increment those bands are worked in.
     fireEvent.click(incBtn);
-    expect(mockSocket.tune).toHaveBeenCalledWith('7.0125 MHz', 'radio1');
-    expect(screen.getByText('7.0125')).toBeInTheDocument();
+    expect(mockSocket.tune).toHaveBeenCalledWith('7.0010 MHz', 'radio1');
+    expect(screen.getByText('7.0010')).toBeInTheDocument();
 
     fireEvent.click(decBtn);
     fireEvent.click(decBtn);
-    expect(mockSocket.tune).toHaveBeenCalledWith('6.9875 MHz', 'radio1');
-    expect(screen.getByText('6.9875')).toBeInTheDocument();
+    expect(mockSocket.tune).toHaveBeenCalledWith('6.9990 MHz', 'radio1');
+    expect(screen.getByText('6.9990')).toBeInTheDocument();
+  });
+
+  it('steps VHF/UHF by the 12.5 kHz channel spacing', () => {
+    render(
+      <Radio
+        socket={mockSocket as PivotSocket}
+        login={{ ...mockLogin, frequency_hz: 145_500_000 }}
+        timezone="UTC"
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText('Increase frequency on ALPHA'));
+    expect(mockSocket.tune).toHaveBeenCalledWith('145.5125 MHz', 'radio1');
+    expect(screen.getByText('145.5125')).toBeInTheDocument();
   });
 
   it('handles manual frequency entry', () => {
@@ -149,6 +164,20 @@ describe('Radio', () => {
     fireEvent.keyDown(entryInput, { key: 'Enter' });
 
     expect(mockSocket.tune).toHaveBeenCalledWith('8.5000 MHz', 'radio1');
+  });
+
+  it('tunes frequencies off the 12.5 kHz channel raster exactly', () => {
+    // A frequency handed out in an order must be dialled as given, not dragged
+    // to the nearest channel (5.687 would have become 5.6875).
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    const entryInput = screen.getByLabelText('Frequency in MHz on ALPHA');
+
+    for (const mhz of ['5.687', '8.974', '11.235', '13.206']) {
+      fireEvent.change(entryInput, { target: { value: mhz } });
+      fireEvent.keyDown(entryInput, { key: 'Enter' });
+      expect(mockSocket.tune).toHaveBeenLastCalledWith(`${Number(mhz).toFixed(4)} MHz`, 'radio1');
+      expect(screen.getByText(Number(mhz).toFixed(4))).toBeInTheDocument();
+    }
   });
 
   it('handles tuning boundaries', () => {

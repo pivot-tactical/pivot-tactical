@@ -12,6 +12,7 @@ import {
   playSyncTone,
   saveVolume,
 } from "../audio";
+import { formatMHz, regionFor, snapToGrid, steppedFrom } from "../freq";
 import type { LoginResponse, RadioMode, RadioState, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
 
@@ -27,22 +28,7 @@ import { PivotSocket } from "../ws";
 // net can be read through the racket without changing what anyone else hears
 // (the instructor has RX NOISE OFF for the same job).
 
-const STEP_HZ = 12_500; // tuning step / channel raster (12.5 kHz)
 const MAX_RADIOS = 9; // matches the server cap and the numpad PTT hotkeys
-
-function snapToStep(hz: number): number {
-  return Math.round(hz / STEP_HZ) * STEP_HZ;
-}
-
-function regionFor(hz: number): string {
-  // Standard ITU bands (ITU-R V.431): HF ≤30 MHz, VHF ≤300 MHz, UHF above —
-  // the upper edge of each band belongs to the lower band, so 30 MHz is HF.
-  return hz <= 30e6 ? "HF" : hz <= 300e6 ? "VHF" : "UHF";
-}
-
-function formatMHz(hz: number): string {
-  return (hz / 1e6).toFixed(4);
-}
 
 // One of the terminal's radios. `slot` is the radio's number on this terminal:
 // slot 1 is the radio the trainee logged in with (it goes with the terminal and
@@ -396,7 +382,7 @@ function RadioPanel({
   }, [radio.freqHz]);
 
   function applyTune(hz: number) {
-    const snapped = Math.max(1.6e6, Math.min(3e9, snapToStep(hz)));
+    const snapped = snapToGrid(hz);
     onTune(radio.radioId, snapped);
     socket.tune(`${formatMHz(snapped)} MHz`, radio.radioId);
   }
@@ -449,7 +435,7 @@ function RadioPanel({
           <button
             className="btn btn--step"
             aria-label={`Decrease frequency on ${radio.name}`}
-            onClick={() => applyTune(radio.freqHz - STEP_HZ)}
+            onClick={() => applyTune(steppedFrom(radio.freqHz, -1))}
             disabled={transmitting}
           >
             ▼
@@ -468,7 +454,7 @@ function RadioPanel({
           <button
             className="btn btn--step"
             aria-label={`Increase frequency on ${radio.name}`}
-            onClick={() => applyTune(radio.freqHz + STEP_HZ)}
+            onClick={() => applyTune(steppedFrom(radio.freqHz, 1))}
             disabled={transmitting}
           >
             ▲

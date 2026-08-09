@@ -142,19 +142,31 @@ def test_bandpass_narrows_at_low_hf():
     assert low.bandpass_high_hz < vhf.bandpass_high_hz
 
 
-def test_snap_frequency_to_12_5khz_raster():
-    from pivot.core.bands import CHANNEL_STEP_HZ, snap_frequency
+def test_snap_frequency_to_tuning_grid():
+    from pivot.core.bands import TUNING_STEP_HZ, format_frequency, snap_frequency
 
-    assert CHANNEL_STEP_HZ == 12_500
+    assert TUNING_STEP_HZ == 100
     assert snap_frequency(145_500_000) == 145_500_000  # already on grid
-    assert snap_frequency(145_510_000) == 145_512_500  # snaps up to nearest
-    assert snap_frequency(145_505_000) == 145_500_000  # snaps down to nearest
-    # Any input lands on a valid channel within half a step, and clamps to range.
-    for f in (7_106_000, 30_010_000, 243_333_000):
+    assert snap_frequency(145_500_040) == 145_500_000  # snaps down to nearest
+    assert snap_frequency(145_500_060) == 145_500_100  # snaps up to nearest
+    # Any input lands on the grid within half a step, and clamps to range.
+    for f in (7_106_010, 30_010_049, 243_333_333):
         snapped = snap_frequency(f)
-        assert snapped % 12_500 == 0
-        assert abs(snapped - f) <= 6_250
+        assert snapped % 100 == 0
+        assert abs(snapped - f) <= 50
     assert snap_frequency(100) == MIN_FREQ_HZ
+
+
+def test_frequencies_off_the_12_5khz_channel_raster_are_tunable():
+    """The grid is 100 Hz, not a channel raster: a frequency handed out in an
+    order — 5.687, 8.974, 11.235, 13.206 MHz — is dialled exactly, not moved to
+    the nearest 12.5 kHz channel."""
+    from pivot.core.bands import format_frequency, snap_frequency
+
+    for mhz in (5.687, 8.974, 11.235, 13.206):
+        hz = mhz * 1e6
+        assert snap_frequency(hz) == pytest.approx(hz)
+        assert format_frequency(snap_frequency(hz)) == f"{mhz:.3f} MHz"
 
 
 def test_without_noise_lifts_every_channel_degradation():

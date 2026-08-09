@@ -8,6 +8,7 @@ import { ModeDial } from "../components/ModeDial";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
 import { METER_DECAY, SignalMeter } from "../components/SignalMeter";
 import { VolumeSlider } from "../components/VolumeSlider";
+import { formatMHz, netKey, snapToGrid, steppedFrom } from "../freq";
 import type { EventRow, LogEntry, NetScenario, RadioState, SessionLogMarker, SessionSummary, Terminal, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
 
@@ -267,14 +268,9 @@ export function InstructorConsole({
 
 // --------------------------------------------------------------------------- //
 
-const STEP_HZ = 12_500; // tuning step / channel raster (12.5 kHz)
-const fmtMHz = (hz: number) => (hz / 1e6).toFixed(4);
-function snapToStep(hz: number): number {
-  return Math.round(hz / STEP_HZ) * STEP_HZ;
-}
-// Channel index on the raster — two frequencies on the same channel share a net
-// (and therefore share one per-net scenario override).
-const netKey = (hz: number) => Math.round(hz / STEP_HZ);
+const fmtMHz = formatMHz;
+// Two frequencies on the same net index share a net — and therefore share one
+// per-net scenario override.
 function scenarioFor(netScenarios: NetScenario[], hz: number): NetScenario | undefined {
   return netScenarios.find((s) => netKey(s.freq_hz) === netKey(hz));
 }
@@ -462,7 +458,7 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
   }
 
   function tuneTo(hz: number) {
-    const snapped = Math.max(1.6e6, Math.min(3e9, snapToStep(hz)));
+    const snapped = snapToGrid(hz);
     socket?.instrTune(radio.radio_id, `${fmtMHz(snapped)} MHz`);
   }
   // Confirm a typed frequency and hand focus back so the numpad PTT keys up
@@ -487,13 +483,13 @@ function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels
           <div className="freq__display mono">{fmtMHz(radio.frequency_hz)}<span className="freq__unit">MHz</span></div>
           <div className="freq__controls">
             <button className="btn btn--step" aria-label={`Decrease frequency on ${radio.name}`}
-              onClick={() => tuneTo(radio.frequency_hz - STEP_HZ)} disabled={transmitting}>▼</button>
+              onClick={() => tuneTo(steppedFrom(radio.frequency_hz, -1))} disabled={transmitting}>▼</button>
             <input ref={entryRef} className="input mono freq__entry" aria-label={`Frequency in MHz on ${radio.name}`}
               value={entry} disabled={transmitting}
               onChange={(e) => setEntry(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") confirmEntry(); }} />
             <button className="btn btn--step" aria-label={`Increase frequency on ${radio.name}`}
-              onClick={() => tuneTo(radio.frequency_hz + STEP_HZ)} disabled={transmitting}>▲</button>
+              onClick={() => tuneTo(steppedFrom(radio.frequency_hz, 1))} disabled={transmitting}>▲</button>
             <button className="btn btn--primary" aria-label={`Tune ${radio.name}`} onClick={confirmEntry} disabled={transmitting}>Tune</button>
           </div>
         </div>
@@ -1417,17 +1413,17 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
             value={cfg.crypto_delay_ms ?? 1500} onChange={(e) => set("crypto_delay_ms", parseInt(e.target.value))} />
         </Field>
         <Field label="Default start frequency (MHz)">
-          <input className="input mono" type="number" step="0.0125" min="0"
+          <input className="input mono" type="number" step="0.001" min="0"
             value={((cfg.default_frequency_hz ?? 7_000_000) as number) / 1e6}
             onChange={(e) => {
               const mhz = parseFloat(e.target.value);
               set("default_frequency_hz", isNaN(mhz) ? cfg.default_frequency_hz : mhz * 1e6);
             }}
-            // Radios only tune to the 12.5 kHz raster, so snap on blur to show
-            // the value that will actually be applied.
+            // Radios tune on the 100 Hz grid, so snap on blur to show the value
+            // that will actually be applied.
             onBlur={() => {
               const hz = (cfg.default_frequency_hz ?? 7_000_000) as number;
-              set("default_frequency_hz", snapToStep(hz));
+              set("default_frequency_hz", snapToGrid(hz));
             }} />
         </Field>
         <Field label="Display timezone">
