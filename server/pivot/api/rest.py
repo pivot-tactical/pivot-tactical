@@ -437,8 +437,8 @@ def admin_update_settings(updates: dict = Body(...), manager=Depends(get_manager
         for key, value in updates.items():
             if key not in _SETTABLE_KEYS:
                 continue
-            # The start frequency must be a channel the radios can actually tune
-            # to, so snap it to the 12.5 kHz raster before persisting.
+            # The start frequency must be one the radios can actually tune to,
+            # so snap it to the tuning grid before persisting.
             if key == "default_frequency_hz":
                 value = snap_frequency(float(value))
             cfg.set(key, value)

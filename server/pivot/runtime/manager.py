@@ -150,6 +150,17 @@ class SessionManager:
         # session lifecycle nudges it so deferred auto-updates apply out-of-band.
         self.update_service = None
 
+    # -- tuning grid ------------------------------------------------------- #
+
+    def _snap(self, frequency: str | float) -> float:
+        """Parse an operator frequency and snap it to the tuning grid (§3.1.2).
+
+        The grid is the operator-configured ``tuning_step_hz`` (100 Hz by
+        default) — the same one the registry quantises nets on, so a frequency
+        the server accepts is exactly the frequency it forms a net at.
+        """
+        return snap_frequency(parse_frequency(frequency), self.registry.tuning_step_hz)
+
     # -- pub/sub ----------------------------------------------------------- #
 
     def subscribe(self) -> asyncio.Queue:
@@ -333,7 +344,7 @@ class SessionManager:
         if frequency is None:
             with self.db.session() as s:
                 frequency = ConfigStore(s).default_frequency_hz()
-        freq_hz = snap_frequency(parse_frequency(frequency))
+        freq_hz = self._snap(frequency)
         radio_id = trainee_radio_id(trainee_id, slot)
         label = f"{self.terminals[trainee_id].name}/R{slot}"
 
@@ -385,9 +396,10 @@ class SessionManager:
     # -- tuning & mode ----------------------------------------------------- #
 
     def tune(self, radio_id: str, frequency: str | float) -> dict:
-        # Snap to the nearest valid 12.5 kHz channel — the server is authoritative,
-        # so off-grid frequencies (typed or from any client) are corrected.
-        freq_hz = snap_frequency(parse_frequency(frequency))
+        # Snap to the nearest point on the tuning grid — the server is
+        # authoritative, so off-grid frequencies (typed or from any client) are
+        # corrected.
+        freq_hz = self._snap(frequency)
         radio = self.registry.tune(radio_id, freq_hz)
         self._persist_radio_state(radio_id)
         self._touch_monitor()
@@ -411,7 +423,7 @@ class SessionManager:
         # Honour the frequency/mode reported at key-down (the client is the truth
         # for the instant of keying), else use the radio's current state.
         if frequency is not None:
-            radio.frequency_hz = snap_frequency(parse_frequency(frequency))
+            radio.frequency_hz = self._snap(frequency)
         if tx_mode is not None:
             radio.mode = tx_mode
 
@@ -614,7 +626,7 @@ class SessionManager:
         with self.db.session() as s:
             if frequency is None:
                 frequency = ConfigStore(s).default_frequency_hz()
-            freq_hz = snap_frequency(parse_frequency(frequency))
+            freq_hz = self._snap(frequency)
             existing = repo.list_instructor_radios(s)
             label = label or f"Radio {len(existing) + 1}"
             row = repo.add_instructor_radio(s, label, format_frequency(freq_hz))
@@ -736,7 +748,7 @@ class SessionManager:
         """Per-net instructor override: interference level / jammer on one
         channel (§3.1.5). Only the passed fields change; the full override list
         is persisted and broadcast so every console stays in step."""
-        freq_hz = snap_frequency(parse_frequency(frequency))
+        freq_hz = self._snap(frequency)
         scenario = self.band_profile.set_net_scenario(
             freq_hz, interference=interference, jammed=jammed
         )

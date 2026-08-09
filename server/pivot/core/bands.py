@@ -104,9 +104,9 @@ def format_frequency(freq_hz: float) -> str:
             "" if "." in f"{freq_hz / 1e9:.4f}" else ""
         )
     if freq_hz >= 1e6:
-        # 4 dp represents 12.5 kHz channels exactly (e.g. "145.5125"); trim one
-        # trailing zero so the common round/25 kHz channels keep the familiar
-        # 3 dp form ("14.250 MHz") operators expect.
+        # 4 dp represents the 100 Hz tuning grid exactly (e.g. "145.5125"); trim
+        # one trailing zero so the common 1 kHz frequencies keep the familiar
+        # 3 dp form ("14.250 MHz", "5.687 MHz") operators expect.
         s = f"{freq_hz / 1e6:.4f}"
         if s.endswith("0"):
             s = s[:-1]
@@ -121,13 +121,18 @@ def clamp_frequency(freq_hz: float) -> float:
     return max(MIN_FREQ_HZ, min(MAX_FREQ_HZ, freq_hz))
 
 
-# 12.5 kHz channel raster: radios tune only to multiples of this, snapping the
-# nearest valid channel when an off-grid frequency is entered.
-CHANNEL_STEP_HZ: float = 12_500.0
+# The tuning grid: radios tune to multiples of this, snapping the nearest valid
+# frequency when an off-grid one is entered. 100 Hz is the resolution real
+# HF/VHF/UHF sets dial in, and is fine enough that any frequency an operator is
+# given in an order — 5.687, 8.974, 11.235 MHz — is tunable exactly. It is not a
+# *channel* raster: nets here are emergent, so the grid exists only to stop two
+# operators who dialled the same frequency missing each other by a float hair
+# (§3.1.2). Mirrors ``tuning_step_hz`` in the config, which overrides it.
+TUNING_STEP_HZ: float = 100.0
 
 
-def snap_frequency(freq_hz: float, step_hz: float = CHANNEL_STEP_HZ) -> float:
-    """Snap a frequency to the nearest valid channel on the raster, then clamp."""
+def snap_frequency(freq_hz: float, step_hz: float = TUNING_STEP_HZ) -> float:
+    """Snap a frequency to the nearest point on the tuning grid, then clamp."""
     return clamp_frequency(round(freq_hz / step_hz) * step_hz)
 
 
@@ -267,12 +272,14 @@ class JammingSpan:
 
 
 def net_key_for(freq_hz: float) -> int:
-    """Quantise a frequency to its channel index on the 12.5 kHz raster.
+    """Quantise a frequency to its net index on the tuning grid.
 
-    Per-net scenario overrides are keyed on the channel, matching how radios on
-    the same quantised frequency form an emergent net.
+    Per-net scenario overrides are keyed on the net, matching how radios on the
+    same quantised frequency form an emergent net — so an override lands on the
+    net the instructor aimed it at and not on its neighbours. Kept on the same
+    grid as :class:`~pivot.core.radios.RadioRegistry` for that reason.
     """
-    return round(clamp_frequency(freq_hz) / CHANNEL_STEP_HZ)
+    return round(clamp_frequency(freq_hz) / TUNING_STEP_HZ)
 
 
 # How hard full interference (+1.0) leans on the channel: enough headroom that

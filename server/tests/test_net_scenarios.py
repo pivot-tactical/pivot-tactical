@@ -15,7 +15,7 @@ from pivot.db import repository as repo
 from pivot.runtime.manager import SessionManager
 
 NET_A = 14_250_000.0
-NET_B = 14_262_500.0  # the adjacent 12.5 kHz channel
+NET_B = 14_262_500.0  # a separate net, well clear of NET_A
 
 
 # --- band profile resolution ------------------------------------------------ #
@@ -54,7 +54,7 @@ def test_negative_interference_cleans_the_channel():
     lifted = profile.conditions_at(low_hf)
     assert lifted.snr_db > clean_base.snr_db
     assert lifted.fading_depth_db < clean_base.fading_depth_db
-    # The neighbouring channel keeps its natural (noisy) baseline.
+    # A neighbouring net keeps its natural (noisy) baseline.
     neighbour = profile.conditions_at(low_hf + 12_500.0)
     assert neighbour.snr_db == pytest.approx(BandProfile().conditions_at(low_hf + 12_500.0).snr_db)
 
@@ -96,11 +96,21 @@ def test_partial_update_keeps_other_fields():
     assert s.jammed is True
 
 
-def test_net_scenario_snaps_to_channel():
-    # An off-grid frequency lands on the same channel as its snapped form.
+def test_net_scenario_snaps_to_the_tuning_grid():
+    # An off-grid frequency lands on the same net as its snapped form.
     profile = BandProfile()
-    profile.set_net_scenario(NET_A + 4_000.0, jammed=True)
+    profile.set_net_scenario(NET_A + 40.0, jammed=True)
     assert profile.conditions_at(NET_A).jammed is True
+
+
+def test_net_scenario_does_not_bleed_onto_a_neighbouring_net():
+    """An override is keyed on the same grid the registry forms nets on, so it
+    lands on the net the instructor aimed at and not on radios a few kHz away
+    that cannot hear that net at all."""
+    profile = BandProfile()
+    profile.set_net_scenario(NET_A, jammed=True)
+    assert profile.conditions_at(NET_A).jammed is True
+    assert profile.conditions_at(NET_A + 4_000.0).jammed is False
 
 
 def test_net_scenarios_json_roundtrip():
@@ -211,7 +221,7 @@ def test_migration_adds_net_scenarios_column(tmp_path):
 
 
 def test_net_scenario_clamps_and_snaps():
-    s = NetScenario(freq_hz=NET_A + 4_000.0, interference=1.7)
+    s = NetScenario(freq_hz=NET_A + 40.0, interference=1.7)
     assert s.freq_hz == NET_A
     assert s.interference == 1.0
     assert not s.is_default

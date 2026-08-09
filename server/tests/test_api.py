@@ -539,15 +539,15 @@ def test_update_check_graceful_when_unreachable(client, monkeypatch):
     assert r["reachable"] is False and r["available"] == []
 
 
-def test_default_frequency_setting_snaps_to_channel_raster(client):
-    """An off-raster default start frequency is snapped to a tunable channel
-    when saved, so operators can't persist a value the radios can't use."""
-    r = client.post("/api/admin/settings", json={"default_frequency_hz": 7_003_000.0}).json()
-    # 7.003 MHz -> nearest 12.5 kHz channel = 7.0 MHz.
-    assert r["applied"]["default_frequency_hz"] == 7_000_000.0
+def test_default_frequency_setting_snaps_to_tuning_grid(client):
+    """An off-grid default start frequency is snapped to a tunable one when
+    saved, so operators can't persist a value the radios can't use."""
+    r = client.post("/api/admin/settings", json={"default_frequency_hz": 7_003_040.0}).json()
+    # 7.00304 MHz -> nearest 100 Hz = 7.003 MHz.
+    assert r["applied"]["default_frequency_hz"] == 7_003_000.0
 
     cfg = client.get("/api/admin/config").json()
-    assert cfg["default_frequency_hz"] == 7_000_000.0
+    assert cfg["default_frequency_hz"] == 7_003_000.0
 
 
 def test_event_audio_404_when_no_recording(client):

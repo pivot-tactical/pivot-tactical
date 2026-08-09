@@ -78,8 +78,9 @@ noise or jamming on a frequency or span, watch every connected terminal
 the instructor password. Everything transmitted on the net is recorded and
 transcribed.
 
-**Trainees (browser).** Enter a callsign to join, tune the radio (type a
-frequency or step up/down), choose Plain or Cypher, and **hold PTT** to transmit.
+**Trainees (browser).** Enter a callsign to join, tune the radio (type any
+frequency to 100 Hz — `5.687`, `11.235` — or step up/down: 1 kHz on HF, 12.5 kHz
+on VHF/UHF), choose Plain or Cypher, and **hold PTT** to transmit.
 A live ops-room clock shows the configured time zone. Trainees only operate their
 own radios — no settings, no logs. Whether anyone hears you depends on who else
 is tuned to your frequency and their crypto mode — just like a real radio.

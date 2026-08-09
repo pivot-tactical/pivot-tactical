@@ -92,11 +92,35 @@ def test_plain_tx_to_listener_is_heard_and_recorded(manager):
     assert path.exists()
 
 
-def test_tune_snaps_to_12_5khz_channel(manager):
+def test_tune_snaps_to_the_tuning_grid(manager):
     manager.login("ALPHA", "t-1")
-    r = manager.tune("t-1", "145.513 MHz")  # off-grid -> nearest 12.5 kHz channel
-    assert r["frequency_hz"] % 12_500 == 0
-    assert r["frequency"] == "145.5125 MHz"
+    r = manager.tune("t-1", "145.51334 MHz")  # off-grid -> nearest 100 Hz
+    assert r["frequency_hz"] % 100 == 0
+    assert r["frequency"] == "145.5133 MHz"
+
+
+def test_tune_honours_frequencies_off_the_12_5khz_raster(manager):
+    """Frequencies handed out in an order are dialled exactly — the tuning grid
+    is 100 Hz, so they are not dragged onto a 12.5 kHz channel raster."""
+    manager.login("ALPHA", "t-1")
+    for mhz in (5.687, 8.974, 11.235, 13.206):
+        r = manager.tune("t-1", f"{mhz:.3f} MHz")
+        assert r["frequency_hz"] == pytest.approx(mhz * 1e6)
+        assert r["frequency"] == f"{mhz:.3f} MHz"
+
+
+def test_radios_on_an_off_raster_frequency_share_a_net(manager):
+    """Two operators who dial the same off-raster frequency are on one net."""
+    manager.start_session("EX")
+    manager.login("ALPHA", "t-1")
+    manager.login("BRAVO", "t-2")
+    manager.tune("t-1", "5.687 MHz")
+    manager.tune("t-2", "5.687 MHz")
+
+    manager.ptt_start("t-1")
+    event = manager.ptt_end("t-1")
+    assert event["audibility"] == Audibility.HEARD.value
+    assert event["frequency"] == "5.687 MHz"
 
 
 def test_event_without_audio_is_skipped_not_pending(manager):
@@ -184,7 +208,7 @@ def test_mode_persists_across_reconnect(manager):
     manager.start_session("EX")
     manager.login("ALPHA", "t-1")
     manager.set_mode("t-1", RadioMode.CYPHER)
-    manager.tune("t-1", "7.050 MHz")  # on the 12.5 kHz raster
+    manager.tune("t-1", "7.050 MHz")
     manager.disconnect("t-1")
     # Reconnect: same trainee_id, mode + frequency restored (§3.4.4, §8.3).
     info = manager.login("ALPHA", "t-1")
