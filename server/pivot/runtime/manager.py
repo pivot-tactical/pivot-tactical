@@ -53,6 +53,25 @@ DEFAULT_FREQUENCY_HZ = 7_000_000.0  # a quiet HF spot to power on at
 # matching this pattern are renumbered after a removal; custom labels are kept.
 _DEFAULT_RADIO_LABEL = re.compile(r"^Radio \d+$")
 
+# A trainee terminal may run more than one radio (§3.2.2): the terminal's own
+# radio is slot 1 and keeps the trainee_id as its radio_id, and each extra radio
+# the trainee adds takes the next free slot as "<trainee_id>#<slot>". Capped at
+# the number of numpad PTT hotkeys the radio view offers.
+MAX_TRAINEE_RADIOS = 9
+
+
+def trainee_radio_id(trainee_id: str, slot: int) -> str:
+    """The radio_id of a trainee's slot-``slot`` radio (slot 1 is the terminal)."""
+    return trainee_id if slot <= 1 else f"{trainee_id}#{slot}"
+
+
+def trainee_radio_slot(radio: Radio) -> int:
+    """Which slot a trainee radio occupies — 1 for the terminal's own radio."""
+    if radio.radio_id == radio.owner:
+        return 1
+    _, _, tail = radio.radio_id.rpartition("#")
+    return int(tail) if tail.isdigit() else 1
+
 
 def _on_loop(loop: asyncio.AbstractEventLoop) -> bool:
     """True if the calling thread is running ``loop`` right now."""
@@ -243,6 +262,7 @@ class SessionManager:
         return {
             "trainee_id": trainee_id,
             "radio_id": radio_id,
+            "name": name,
             "frequency": format_frequency(freq_hz),
             "frequency_hz": freq_hz,
             "mode": mode.value,
@@ -256,20 +276,111 @@ class SessionManager:
         if epoch is not None and current is not None and current.epoch != epoch:
             return
         self.terminals.pop(trainee_id, None)
-        # Keep radio_state persisted (mode survives); drop the live radio so it
-        # leaves the frequency map.
-        if trainee_id in self._active_tx:
-            self.ptt_abort(trainee_id)
-        self.registry.remove(trainee_id)
+        # Keep radio_state persisted (mode survives); drop the live radios so they
+        # leave the frequency map — the terminal's own radio and any extra ones
+        # the trainee added, which live only for the length of the connection.
+        for radio in self.registry.for_owner(trainee_id):
+            if radio.radio_id in self._active_tx:
+                self.ptt_abort(radio.radio_id)
+            self.registry.remove(radio.radio_id)
+            self.unregister_audio_sink(radio.radio_id)
         self.broadcast("terminal_update", {"terminals": self.monitor_snapshot()})
 
     def kick(self, trainee_id: str) -> bool:
-        """Instructor kicks a terminal from the session (§3.1.5)."""
+        """Instructor kicks a terminal from the session (§3.1.5).
+
+        Accepts a trainee_id or any of that trainee's radio ids — the monitor
+        lists one row per radio, so the kick may be aimed at an extra one.
+        """
+        radio = self.registry.get(trainee_id)
+        if radio is not None and not radio.is_instructor:
+            trainee_id = radio.owner
         if trainee_id not in self.terminals and self.registry.get(trainee_id) is None:
             return False
         self.disconnect(trainee_id)
         self.broadcast("kicked", {"trainee_id": trainee_id})
         return True
+
+    # -- trainee radios (§3.2.2) ------------------------------------------- #
+
+    def add_trainee_radio(
+        self,
+        trainee_id: str,
+        slot: int | None = None,
+        frequency: str | float | None = None,
+        mode: RadioMode | None = None,
+    ) -> dict:
+        """Give a trainee terminal another radio, on its own frequency (§3.2.2).
+
+        A trainee monitors several nets at once the way the instructor does, each
+        radio tuning, keying and hearing independently. ``slot`` names the radio
+        (2…N); the client passes it so a dropped socket can re-declare the radios
+        it is still showing and get the same ids back — re-adding a live slot
+        just returns it, retuned to the passed frequency/mode.
+        """
+        if trainee_id not in self.terminals:
+            raise KeyError(f"unknown terminal: {trainee_id}")
+        owned = self.registry.for_owner(trainee_id)
+        used = {trainee_radio_slot(r) for r in owned}
+        if slot is None:
+            slot = next((n for n in range(2, MAX_TRAINEE_RADIOS + 1) if n not in used), 0)
+            if slot == 0:
+                raise ValueError(f"at most {MAX_TRAINEE_RADIOS} radios per terminal")
+        slot = int(slot)
+        if not 2 <= slot <= MAX_TRAINEE_RADIOS:
+            raise ValueError(f"radio slot out of range: {slot}")
+
+        if frequency is None:
+            with self.db.session() as s:
+                frequency = ConfigStore(s).default_frequency_hz()
+        freq_hz = snap_frequency(parse_frequency(frequency))
+        radio_id = trainee_radio_id(trainee_id, slot)
+        label = f"{self.terminals[trainee_id].name}/R{slot}"
+
+        radio = self.registry.get(radio_id)
+        if radio is None:
+            radio = self.registry.add(
+                Radio(
+                    radio_id=radio_id,
+                    owner=trainee_id,
+                    label=label,
+                    frequency_hz=freq_hz,
+                    mode=mode or RadioMode.PLAIN,
+                )
+            )
+        else:
+            # Re-declared by a reconnecting terminal: keep the radio, restore the
+            # state the client is still showing.
+            radio.label = label
+            if not radio.on_air:
+                radio.frequency_hz = freq_hz
+            if mode is not None and not radio.transmitting:
+                radio.mode = mode
+        self._touch_monitor()
+        return self._radio_dict(radio)
+
+    def remove_trainee_radio(self, trainee_id: str, radio_id: str) -> bool:
+        """Drop one of a trainee's extra radios. The terminal's own radio (slot
+        1) is not removable — it goes with the terminal."""
+        radio = self.registry.get(radio_id)
+        if radio is None or radio.is_instructor or radio.owner != trainee_id:
+            return False
+        if radio_id == trainee_id:
+            return False
+        if radio_id in self._active_tx:
+            self.ptt_abort(radio_id)
+        self.registry.remove(radio_id)
+        # Drop the sink here too: a removed radio must stop "receiving" even if
+        # the socket's own sink bookkeeping lags a frame behind.
+        self.unregister_audio_sink(radio_id)
+        self._touch_monitor()
+        return True
+
+    def trainee_radios(self, trainee_id: str) -> list[dict]:
+        """Every radio this terminal is running, in slot order."""
+        owned = [r for r in self.registry.for_owner(trainee_id) if not r.is_instructor]
+        owned.sort(key=trainee_radio_slot)
+        return [self._radio_dict(r) for r in owned]
 
     # -- tuning & mode ----------------------------------------------------- #
 
@@ -850,6 +961,11 @@ class SessionManager:
     def _persist_radio_state(self, radio_id: str) -> None:
         radio = self.registry.get(radio_id)
         if radio is None or radio.is_instructor or self.current_session_id is None:
+            return
+        # radio_state is keyed per terminal, so only the terminal's own radio is
+        # persisted; a trainee's extra radios live for the connection and are
+        # re-declared by the client on reconnect.
+        if radio.radio_id != radio.owner:
             return
         with self.db.session() as s:
             repo.upsert_radio_state(

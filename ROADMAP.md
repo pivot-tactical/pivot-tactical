@@ -27,6 +27,7 @@ Maps **PIVOT Spec v1.6** to the codebase. Legend:
 | 3.1.6 | Transcription config (model/compute/lang/threshold/skip) | ✅ | `config.py`, `api/rest.py::admin_update_settings`, `transcription/` |
 | 3.2.1 | Login (callsign, no password, persists, dup flagging) | ✅ | `api/rest.py`, `frontend/src/views/Login.tsx` |
 | 3.2.2 | Radio panel (tune, mode toggle, signal, PTT, clock, state machine) | ✅ | `frontend/src/views/Radio.tsx` |
+| 3.2.2a | Multiple trainee radios (add/remove, independent nets, Focus mute) | ✅ | `runtime/manager.py`, `api/ws.py` (add_radio/remove_radio), `frontend/src/views/Radio.tsx` |
 | 3.2.3 | Crypto sync behaviour (sync tone, delay, abort) | ✅ | `runtime/manager.py`, `api/ws.py`, frontend |
 | 3.2.4 | Receive behaviour (auto play, click/squelch tones) | 🟡 | `dsp/tone.py`, router dispatch |
 | 3.4.1 | Reception matrix (permissive cypher receive) | ✅ | `core/crypto.py::single_reception` |

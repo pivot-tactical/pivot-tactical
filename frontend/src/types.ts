@@ -9,6 +9,7 @@ export interface LoginResponse {
   must_change_password?: boolean;
   trainee_id?: string;
   radio_id?: string;
+  name?: string; // callsign, and the label of the terminal's own radio
   frequency?: string;
   frequency_hz?: number;
   mode?: RadioMode;

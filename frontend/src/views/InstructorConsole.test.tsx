@@ -3,6 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { InstructorConsole } from './InstructorConsole';
 import { api } from '../api';
+import { PivotSocket } from '../ws';
 
 // A fully-formed EventRow for the running log, overridable per test.
 function makeEvent(overrides: Record<string, unknown> = {}) {
@@ -41,7 +42,7 @@ vi.mock('../audio', () => ({
     close: vi.fn(),
     src: ''
   })),
-  loadVolume: vi.fn(),
+  loadVolume: vi.fn(() => 1),
   saveVolume: vi.fn(),
   parseTaggedAudio: vi.fn(),
   pcmLevel: vi.fn(),
@@ -92,6 +93,12 @@ vi.mock('../ws', () => {
         connect: vi.fn(),
         disconnect: vi.fn(),
         send: vi.fn(),
+        instrPttStart: vi.fn(),
+        instrPttEnd: vi.fn(),
+        instrPttAbort: vi.fn(),
+        instrTune: vi.fn(),
+        instrMode: vi.fn(),
+        instrRxNoise: vi.fn(),
         // helper to simulate socket events
         emit: (event: string, payload: any) => {
           if (handlers[event]) handlers[event].forEach(h => h(payload));
@@ -409,5 +416,40 @@ describe('running event log timestamps', () => {
 
     expect(await eventRowText()).toContain('05 Jun 26');
     expect(await eventRowText()).toContain('12:00:00');
+  });
+
+  it('keys each radio from its own numpad key, and nothing else', async () => {
+    const radio = (n: number) => ({
+      radio_id: `instr-${n}`,
+      name: `Radio ${n}`,
+      is_instructor: true,
+      frequency: `${n}0.0000 MHz`,
+      frequency_hz: n * 10e6,
+      band_region: 'VHF',
+      mode: 'Plain',
+      status: 'idle',
+      rx_noise: true,
+    });
+    (api.instructorRadios as any).mockResolvedValueOnce([radio(1), radio(2)]);
+
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+    const sock = (PivotSocket as any).mock.results[0].value;
+
+    // Each card advertises its own key.
+    expect(screen.getByLabelText('Push to talk on Radio 2')).toHaveTextContent('HOLD · NUMPAD 2');
+
+    await act(async () => { fireEvent.keyDown(window, { code: 'Numpad2' }); });
+    expect(sock.instrPttStart).toHaveBeenCalledWith('instr-2', '20.0000 MHz', 'Plain');
+    fireEvent.keyUp(window, { code: 'Numpad2' });
+    expect(sock.instrPttEnd).toHaveBeenCalledWith('instr-2');
+
+    // The old Shift+number binding is gone, and a numpad key with no radio
+    // behind it does nothing.
+    sock.instrPttStart.mockClear();
+    await act(async () => { fireEvent.keyDown(window, { code: 'Digit1', shiftKey: true }); });
+    await act(async () => { fireEvent.keyDown(window, { code: 'Numpad5' }); });
+    expect(sock.instrPttStart).not.toHaveBeenCalled();
   });
 });
