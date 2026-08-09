@@ -106,6 +106,10 @@ def active_session(session: Session) -> SessionRow | None:
     ).first()
 
 
+def get_session(session: Session, session_id: str) -> SessionRow | None:
+    return session.get(SessionRow, session_id)
+
+
 def list_sessions(session: Session) -> list[SessionRow]:
     return list(session.scalars(select(SessionRow).order_by(SessionRow.started_at.desc())))
 

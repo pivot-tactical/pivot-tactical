@@ -17,7 +17,7 @@ from pivot.audio.recording import session_dir_name
 from pivot.core.timebase import format_clock, parse_iso_utc
 from pivot.db.config_store import ConfigStore
 from pivot.db.database import Database
-from pivot.db.repository import list_events, list_sessions
+from pivot.db.repository import get_session, list_events
 
 _CSV_FIELDS = [
     "event_id",
@@ -42,7 +42,7 @@ _CSV_FIELDS = [
 def _events_and_tz(db: Database, session_id: str):
     with db.session() as s:
         tz = ConfigStore(s).display_timezone()
-        session = next((x for x in list_sessions(s) if x.id == session_id), None)
+        session = get_session(s, session_id)
         events = [e.to_dict() for e in list_events(s, session_id)]
         name = session.name if session else session_id
         started_at = session.started_at if session else ""
