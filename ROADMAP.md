@@ -16,76 +16,76 @@ Maps **PIVOT Spec v1.6** to the codebase. Legend:
 
 ## 3. Functional Requirements
 
-| Spec | Area | Status | Where |
-|------|------|--------|-------|
-| 3.1.1 | Server status, session control, terminal count, clock | ✅ | `api/rest.py` + instructor console (`frontend/`) |
-| 3.1.2 | Free tuning, emergent nets, band noise profile | ✅ | `core/bands.py`, `core/radios.py` |
-| 3.1.2a | Multiple instructor radios | ✅ | `runtime/manager.py`, `api/rest.py`, `api/ws.py` (instr_*) |
-| 3.1.3 | Instructor transmit (select + PTT, labelled INSTRUCTOR) | ✅ / 🟡 | `api/ws.py` instr_ptt_* (timing done; media via router) |
-| 3.1.4 | Live terminal monitor | ✅ | `runtime/manager.py::monitor_snapshot`, broadcast over `/ws` |
-| 3.1.5 | Scenario controls (noise burst, jamming, per-net noise, curve, kick) | ✅ | `runtime/manager.py`, `api/rest.py::admin_scenario` |
-| 3.1.6 | Transcription config (model/compute/lang/threshold/skip) | ✅ | `config.py`, `api/rest.py::admin_update_settings`, `transcription/` |
-| 3.2.1 | Login (callsign, no password, persists, dup flagging) | ✅ | `api/rest.py`, `frontend/src/views/Login.tsx` |
-| 3.2.2 | Radio panel (tune, mode toggle, signal, PTT, clock, state machine) | ✅ | `frontend/src/views/Radio.tsx` |
-| 3.2.2a | Multiple trainee radios (add/remove, independent nets, Focus mute) | ✅ | `runtime/manager.py`, `api/ws.py` (add_radio/remove_radio), `frontend/src/views/Radio.tsx` |
-| 3.2.3 | Crypto sync behaviour (sync tone, delay, abort) | ✅ | `runtime/manager.py`, `api/ws.py`, frontend |
-| 3.2.4 | Receive behaviour (auto play, click/squelch tones) | 🟡 | `dsp/tone.py`, router dispatch |
-| 3.4.1 | Reception matrix (permissive cypher receive) | ✅ | `core/crypto.py::single_reception` |
-| 3.4.2 | Encrypted hash sound | ✅ | `dsp/hash_gen.py` |
-| 3.4.3–3.4.5 | Crypto availability, per-radio persistence, mid-TX changes | ✅ | `core/radios.py`, `runtime/manager.py` |
-| 3.4.6 | Simplex operation & collisions (plain / cypher) | ✅ | `core/crypto.py`, `core/radios.py` |
-| 3.5.1 | Recording (per-station, pre-DSP, 16-bit/16 kHz WAV, metadata) | ✅ | `audio/recording.py`, `runtime/manager.py` |
-| 3.5.2 | Async transcription on clean audio, confidence, amber | ✅ | `transcription/worker.py` |
-| 3.5.3 | Event metadata schema | ✅ | `db/models.py::EventRow` |
-| 3.6.1–3.6.2 | AAR session list + event timeline | ✅ | `frontend/src/views/AAR.tsx`, `api/rest.py` |
-| 3.6.3 | Clean/Dirty + Plain/Cypher playback toggles | ✅ | `audio/render.py`, `api/rest.py::event_audio` |
-| 3.6.4 | Export (text / CSV / ZIP) | ✅ | `exporting.py` |
-| 3.7 | Version management & updates | ✅ / ⬜ | `updates/manager.py` + `updates/github.py` + `/api/admin/updates/check` (release check, Stable/Include-prereleases channel, auto-update flag — all ✅); platform swap helper ⬜ |
-| 3.8 | Time & clock (UTC store, configurable display zone, live) | ✅ | `core/timebase.py`, seven-segment clock in `frontend/` |
+| Spec        | Area                                                                 | Status  | Where                                                                                                                                                                           |
+| ----------- | -------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3.1.1       | Server status, session control, terminal count, clock                | ✅      | `api/rest.py` + instructor console (`frontend/`)                                                                                                                                |
+| 3.1.2       | Free tuning, emergent nets, band noise profile                       | ✅      | `core/bands.py`, `core/radios.py`                                                                                                                                               |
+| 3.1.2a      | Multiple instructor radios                                           | ✅      | `runtime/manager.py`, `api/rest.py`, `api/ws.py` (instr_*)                                                                                                                      |
+| 3.1.3       | Instructor transmit (select + PTT, labelled INSTRUCTOR)              | ✅ / 🟡 | `api/ws.py` instr_ptt_* (timing done; media via router)                                                                                                                         |
+| 3.1.4       | Live terminal monitor                                                | ✅      | `runtime/manager.py::monitor_snapshot`, broadcast over `/ws`                                                                                                                    |
+| 3.1.5       | Scenario controls (noise burst, jamming, per-net noise, curve, kick) | ✅      | `runtime/manager.py`, `api/rest.py::admin_scenario`                                                                                                                             |
+| 3.1.6       | Transcription config (model/compute/lang/threshold/skip)             | ✅      | `config.py`, `api/rest.py::admin_update_settings`, `transcription/`                                                                                                             |
+| 3.2.1       | Login (callsign, no password, persists, dup flagging)                | ✅      | `api/rest.py`, `frontend/src/views/Login.tsx`                                                                                                                                   |
+| 3.2.2       | Radio panel (tune, mode toggle, signal, PTT, clock, state machine)   | ✅      | `frontend/src/views/Radio.tsx`                                                                                                                                                  |
+| 3.2.2a      | Multiple trainee radios (add/remove, independent nets, Focus mute)   | ✅      | `runtime/manager.py`, `api/ws.py` (add_radio/remove_radio), `frontend/src/views/Radio.tsx`                                                                                      |
+| 3.2.3       | Crypto sync behaviour (sync tone, delay, abort)                      | ✅      | `runtime/manager.py`, `api/ws.py`, frontend                                                                                                                                     |
+| 3.2.4       | Receive behaviour (auto play, click/squelch tones)                   | 🟡      | `dsp/tone.py`, router dispatch                                                                                                                                                  |
+| 3.4.1       | Reception matrix (permissive cypher receive)                         | ✅      | `core/crypto.py::single_reception`                                                                                                                                              |
+| 3.4.2       | Encrypted hash sound                                                 | ✅      | `dsp/hash_gen.py`                                                                                                                                                               |
+| 3.4.3–3.4.5 | Crypto availability, per-radio persistence, mid-TX changes           | ✅      | `core/radios.py`, `runtime/manager.py`                                                                                                                                          |
+| 3.4.6       | Simplex operation & collisions (plain / cypher)                      | ✅      | `core/crypto.py`, `core/radios.py`                                                                                                                                              |
+| 3.5.1       | Recording (per-station, pre-DSP, 16-bit/16 kHz WAV, metadata)        | ✅      | `audio/recording.py`, `runtime/manager.py`                                                                                                                                      |
+| 3.5.2       | Async transcription on clean audio, confidence, amber                | ✅      | `transcription/worker.py`                                                                                                                                                       |
+| 3.5.3       | Event metadata schema                                                | ✅      | `db/models.py::EventRow`                                                                                                                                                        |
+| 3.6.1–3.6.2 | AAR session list + event timeline                                    | ✅      | `frontend/src/views/AAR.tsx`, `api/rest.py`                                                                                                                                     |
+| 3.6.3       | Clean/Dirty + Plain/Cypher playback toggles                          | ✅      | `audio/render.py`, `api/rest.py::event_audio`                                                                                                                                   |
+| 3.6.4       | Export (text / CSV / ZIP)                                            | ✅      | `exporting.py`                                                                                                                                                                  |
+| 3.7         | Version management & updates                                         | ✅ / ⬜ | `updates/manager.py` + `updates/github.py` + `/api/admin/updates/check` (release check, Stable/Include-prereleases channel, auto-update flag — all ✅); platform swap helper ⬜ |
+| 3.8         | Time & clock (UTC store, configurable display zone, live)            | ✅      | `core/timebase.py`, seven-segment clock in `frontend/`                                                                                                                          |
 
 ## 4. DSP & Audio Processing
 
-| Spec | Area | Status | Where |
-|------|------|--------|-------|
-| 4.1 | Continuous frequency-dependent profile + anchors | ✅ | `core/bands.py`, `dsp/` |
-| 4.1.1 | Bandpass, noise, fading, clicks/squelch, HF QRM/selective | ✅ | `dsp/filters.py`, `noise.py`, `fading.py`, `tone.py` |
-| 4.2 | Per-net noise offset (interference/cleanup) + jamming | ✅ | `core/bands.py`, `runtime/manager.py` |
-| 4.3 | Crypto sync tone (presets, local only) | ✅ | `dsp/tone.py`, frontend `audio.ts` |
-| 4.4 | Encrypted hash generator | ✅ | `dsp/hash_gen.py` |
-| 4.5 | Playback re-render | ✅ | `audio/render.py`, `dsp/engine.py` |
+| Spec  | Area                                                      | Status | Where                                                |
+| ----- | --------------------------------------------------------- | ------ | ---------------------------------------------------- |
+| 4.1   | Continuous frequency-dependent profile + anchors          | ✅     | `core/bands.py`, `dsp/`                              |
+| 4.1.1 | Bandpass, noise, fading, clicks/squelch, HF QRM/selective | ✅     | `dsp/filters.py`, `noise.py`, `fading.py`, `tone.py` |
+| 4.2   | Per-net noise offset (interference/cleanup) + jamming     | ✅     | `core/bands.py`, `runtime/manager.py`                |
+| 4.3   | Crypto sync tone (presets, local only)                    | ✅     | `dsp/tone.py`, frontend `audio.ts`                   |
+| 4.4   | Encrypted hash generator                                  | ✅     | `dsp/hash_gen.py`                                    |
+| 4.5   | Playback re-render                                        | ✅     | `audio/render.py`, `dsp/engine.py`                   |
 
 ## 5. Data Model
 
-| Spec | Area | Status | Where |
-|------|------|--------|-------|
-| 5.1 | config, band_profile, instructor_radios, radio_state, sessions, events, trainees | ✅ | `db/models.py`, `db/repository.py` |
+| Spec | Area                                                                             | Status | Where                              |
+| ---- | -------------------------------------------------------------------------------- | ------ | ---------------------------------- |
+| 5.1  | config, band_profile, instructor_radios, radio_state, sessions, events, trainees | ✅     | `db/models.py`, `db/repository.py` |
 
 ## 6. API & Real-Time Protocols
 
-| Spec | Area | Status | Where |
-|------|------|--------|-------|
-| 6.1 | REST endpoints | ✅ | `api/rest.py` |
-| 6.2 | WebSocket channels (envelope, state sync, PTT) | ✅ | `api/ws.py` |
-| 6.3 | WebRTC audio router (per-listener render, fan-out) | 🟡 | `audio/router.py` (orchestration), `audio/mixer.py` (pure core ✅) |
+| Spec | Area                                               | Status | Where                                                              |
+| ---- | -------------------------------------------------- | ------ | ------------------------------------------------------------------ |
+| 6.1  | REST endpoints                                     | ✅     | `api/rest.py`                                                      |
+| 6.2  | WebSocket channels (envelope, state sync, PTT)     | ✅     | `api/ws.py`                                                        |
+| 6.3  | WebRTC audio router (per-listener render, fan-out) | 🟡     | `audio/router.py` (orchestration), `audio/mixer.py` (pure core ✅) |
 
 ## 7. User Interface (browser — instructor + trainee)
 
-| Spec | Area | Status | Where |
-|------|------|--------|-------|
-| 7.1 | Instructor console (radios + PTT, live event log, monitor, scenario, settings, password) — **browser, replaces the §7.1 desktop GUI** | ✅ | `frontend/src/views/InstructorConsole.tsx`, `api/`, `runtime/` |
-| 7.2 | Trainee web UI (login + radio) | ✅ | `frontend/src/` |
-| 7.3 | Visual style (dark, tactical cues, seven-segment, large PTT) | ✅ | `frontend/src/styles.css` |
+| Spec | Area                                                                                                                                  | Status | Where                                                          |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------- | ------ | -------------------------------------------------------------- |
+| 7.1  | Instructor console (radios + PTT, live event log, monitor, scenario, settings, password) — **browser, replaces the §7.1 desktop GUI** | ✅     | `frontend/src/views/InstructorConsole.tsx`, `api/`, `runtime/` |
+| 7.2  | Trainee web UI (login + radio)                                                                                                        | ✅     | `frontend/src/`                                                |
+| 7.3  | Visual style (dark, tactical cues, seven-segment, large PTT)                                                                          | ✅     | `frontend/src/styles.css`                                      |
 
 ## 8–13. Non-functional, build, licensing
 
-| Spec | Area | Status | Where |
-|------|------|--------|-------|
-| 8.3 | Reliability (flush per event, reconnect, mode preserved) | ✅ | `db/database.py` (WAL), `runtime/manager.py`, frontend reconnect |
-| 8.4 | Security (LAN-only; **instructor password + bearer token** instead of loopback-only; checksum verify) | ✅ | `auth.py`, `api/deps.py::require_instructor`, `updates/` |
-| 8.6 | Logging | 🟡 | loggers in place; rotating-file config in packaging |
-| 9.1–9.4 | Build, distribution, updates, uninstall | 🟡 | `packaging/pivot.spec`, `gen_buildinfo.py`; `release.yml` (tag-driven Windows `.zip` + Linux x86_64 `.tar.gz` to GitHub Releases, SHA-256 sidecars); `prerelease.yml` (per-PR-commit auto-incrementing `-dev.N` prereleases + self-updating PR comment mapping version→commit). Platform-aware asset selection in `updates/manager.py`. |
-| 13.6 | Compliance artefacts (LICENSE/NOTICE/THIRD-PARTY/REBUILD-LGPL) | ✅ | repo root |
-| 13.7 | Build-time licence verification | ✅ | `tools/licenses.py`, `.github/workflows/ci.yml` |
+| Spec    | Area                                                                                                  | Status | Where                                                                                                                                                                                                                                                                                                                           |
+| ------- | ----------------------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 8.3     | Reliability (flush per event, reconnect, mode preserved)                                              | ✅     | `db/database.py` (WAL), `runtime/manager.py`, frontend reconnect                                                                                                                                                                                                                                                                |
+| 8.4     | Security (LAN-only; **instructor password + bearer token** instead of loopback-only; checksum verify) | ✅     | `auth.py`, `api/deps.py::require_instructor`, `updates/`                                                                                                                                                                                                                                                                        |
+| 8.6     | Logging                                                                                               | 🟡     | loggers in place; rotating-file config in packaging                                                                                                                                                                                                                                                                             |
+| 9.1–9.4 | Build, distribution, updates, uninstall                                                               | 🟡     | `packaging/pivot.spec`, `gen_buildinfo.py`; `release.yml` (tag-driven Windows `.zip` + Linux x86_64 `.tar.gz` to GitHub Releases, SHA-256 sidecars); `ci.yml` (per-PR-commit auto-incrementing `-dev.N` prereleases + self-updating PR comment mapping version→commit). Platform-aware asset selection in `updates/manager.py`. |
+| 13.6    | Compliance artefacts (LICENSE/NOTICE/THIRD-PARTY/REBUILD-LGPL)                                        | ✅     | repo root                                                                                                                                                                                                                                                                                                                       |
+| 13.7    | Build-time licence verification                                                                       | ✅     | `tools/licenses.py`, `.github/workflows/ci.yml`                                                                                                                                                                                                                                                                                 |
 
 ## Acceptance criteria (§12) coverage in tests
 
