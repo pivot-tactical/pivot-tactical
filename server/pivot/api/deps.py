@@ -27,6 +27,11 @@ def _extract_token(request: Request, authorization: str | None) -> str | None:
     """
     if authorization and authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
+
+    token = request.query_params.get("token")
+    if token:
+        return token
+
     return request.cookies.get("pivot_token")
 
 
