@@ -192,15 +192,13 @@ def create_app(
     # We dynamically allow the origin if it matches the server's own address
     # or typical local/LAN addresses, rather than a global wildcard.
     # PIVOT is a self-hosted LAN tool, so we allow local origins.
+
+    from pivot.api.ws import _ALLOW_ORIGIN_REGEX_STR, _ALLOW_ORIGINS
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:8080",
-            "http://127.0.0.1:8080",
-        ],
-        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.[0-9]+\.[0-9]+|10\.[0-9]+\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)(:[0-9]+)?\Z",
+        allow_origins=_ALLOW_ORIGINS,
+        allow_origin_regex=_ALLOW_ORIGIN_REGEX_STR,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization"],
     )

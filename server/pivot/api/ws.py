@@ -20,9 +20,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 import uuid
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
 from pivot.audio.pcm import pcm16_to_float32
 from pivot.core.crypto import RadioMode
@@ -32,9 +33,30 @@ router = APIRouter()
 
 _AUDIO_QUEUE_MAX = 64  # ~1.3 s of 20 ms frames; drop rather than lag on a slow client
 
+_ALLOW_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+]
+_ALLOW_ORIGIN_REGEX_STR = r"^https?://(localhost|127\.0\.0\.1|192\.168\.[0-9]+\.[0-9]+|10\.[0-9]+\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)(:[0-9]+)?\Z"
+_ALLOW_ORIGIN_REGEX = re.compile(_ALLOW_ORIGIN_REGEX_STR)
+
+
+def _is_origin_allowed(origin: str | None) -> bool:
+    if not origin:
+        return True
+    if origin in _ALLOW_ORIGINS:
+        return True
+    return bool(_ALLOW_ORIGIN_REGEX.match(origin))
+
 
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
+    if not _is_origin_allowed(ws.headers.get("origin")):
+        await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid Origin")
+        return
+
     manager = ws.app.state.manager
     auth = getattr(ws.app.state, "auth", None)
     await ws.accept()
