@@ -97,6 +97,8 @@ class ApplyUpdateRequest(BaseModel):
         allowed = ("github.com", "api.github.com", "objects.githubusercontent.com")
         if hostname not in allowed:
             raise ValueError("URL must point to GitHub")
+        if parsed.netloc != hostname:
+            raise ValueError("URL contains invalid components (e.g. credentials, ports)")
         return v
 
 
