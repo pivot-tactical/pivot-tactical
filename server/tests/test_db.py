@@ -390,6 +390,25 @@ def test_read_schema_version_invalid_fallback():
         assert _read_schema_version(conn) == 0
 
 
+def test_config_store_all_parses_valid_json(database):
+    with database.session() as s:
+        cfg = ConfigStore(s)
+        # Direct insert of valid JSON of different types
+        s.add(ConfigRow(key="valid_str", value='"hello"'))
+        s.add(ConfigRow(key="valid_int", value='123'))
+        s.add(ConfigRow(key="valid_bool", value='true'))
+        s.add(ConfigRow(key="valid_list", value='["a", "b"]'))
+        s.add(ConfigRow(key="valid_dict", value='{"k": "v"}'))
+        s.commit()
+
+        allcfg = cfg.all()
+        assert allcfg["valid_str"] == "hello"
+        assert allcfg["valid_int"] == 123
+        assert allcfg["valid_bool"] is True
+        assert allcfg["valid_list"] == ["a", "b"]
+        assert allcfg["valid_dict"] == {"k": "v"}
+
+
 def test_config_store_all_ignores_invalid_json(database):
     with database.session() as s:
         cfg = ConfigStore(s)
