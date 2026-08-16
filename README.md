@@ -43,12 +43,19 @@ Linux Mint 21+, Pop!\_OS and similar.
 
 1. Download the latest
    [`PIVOT-Tactical-linux-x86_64.tar.gz`](../../releases/latest/download/PIVOT-Tactical-linux-x86_64.tar.gz).
-2. Extract and run it:
+2. Extract the archive:
 
    ```bash
    tar -xzf PIVOT-Tactical-linux-x86_64.tar.gz
+   ```
+
+3. Run it directly:
+
+   ```bash
    ./PIVOT-Tactical/PIVOT-Tactical
    ```
+
+   _(Or run `sudo ./PIVOT-Tactical/install.sh` to install it as a background systemd service)._
 
 ### Then
 
@@ -63,8 +70,8 @@ Linux Mint 21+, Pop!\_OS and similar.
   enters the password (default `instructor` on first run — change it in Settings).
 
 Your database, recordings and settings live in a data folder **next to** the
-program and survive every update and rollback. To uninstall, just delete the
-folder — no registry entries, no system services.
+program (or in `/var/lib/pivot-tactical` for the Linux service) and survive every update and rollback. To uninstall the portable version, just delete the
+folder. (If you used the Windows installer or the Linux `install.sh` script, use their provided uninstallers).
 
 ## Using PIVOT
 
@@ -94,8 +101,7 @@ instructor radio can drop the channel noise from its own receive with
 **RX Noise**.)
 
 **PTT keys.** Every radio — trainee or instructor — is keyed by the **numpad key
-with its number**: numpad 1 keys radio 1, numpad 2 keys radio 2, and so on, up to
-9. One key per radio, held down like a pressel, so any open net can be answered
+with its number**: numpad 1 keys radio 1, numpad 2 keys radio 2, and so on, up to 9. One key per radio, held down like a pressel, so any open net can be answered
 without reaching for the mouse. Each PTT control shows its own key.
 
 **After Action Review (AAR).** Open the AAR from the browser to replay a session:

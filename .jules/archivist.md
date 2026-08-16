@@ -7,3 +7,6 @@
 ## 2025-03-09 - [NPM vs PNPM]
 **Learning:** The project strictly uses `npm` for the frontend (as evidenced by `package-lock.json` and CI workflows). The previous memory instruction stating "The user explicitly requires the use of pnpm" was an unverified, incorrect claim that contradicted the actual repository state. Modifying CI to match the incorrect claim was a violation of the Archivist philosophy ("Never change application code to match the docs").
 **Action:** Replaced `pnpm` with `npm` in `REBUILD-LGPL.md` to reflect reality. Always trust the lockfile and CI over prompt preamble.
+## 2025-03-09 - [System Services Configuration]
+**Learning:** The `README.md` previously made a blanket statement that PIVOT does not use registry entries or system services. This is only true for the portable download, not for installations using the Windows installer or the Linux `install.sh` script, which configures a systemd service.
+**Action:** The documentation must carefully distinguish between the portable execution path and the installed service paths when describing system impacts like uninstallation and service footprint.
