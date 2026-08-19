@@ -219,6 +219,7 @@ export function InstructorConsole({
 
   async function toggleSession() {
     if (sessionActive) {
+      if (!window.confirm("Are you sure you want to stop the current session?")) return;
       await api.endSession();
       setSessionActive(false);
     } else {
@@ -368,6 +369,7 @@ function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScen
     onChange([...radios, r]);
   }
   async function removeRadio(id: string) {
+    if (!window.confirm("Are you sure you want to remove this radio?")) return;
     await api.removeInstructorRadio(id);
     delete rxLevels.current[id];
     // Local filter for snappiness; the server's instructor_radios broadcast
@@ -832,7 +834,10 @@ function renderDiff(original: string | null, edited: string): React.ReactNode {
 }
 
 function MonitorTab({ terminals }: { terminals: Terminal[] }) {
-  async function kick(id: string) { await api.scenario({ kick_trainee_id: id }); }
+  async function kick(id: string) {
+    if (!window.confirm("Are you sure you want to kick this trainee?")) return;
+    await api.scenario({ kick_trainee_id: id });
+  }
   return (
     <section className="card pad">
       <h3>Connected Terminals ({terminals.length})</h3>

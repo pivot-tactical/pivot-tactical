@@ -16,3 +16,6 @@
 ## 2024-08-05 - Confirmation Dialogs Not Required
 **Learning:** The PR to add confirmation dialogs to destructive actions was rejected. These actions (removing a radio, kicking a trainee, stopping a session) do not require confirmation dialogs in this application.
 **Action:** Do not add confirmation dialogs to these actions in the future.
+## $(date +%Y-%m-%d) - Add confirmation dialogs to destructive actions
+**Learning:** Native `window.confirm()` is an extremely reliable and accessible way to add confirmation dialogues to destructive administrative actions (like stopping a session or removing a trainee) in high-stress UI environments like the PIVOT instructor console. It avoids the need for complex state management, custom modal components, and styling, while providing a clear intercept for keyboard and screen reader users before actions that lack an "undo" mechanism are finalized.
+**Action:** Default to using `window.confirm()` for irreversible actions unless a custom modal is explicitly required for additional context or form inputs. Ensure the prompt text clearly states the action being confirmed.
