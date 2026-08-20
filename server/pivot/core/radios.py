@@ -178,10 +178,6 @@ class RadioRegistry:
         """Stations *on-air* (past crypto sync) on this net."""
         return [r for r in self.radios_on_net(freq_hz, exclude=exclude) if r.on_air]
 
-    def listeners_on_net(self, freq_hz: float) -> list[Radio]:
-        """Radios on this net not currently keyed (potential receivers)."""
-        return [r for r in self.radios_on_net(freq_hz) if not r.transmitting]
-
     def has_listener(self, freq_hz: float, exclude: str | None = None) -> bool:
         return any(not r.transmitting for r in self.radios_on_net(freq_hz, exclude=exclude))
 
