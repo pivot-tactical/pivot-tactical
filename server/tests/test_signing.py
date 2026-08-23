@@ -62,6 +62,12 @@ def test_public_key_empty_env(monkeypatch):
     assert public_key() == _EMBEDDED_PUBLIC_KEY
 
 
+def test_public_key_explicit_empty_env(monkeypatch):
+    """If the environment variable is explicitly an empty string, it should fall back to the embedded key."""
+    monkeypatch.setenv("PIVOT_EDDSA_PUBLIC_KEY", "")
+    assert public_key() == _EMBEDDED_PUBLIC_KEY
+
+
 def test_verify_bytes_empty_signature():
     """An empty signature string should immediately return False."""
     assert verify_bytes(b"data", "") is False
