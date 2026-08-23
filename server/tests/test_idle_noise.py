@@ -245,3 +245,36 @@ def test_idle_noise_amplitude():
     # Jammed
     assert idle_noise_amplitude(_IDLE_SNR_CEIL_DB + 10.0, jammed=True) == IDLE_NOISE_RMS_NOISY
     assert idle_noise_amplitude(_IDLE_SNR_FLOOR_DB - 10.0, jammed=True) == IDLE_NOISE_RMS_NOISY
+
+
+@pytest.mark.asyncio
+async def test_noise_broadcaster_survives_tick_exception():
+    import asyncio
+    from unittest.mock import Mock
+    from pivot.audio.noise_stream import NoiseBroadcaster
+
+    manager = Mock()
+    manager.session_active = True
+
+    event = asyncio.Event()
+
+    call_count = 0
+    def mock_render(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("simulated failure")
+        elif call_count == 2:
+            event.set()
+
+    manager.render_idle_noise_tick.side_effect = mock_render
+
+    broadcaster = NoiseBroadcaster(manager, frame_ms=10)
+    broadcaster.start()
+
+    try:
+        await asyncio.wait_for(event.wait(), timeout=1.0)
+    finally:
+        await broadcaster.stop()
+
+    assert call_count >= 2
