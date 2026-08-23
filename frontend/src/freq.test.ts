@@ -69,12 +69,21 @@ describe('netKey', () => {
   });
 });
 
-describe('formatMHz and regionFor', () => {
+describe('formatMHz', () => {
   it('renders the grid exactly at 4 dp', () => {
     expect(formatMHz(5_687_000)).toBe('5.6870');
     expect(formatMHz(145_512_500)).toBe('145.5125');
   });
 
+  it('handles edge cases like zero, negatives, and large values', () => {
+    expect(formatMHz(0)).toBe('0.0000');
+    expect(formatMHz(-0)).toBe('0.0000');
+    expect(formatMHz(-5_687_000)).toBe('-5.6870');
+    expect(formatMHz(3_000_000_000)).toBe('3000.0000');
+  });
+});
+
+describe('regionFor', () => {
   it('labels the ITU bands, upper edge belonging to the lower band', () => {
     expect(regionFor(7e6)).toBe('HF');
     expect(regionFor(30e6)).toBe('HF');
