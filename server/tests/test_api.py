@@ -379,6 +379,31 @@ def test_sessions_events_and_export(client, settings):
     assert r.status_code == 422
 
 
+def test_delete_session_success(client, settings):
+    manager = client.app.state.manager
+    manager.start_session("DELETE-ME")
+    session_id = manager.current_session_id
+
+    # Verify session exists
+    r = client.get("/api/sessions")
+    assert any(s["id"] == session_id for s in r.json())
+
+    # Delete session
+    r = client.delete(f"/api/sessions/{session_id}")
+    assert r.status_code == 200
+    assert r.json() == {"deleted": session_id}
+
+    # Verify session is deleted
+    r = client.get("/api/sessions")
+    assert not any(s["id"] == session_id for s in r.json())
+
+
+def test_delete_session_not_found(client, settings):
+    r = client.delete("/api/sessions/non-existent-id")
+    assert r.status_code == 404
+    assert r.json() == {"detail": "session not found"}
+
+
 def test_edit_transcription_over_rest(client, settings):
     """POST /events/{id}/transcription corrects the text, preserves the machine
     transcription for diffing, and flags the row (§3.5.3)."""
