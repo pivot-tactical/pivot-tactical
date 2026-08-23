@@ -154,3 +154,36 @@ def test_worker_on_complete_exception_is_handled(database, settings, manager):
     assert status is TranscriptionStatus.DONE
     mock_log.assert_called_once()
     assert "on_complete callback failed for %s" in mock_log.call_args[0][0]
+
+
+def test_worker_run_exception_is_handled(database, settings, manager):
+    """An exception during process_event must not kill the worker thread."""
+    worker = TranscriptionWorker(database, settings, transcriber=FakeTranscriber())
+
+    import threading
+    done_event = threading.Event()
+    calls = []
+
+    def failing_process(event_id):
+        calls.append(event_id)
+        if len(calls) == 1:
+            raise RuntimeError("Fake processing error")
+        done_event.set()
+
+    worker.process_event = failing_process
+
+    with patch("pivot.transcription.worker.log.exception") as mock_log:
+        worker.start()
+        worker.enqueue("event_1")
+        worker.enqueue("event_2")
+
+        # Wait for the second event to be processed
+        assert done_event.wait(timeout=2.0), "Worker did not process second event"
+        worker.stop()
+
+    assert len(calls) == 2
+    assert calls[0] == "event_1"
+    assert calls[1] == "event_2"
+    mock_log.assert_called_once()
+    assert "transcription failed for %s" in mock_log.call_args[0][0]
+    assert mock_log.call_args[0][1] == "event_1"
