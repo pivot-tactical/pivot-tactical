@@ -255,7 +255,7 @@ class UpdateService:
         }
 
         # Apply the auto-update policy (modifies `update` dict in place).
-        self._apply_auto_update_policy(update, auto, available, staged, cfg, mgr)
+        self._apply_auto_update_policy(update, available, cfg, mgr)
 
         self._merge(update)
         return self.snapshot()
@@ -265,13 +265,14 @@ class UpdateService:
     def _apply_auto_update_policy(
         self,
         update: dict,
-        auto: bool,
         available: list[Release],
-        staged: str | None,
         cfg: dict,
         mgr: UpdateManager,
     ) -> None:
         """Apply auto-update policy: newest available, out-of-band, and never over a staged update."""
+        auto = update.get("auto_update", False)
+        staged = update.get("staged_tag")
+
         if not auto or not available:
             update["auto_state"] = "idle"
             update["auto_message"] = ""
