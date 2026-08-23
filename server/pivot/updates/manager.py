@@ -26,6 +26,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -101,7 +102,25 @@ def _with_sharing_retry(fn, *, attempts: int = 8, delay: float = 0.25):
             time.sleep(delay * (attempt + 1))
 
 
+def _validate_github_url(url: str) -> None:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError(f"Invalid scheme in update URL: {parsed.scheme}")
+    if parsed.netloc != parsed.hostname:
+        raise ValueError("Invalid update URL structure")
+    if not parsed.hostname:
+        raise ValueError("Invalid update URL structure")
+    if not (
+        parsed.hostname == "github.com"
+        or parsed.hostname == "api.github.com"
+        or parsed.hostname.endswith(".github.com")
+        or parsed.hostname.endswith(".githubusercontent.com")
+    ):
+        raise ValueError(f"Untrusted host in update URL: {parsed.hostname}")
+
+
 def _http_get(url: str, token: str | None = None, timeout: float = 30.0) -> bytes:
+    _validate_github_url(url)
     req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
@@ -128,6 +147,7 @@ def _http_download(
     shows an indeterminate bar). Each retry re-opens from scratch, so the callback
     restarts from ``0``.
     """
+    _validate_github_url(url)
     req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
