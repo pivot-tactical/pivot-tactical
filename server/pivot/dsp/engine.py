@@ -19,6 +19,16 @@ from pivot.dsp.hash_gen import encrypted_hash
 from pivot.dsp.noise import NoiseTexture, add_noise_for_snr, idle_noise_amplitude
 from pivot.dsp.tone import ptt_click, squelch_tail
 
+
+@dataclass
+class RenderOptions:
+    """Options for rendering DSP chains and receptions."""
+
+    sample_rate: int = 16_000
+    rng: np.random.Generator | None = None
+    with_transients: bool = False
+
+
 # Per-net noise textures kept alive at once; oldest-touched are evicted so a
 # long session of tuning around never grows the engine unboundedly.
 _MAX_TEXTURES = 64
@@ -239,18 +249,17 @@ def render_reception(
     reception: Reception,
     voice: np.ndarray,
     conditions: BandConditions,
-    sample_rate: int = 16_000,
-    rng: np.random.Generator | None = None,
-    with_transients: bool = False,
+    options: RenderOptions | None = None,
 ) -> np.ndarray:
     """Convenience for the common single-stream case (AAR re-render, §4.5)."""
-    engine = DspEngine(sample_rate=sample_rate)
+    options = options or RenderOptions()
+    engine = DspEngine(sample_rate=options.sample_rate)
     return engine.render(
         reception,
         voice,
         conditions=conditions,
-        rng=rng,
-        with_transients=with_transients,
+        rng=options.rng,
+        with_transients=options.with_transients,
     )
 
 
