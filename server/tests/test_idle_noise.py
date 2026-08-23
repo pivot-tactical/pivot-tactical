@@ -7,9 +7,14 @@ nets with a station on air, and one frame per shared sink (instructor).
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from unittest.mock import MagicMock
+
 import numpy as np
 import pytest
 
+from pivot.audio.noise_stream import NoiseBroadcaster
 from pivot.core.bands import BandProfile, JammingSpan
 from pivot.dsp.engine import DspEngine
 from pivot.dsp.filters import rms
@@ -245,3 +250,27 @@ def test_idle_noise_amplitude():
     # Jammed
     assert idle_noise_amplitude(_IDLE_SNR_CEIL_DB + 10.0, jammed=True) == IDLE_NOISE_RMS_NOISY
     assert idle_noise_amplitude(_IDLE_SNR_FLOOR_DB - 10.0, jammed=True) == IDLE_NOISE_RMS_NOISY
+
+
+@pytest.mark.asyncio
+async def test_noise_broadcaster_survives_exception(caplog):
+    manager = MagicMock()
+    manager.session_active = True
+
+    # raise exception on the first call, then succeed endlessly
+    def side_effect(*args, **kwargs):
+        if manager.render_idle_noise_tick.call_count == 1:
+            raise RuntimeError("tick failed")
+
+    manager.render_idle_noise_tick.side_effect = side_effect
+
+    broadcaster = NoiseBroadcaster(manager, frame_ms=10)
+
+    with caplog.at_level(logging.ERROR):
+        broadcaster.start()
+        await asyncio.sleep(0.05)
+        await broadcaster.stop()
+
+    assert manager.render_idle_noise_tick.call_count >= 2, "Broadcaster should continue ticking after exception"
+    assert "idle-noise tick failed" in caplog.text
+    assert "tick failed" in caplog.text
