@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from pivot.api.app import _maybe_start_transcription, create_app
 from pivot.api.deps import require_instructor
+from pivot.core.radios import RadioBusyError
 from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
@@ -85,6 +86,18 @@ def test_login_and_tune_and_mode(client):
     r = client.post("/api/radio/mode", json={"radio_id": rid, "mode": "Cypher"})
     assert r.status_code == 200
     assert r.json()["mode"] == "Cypher"
+
+
+def test_set_mode_busy_409(client):
+    r = client.post("/api/login", json={"name": "ALPHA"})
+    assert r.status_code == 200
+    rid = r.json()["radio_id"]
+
+    manager = client.app.state.manager
+    with patch.object(manager, "set_mode", side_effect=RadioBusyError("busy")):
+        r = client.post("/api/radio/mode", json={"radio_id": rid, "mode": "Cypher"})
+        assert r.status_code == 409
+        assert "busy" in r.json()["detail"]
 
 
 def test_tune_unknown_radio_404(client):
