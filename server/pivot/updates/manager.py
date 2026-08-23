@@ -28,10 +28,10 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from urllib.parse import urlparse
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from urllib.parse import urlparse
 
 from pivot.updates.layout import Layout
 from pivot.version import SemVer
