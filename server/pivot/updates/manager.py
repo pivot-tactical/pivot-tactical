@@ -28,6 +28,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from urllib.parse import urlparse
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -101,7 +102,25 @@ def _with_sharing_retry(fn, *, attempts: int = 8, delay: float = 0.25):
             time.sleep(delay * (attempt + 1))
 
 
+def _is_safe_github_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        if parsed.netloc != parsed.hostname:
+            return False
+        if not parsed.hostname:
+            return False
+        if parsed.hostname in ("api.github.com", "github.com", "objects.githubusercontent.com"):
+            return True
+        return parsed.hostname.endswith(".github.com") or parsed.hostname.endswith(".githubusercontent.com")
+    except Exception:
+        return False
+
+
 def _http_get(url: str, token: str | None = None, timeout: float = 30.0) -> bytes:
+    if not _is_safe_github_url(url):
+        raise ValueError("Invalid or unsafe URL")
     req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
@@ -128,6 +147,8 @@ def _http_download(
     shows an indeterminate bar). Each retry re-opens from scratch, so the callback
     restarts from ``0``.
     """
+    if not _is_safe_github_url(url):
+        raise ValueError("Invalid or unsafe URL")
     req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
