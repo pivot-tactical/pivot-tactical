@@ -22,7 +22,7 @@ Licensed under **Apache-2.0**.
 
 ## Quickstart
 
-PIVOT is a single self-contained download — no installer, no dependencies, and
+PIVOT is a single self-contained download — no external dependencies, and
 nothing for trainees to set up.
 
 Downloads have stable, version-agnostic names, so the same link always fetches
