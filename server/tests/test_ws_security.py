@@ -1,8 +1,10 @@
-import pytest
-from fastapi import WebSocket, status
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from fastapi import WebSocket, status
+
 from pivot.api.ws import websocket_endpoint
+
 
 @pytest.mark.asyncio
 async def test_origin_validation():

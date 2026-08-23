@@ -16,7 +16,7 @@ import numpy as np
 from pivot.core.bands import BandProfile
 from pivot.core.crypto import RadioMode, Reception, single_reception
 from pivot.dsp.digital import DigitalVoice
-from pivot.dsp.engine import DspEngine, render_reception
+from pivot.dsp.engine import DspEngine, RenderOptions, render_reception
 from pivot.dsp.filters import lowpass, rms
 
 SR = 16_000
@@ -73,8 +73,8 @@ def test_cypher_to_cypher_is_digital_reception():
 def test_digital_render_length_bounds_and_determinism():
     voice, _ = _cadenced_voice(1.0)
     cond = _conditions()
-    a = render_reception(Reception.DIGITAL, voice, cond, SR, rng=np.random.default_rng(3))
-    b = render_reception(Reception.DIGITAL, voice, cond, SR, rng=np.random.default_rng(3))
+    a = render_reception(Reception.DIGITAL, voice, cond, RenderOptions(sample_rate=SR, rng=np.random.default_rng(3)))
+    b = render_reception(Reception.DIGITAL, voice, cond, RenderOptions(sample_rate=SR, rng=np.random.default_rng(3)))
     assert a.shape == voice.shape
     assert np.isfinite(a).all()
     assert float(np.max(np.abs(a))) <= 1.0 + 1e-5
@@ -86,8 +86,7 @@ def test_digital_voice_is_narrowband():
     t = np.arange(SR) / SR
     tone_5k = (0.5 * np.sin(2 * np.pi * 5000 * t)).astype(np.float32)
     out = render_reception(
-        Reception.DIGITAL, tone_5k, _conditions(), SR, rng=np.random.default_rng(2)
-    )
+        Reception.DIGITAL, tone_5k, _conditions(), RenderOptions(sample_rate=SR, rng=np.random.default_rng(2)))
     assert rms(out) < 0.1 * rms(tone_5k)
 
 
@@ -99,8 +98,8 @@ def test_digital_is_cleaner_than_analog_between_words():
     so the floor in speech pauses is far below the analog render's hiss."""
     voice, pause = _cadenced_voice()
     cond = replace(_conditions(), snr_db=8.0)  # audibly noisy analog channel
-    dig = render_reception(Reception.DIGITAL, voice, cond, SR, rng=np.random.default_rng(1))
-    clr = render_reception(Reception.CLEAR, voice, cond, SR, rng=np.random.default_rng(1))
+    dig = render_reception(Reception.DIGITAL, voice, cond, RenderOptions(sample_rate=SR, rng=np.random.default_rng(1)))
+    clr = render_reception(Reception.CLEAR, voice, cond, RenderOptions(sample_rate=SR, rng=np.random.default_rng(1)))
     assert rms(dig[pause]) < 0.5 * rms(clr[pause])
 
 
@@ -109,7 +108,7 @@ def test_digital_holds_clean_copy_on_a_noisy_channel():
     decodes essentially clean (envelope tracks the speech like a clean channel)."""
     voice, _ = _cadenced_voice()
     noisy = replace(_conditions(), snr_db=8.0)
-    dig = render_reception(Reception.DIGITAL, voice, noisy, SR, rng=np.random.default_rng(1))
+    dig = render_reception(Reception.DIGITAL, voice, noisy, RenderOptions(sample_rate=SR, rng=np.random.default_rng(1)))
     assert _env_corr(dig, voice) > 0.95
 
 
@@ -121,11 +120,10 @@ def test_digital_falls_off_a_cliff_not_a_slope():
     voice, _ = _cadenced_voice()
     base = _conditions()
     good = render_reception(
-        Reception.DIGITAL, voice, replace(base, snr_db=8.0), SR, rng=np.random.default_rng(1)
+        Reception.DIGITAL, voice, replace(base, snr_db=8.0), RenderOptions(sample_rate=SR, rng=np.random.default_rng(1))
     )
     below = render_reception(
-        Reception.DIGITAL, voice, replace(base, snr_db=-4.0), SR, rng=np.random.default_rng(1)
-    )
+        Reception.DIGITAL, voice, replace(base, snr_db=-4.0), RenderOptions(sample_rate=SR, rng=np.random.default_rng(1)))
     assert _env_corr(good, voice) > 0.95
     assert _env_corr(below, voice) < 0.6
     # Below the cliff the audio clips out: many frames are hard-muted.
@@ -139,8 +137,8 @@ def test_digital_failure_includes_garble_not_noise():
     continuous noise bed at the same SNR, which fills every frame."""
     voice, _ = _cadenced_voice()
     cond = replace(_conditions(), snr_db=-4.0)
-    below = render_reception(Reception.DIGITAL, voice, cond, SR, rng=np.random.default_rng(5))
-    analog = render_reception(Reception.CLEAR, voice, cond, SR, rng=np.random.default_rng(5))
+    below = render_reception(Reception.DIGITAL, voice, cond, RenderOptions(sample_rate=SR, rng=np.random.default_rng(5)))
+    analog = render_reception(Reception.CLEAR, voice, cond, RenderOptions(sample_rate=SR, rng=np.random.default_rng(5)))
     # Some audio still comes through (garble bursts / squawks)…
     assert rms(below) > 0.005
     # …but most of the time is hard silence, where analog is wall-to-wall noise.
@@ -153,10 +151,10 @@ def test_jamming_defeats_digital_voice_too():
     odd squawk — cypher does not defeat the jammer."""
     voice, _ = _cadenced_voice()
     jammed = render_reception(
-        Reception.DIGITAL, voice, _conditions(jammed=True), SR, rng=np.random.default_rng(1)
+        Reception.DIGITAL, voice, _conditions(jammed=True), RenderOptions(sample_rate=SR, rng=np.random.default_rng(1))
     )
     good = render_reception(
-        Reception.DIGITAL, voice, _conditions(), SR, rng=np.random.default_rng(1)
+        Reception.DIGITAL, voice, _conditions(), RenderOptions(sample_rate=SR, rng=np.random.default_rng(1))
     )
     assert _quiet_frame_fraction(jammed) > 0.7
     assert rms(jammed) < 0.5 * rms(good)

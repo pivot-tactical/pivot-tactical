@@ -235,22 +235,28 @@ class DspEngine:
         return np.concatenate([click, out, click, tail]).astype(np.float32)
 
 
+@dataclass(frozen=True)
+class RenderOptions:
+    sample_rate: int = 16_000
+    rng: np.random.Generator | None = None
+    with_transients: bool = False
+
 def render_reception(
     reception: Reception,
     voice: np.ndarray,
     conditions: BandConditions,
-    sample_rate: int = 16_000,
-    rng: np.random.Generator | None = None,
-    with_transients: bool = False,
+    options: RenderOptions | None = None,
 ) -> np.ndarray:
     """Convenience for the common single-stream case (AAR re-render, §4.5)."""
-    engine = DspEngine(sample_rate=sample_rate)
+    if options is None:
+        options = RenderOptions()
+    engine = DspEngine(sample_rate=options.sample_rate)
     return engine.render(
         reception,
         voice,
         conditions=conditions,
-        rng=rng,
-        with_transients=with_transients,
+        rng=options.rng,
+        with_transients=options.with_transients,
     )
 
 

@@ -143,7 +143,7 @@ def test_bandpass_narrows_at_low_hf():
 
 
 def test_snap_frequency_to_tuning_grid():
-    from pivot.core.bands import TUNING_STEP_HZ, format_frequency, snap_frequency
+    from pivot.core.bands import TUNING_STEP_HZ, snap_frequency
 
     assert TUNING_STEP_HZ == 100
     assert snap_frequency(145_500_000) == 145_500_000  # already on grid
