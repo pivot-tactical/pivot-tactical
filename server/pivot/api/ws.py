@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import json
 import re
+import typing
 import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
@@ -126,17 +128,16 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
             mtype = data.get("type")
             payload = data.get("payload") or {}
 
-            await _handle_trainee_message(
-                ws,
-                manager,
-                trainee_id,
-                primary_id,
-                mtype,
-                payload,
-                active_tx,
-                sync_tasks,
-                sync_radio_sinks,
+            ctx = _TraineeContext(
+                ws=ws,
+                manager=manager,
+                trainee_id=trainee_id,
+                primary_id=primary_id,
+                active_tx=active_tx,
+                sync_tasks=sync_tasks,
+                on_radios_changed=sync_radio_sinks,
             )
+            await _handle_trainee_message(ctx, mtype, payload)
     except WebSocketDisconnect:
         pass
     finally:
@@ -254,80 +255,86 @@ def _trainee_radio_id(manager, trainee_id: str, payload: dict, default: str) -> 
     return rid
 
 
+
+@dataclasses.dataclass
+class _TraineeContext:
+    ws: WebSocket
+    manager: typing.Any
+    trainee_id: str
+    primary_id: str
+    active_tx: set[str]
+    sync_tasks: dict[str, asyncio.Task]
+    on_radios_changed: typing.Callable[[], None]
+
+
 async def _handle_trainee_message(
-    ws: WebSocket,
-    manager,
-    trainee_id: str,
-    primary_id: str,
+    ctx: _TraineeContext,
     mtype: str,
     payload: dict,
-    active_tx: set[str],
-    sync_tasks: dict[str, asyncio.Task],
-    on_radios_changed,
 ) -> None:
     try:
         if mtype == "heartbeat":
-            await ws.send_json({"type": "heartbeat", "payload": {}})
+            await ctx.ws.send_json({"type": "heartbeat", "payload": {}})
         elif mtype == "tune":
-            rid = _trainee_radio_id(manager, trainee_id, payload, primary_id)
-            await _safe(ws, "tuned", lambda: manager.tune(rid, payload["frequency"]))
+            rid = _trainee_radio_id(ctx.manager, ctx.trainee_id, payload, ctx.primary_id)
+            await _safe(ctx.ws, "tuned", lambda: ctx.manager.tune(rid, payload["frequency"]))
         elif mtype == "mode_change":
-            rid = _trainee_radio_id(manager, trainee_id, payload, primary_id)
+            rid = _trainee_radio_id(ctx.manager, ctx.trainee_id, payload, ctx.primary_id)
             await _safe(
-                ws, "mode_changed", lambda: manager.set_mode(rid, RadioMode(payload["mode"]))
+                ctx.ws, "mode_changed", lambda: ctx.manager.set_mode(rid, RadioMode(payload["mode"]))
             )
         elif mtype == "add_radio":
-            radio = manager.add_trainee_radio(
-                trainee_id,
+            radio = ctx.manager.add_trainee_radio(
+                ctx.trainee_id,
                 slot=payload.get("slot"),
                 frequency=payload.get("frequency"),
                 mode=RadioMode(payload["mode"]) if payload.get("mode") else None,
             )
-            on_radios_changed()
-            await ws.send_json({"type": "radio_added", "payload": radio})
+            ctx.on_radios_changed()
+            await ctx.ws.send_json({"type": "radio_added", "payload": radio})
         elif mtype == "remove_radio":
-            rid = _trainee_radio_id(manager, trainee_id, payload, "")
-            _cancel(sync_tasks.pop(rid, None))
-            active_tx.discard(rid)
-            manager.remove_trainee_radio(trainee_id, rid)
-            on_radios_changed()
-            await ws.send_json({"type": "radio_removed", "payload": {"radio_id": rid}})
+            rid = _trainee_radio_id(ctx.manager, ctx.trainee_id, payload, "")
+            _cancel(ctx.sync_tasks.pop(rid, None))
+            ctx.active_tx.discard(rid)
+            ctx.manager.remove_trainee_radio(ctx.trainee_id, rid)
+            ctx.on_radios_changed()
+            await ctx.ws.send_json({"type": "radio_removed", "payload": {"radio_id": rid}})
         elif mtype == "ptt_start":
-            rid = _trainee_radio_id(manager, trainee_id, payload, primary_id)
-            result = manager.ptt_start(
+            rid = _trainee_radio_id(ctx.manager, ctx.trainee_id, payload, ctx.primary_id)
+            result = ctx.manager.ptt_start(
                 rid,
                 frequency=payload.get("frequency"),
                 tx_mode=RadioMode(payload["tx_mode"]) if payload.get("tx_mode") else None,
             )
-            active_tx.add(rid)
+            ctx.active_tx.add(rid)
             # radio_id lets the radio view drive each panel's PTT state
             # independently while several radios are keyed.
-            await ws.send_json({"type": "ptt_started", "payload": {**result, "radio_id": rid}})
+            await ctx.ws.send_json({"type": "ptt_started", "payload": {**result, "radio_id": rid}})
             if result["sync_applies"]:
-                sync_tasks[rid] = asyncio.create_task(
-                    _schedule_on_air(ws, manager, rid, result["sync_delay_ms"])
+                ctx.sync_tasks[rid] = asyncio.create_task(
+                    _schedule_on_air(ctx.ws, ctx.manager, rid, result["sync_delay_ms"])
                 )
         elif mtype == "ptt_end":
-            rid = _trainee_radio_id(manager, trainee_id, payload, primary_id)
-            _cancel(sync_tasks.pop(rid, None))
-            active_tx.discard(rid)
-            await ws.send_json(
-                {"type": "ptt_ended", "payload": {**(manager.ptt_end(rid) or {}), "radio_id": rid}}
+            rid = _trainee_radio_id(ctx.manager, ctx.trainee_id, payload, ctx.primary_id)
+            _cancel(ctx.sync_tasks.pop(rid, None))
+            ctx.active_tx.discard(rid)
+            await ctx.ws.send_json(
+                {"type": "ptt_ended", "payload": {**(ctx.manager.ptt_end(rid) or {}), "radio_id": rid}}
             )
         elif mtype == "ptt_abort":
-            rid = _trainee_radio_id(manager, trainee_id, payload, primary_id)
-            _cancel(sync_tasks.pop(rid, None))
-            active_tx.discard(rid)
-            await ws.send_json(
+            rid = _trainee_radio_id(ctx.manager, ctx.trainee_id, payload, ctx.primary_id)
+            _cancel(ctx.sync_tasks.pop(rid, None))
+            ctx.active_tx.discard(rid)
+            await ctx.ws.send_json(
                 {
                     "type": "ptt_aborted",
-                    "payload": {**(manager.ptt_abort(rid) or {}), "radio_id": rid},
+                    "payload": {**(ctx.manager.ptt_abort(rid) or {}), "radio_id": rid},
                 }
             )
         else:
-            await ws.send_json({"type": "error", "payload": {"detail": f"unknown: {mtype}"}})
+            await ctx.ws.send_json({"type": "error", "payload": {"detail": f"unknown: {mtype}"}})
     except (RadioBusyError, KeyError, ValueError) as exc:
-        await ws.send_json({"type": "error", "payload": {"detail": str(exc)}})
+        await ctx.ws.send_json({"type": "error", "payload": {"detail": str(exc)}})
 
 
 async def _handle_instructor_message(
