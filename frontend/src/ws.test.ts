@@ -172,6 +172,15 @@ describe('PivotSocket', () => {
     socket.modeChange('AM');
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'mode_change', payload: { mode: 'AM' } }));
 
+    socket.addRadio(2, '123.450', 'AM');
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'add_radio', payload: { slot: 2, frequency: '123.450', mode: 'AM' } }));
+
+    socket.addRadio(3);
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'add_radio', payload: { slot: 3 } }));
+
+    socket.removeRadio('radio-abc');
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'remove_radio', payload: { radio_id: 'radio-abc' } }));
+
     socket.instrPttStart('instr-1', '123.450', 'AM');
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'instr_ptt_start', payload: { radio_id: 'instr-1', frequency: '123.450', tx_mode: 'AM' } }));
 
