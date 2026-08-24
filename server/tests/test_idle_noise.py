@@ -7,9 +7,14 @@ nets with a station on air, and one frame per shared sink (instructor).
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from unittest.mock import Mock
+
 import numpy as np
 import pytest
 
+from pivot.audio.noise_stream import NoiseBroadcaster
 from pivot.core.bands import BandProfile, JammingSpan
 from pivot.dsp.engine import DspEngine
 from pivot.dsp.filters import rms
@@ -245,3 +250,35 @@ def test_idle_noise_amplitude():
     # Jammed
     assert idle_noise_amplitude(_IDLE_SNR_CEIL_DB + 10.0, jammed=True) == IDLE_NOISE_RMS_NOISY
     assert idle_noise_amplitude(_IDLE_SNR_FLOOR_DB - 10.0, jammed=True) == IDLE_NOISE_RMS_NOISY
+
+
+@pytest.mark.asyncio
+async def test_noise_broadcaster_survives_tick_exception(caplog):
+    """A failing tick is logged and the cadence carries on — one bad frame must
+    not silence the band floor for the rest of the session."""
+    manager = Mock()
+    manager.session_active = True
+
+    second_tick = asyncio.Event()
+    calls = 0
+
+    def tick(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("simulated failure")
+        second_tick.set()
+
+    manager.render_idle_noise_tick.side_effect = tick
+
+    broadcaster = NoiseBroadcaster(manager, frame_ms=10)
+    with caplog.at_level(logging.ERROR):
+        broadcaster.start()
+        try:
+            await asyncio.wait_for(second_tick.wait(), timeout=2.0)
+        finally:
+            await broadcaster.stop()
+
+    assert calls >= 2
+    assert "idle-noise tick failed" in caplog.text
+    assert "simulated failure" in caplog.text
