@@ -31,6 +31,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from urllib.parse import urlparse
 
 from pivot.updates.layout import Layout
 from pivot.version import SemVer
@@ -101,7 +102,35 @@ def _with_sharing_retry(fn, *, attempts: int = 8, delay: float = 0.25):
             time.sleep(delay * (attempt + 1))
 
 
+# Update URLs come from the releases JSON, which a self-hosted/overridden repo
+# setting can influence — so the download side re-checks them rather than
+# trusting `browser_download_url` to point where GitHub normally does. HTTPS
+# only: an update fetched over plaintext is tamperable in transit, and every
+# real GitHub asset URL is already https.
+_GITHUB_HOST_SUFFIXES = (".github.com", ".githubusercontent.com")
+
+
+def _is_safe_github_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme != "https":
+        return False
+    host = parsed.hostname
+    if not host:
+        return False
+    # netloc carries userinfo and port; anything beyond the bare host means the
+    # URL is trying to look like GitHub without being it (e.g.
+    # "https://github.com@evil.example").
+    if parsed.netloc.lower() != host:
+        return False
+    return host in ("github.com", "api.github.com") or host.endswith(_GITHUB_HOST_SUFFIXES)
+
+
 def _http_get(url: str, token: str | None = None, timeout: float = 30.0) -> bytes:
+    if not _is_safe_github_url(url):
+        raise ValueError("Invalid or unsafe URL")
     req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
@@ -128,6 +157,8 @@ def _http_download(
     shows an indeterminate bar). Each retry re-opens from scratch, so the callback
     restarts from ``0``.
     """
+    if not _is_safe_github_url(url):
+        raise ValueError("Invalid or unsafe URL")
     req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
