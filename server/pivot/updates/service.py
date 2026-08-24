@@ -255,7 +255,9 @@ class UpdateService:
         }
 
         # Apply the auto-update policy (modifies `update` dict in place).
-        self._apply_auto_update_policy(update, auto, available, staged, cfg, mgr)
+        self._apply_auto_update_policy(
+            update, auto=auto, available=available, staged=staged, cfg=cfg, mgr=mgr
+        )
 
         self._merge(update)
         return self.snapshot()
@@ -265,6 +267,7 @@ class UpdateService:
     def _apply_auto_update_policy(
         self,
         update: dict,
+        *,
         auto: bool,
         available: list[Release],
         staged: str | None,

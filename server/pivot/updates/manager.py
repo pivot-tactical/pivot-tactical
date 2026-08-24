@@ -365,6 +365,7 @@ class UpdateManager:
         self,
         current_version: str,
         versions_dir: Path,
+        *,
         retained_count: int = 3,
         include_prereleases: bool = False,
         releases_provider=None,

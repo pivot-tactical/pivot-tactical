@@ -72,7 +72,7 @@ def test_pink_noise_is_lower_frequency_weighted_than_white():
 def test_clear_render_preserves_length_and_bounds():
     voice = speech_like()
     profile = BandProfile()
-    out = render_reception(Reception.CLEAR, voice, profile.conditions_at(145e6), SR)
+    out = render_reception(Reception.CLEAR, voice, profile.conditions_at(145e6), sample_rate=SR)
     assert out.shape == voice.shape
     assert np.isfinite(out).all()
     assert np.max(np.abs(out)) <= 1.0 + 1e-5
@@ -81,8 +81,8 @@ def test_clear_render_preserves_length_and_bounds():
 def test_render_is_deterministic_with_seed():
     voice = speech_like()
     cond = BandProfile().conditions_at(14e6)
-    a = render_reception(Reception.CLEAR, voice, cond, SR, rng=np.random.default_rng(42))
-    b = render_reception(Reception.CLEAR, voice, cond, SR, rng=np.random.default_rng(42))
+    a = render_reception(Reception.CLEAR, voice, cond, sample_rate=SR, rng=np.random.default_rng(42))
+    b = render_reception(Reception.CLEAR, voice, cond, sample_rate=SR, rng=np.random.default_rng(42))
     assert np.array_equal(a, b)
 
 
@@ -91,10 +91,10 @@ def test_uhf_cleaner_than_low_hf():
     voice = speech_like()
     profile = BandProfile()
     uhf = render_reception(
-        Reception.CLEAR, voice, profile.conditions_at(440e6), SR, rng=np.random.default_rng(7)
+        Reception.CLEAR, voice, profile.conditions_at(440e6), sample_rate=SR, rng=np.random.default_rng(7)
     )
     low_hf = render_reception(
-        Reception.CLEAR, voice, profile.conditions_at(2e6), SR, rng=np.random.default_rng(7)
+        Reception.CLEAR, voice, profile.conditions_at(2e6), sample_rate=SR, rng=np.random.default_rng(7)
     )
     assert norm_corr(uhf, voice) > norm_corr(low_hf, voice)
 
@@ -125,8 +125,8 @@ def test_hash_is_unintelligible_but_follows_cadence():
 def test_hash_render_less_intelligible_than_clear():
     voice = speech_like()
     cond = BandProfile().conditions_at(145e6)
-    clear = render_reception(Reception.CLEAR, voice, cond, SR, rng=np.random.default_rng(5))
-    hashed = render_reception(Reception.HASH, voice, cond, SR, rng=np.random.default_rng(5))
+    clear = render_reception(Reception.CLEAR, voice, cond, sample_rate=SR, rng=np.random.default_rng(5))
+    hashed = render_reception(Reception.HASH, voice, cond, sample_rate=SR, rng=np.random.default_rng(5))
     assert norm_corr(clear, voice) > norm_corr(hashed, voice)
 
 
@@ -165,9 +165,9 @@ def test_silence_render_is_zeros():
 def test_with_transients_extends_buffer():
     voice = speech_like(seconds=0.25)
     cond = BandProfile().conditions_at(2e6)
-    plain = render_reception(Reception.CLEAR, voice, cond, SR, rng=np.random.default_rng(0))
+    plain = render_reception(Reception.CLEAR, voice, cond, sample_rate=SR, rng=np.random.default_rng(0))
     wrapped = render_reception(
-        Reception.CLEAR, voice, cond, SR, rng=np.random.default_rng(0), with_transients=True
+        Reception.CLEAR, voice, cond, sample_rate=SR, rng=np.random.default_rng(0), with_transients=True
     )
     assert wrapped.size > plain.size  # click + tail added
 

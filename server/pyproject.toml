@@ -40,7 +40,10 @@ dependencies = [
 # The server is headless (browser-based instructor + trainees) — no GUI extra.
 audio = ["aiortc>=1.6", "av>=12.0"]
 transcription = ["faster-whisper>=1.0"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "httpx>=0.27", "ruff>=0.4"]
+# ruff is bounded because lint.select enables the PL family as a wildcard: a
+# minor ruff release can promote a preview rule to stable and turn CI red with
+# no code change (0.16 did exactly that with PLR0917). Bump deliberately.
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "httpx>=0.27", "ruff>=0.16.4,<0.17"]
 
 [project.scripts]
 pivot = "pivot.__main__:main"
@@ -84,6 +87,9 @@ ignore = [
     # constructor injects 8 collaborators. Both are readable at the call site
     # precisely because nothing is positional. Collapsing them into option
     # objects trades that for stringly-typed indirection (see #293, #298, #299).
+    # PLR0917 stays ON and is the rule that carries the intent here: it counts
+    # only what a caller can pass positionally, so a wide keyword-only signature
+    # passes while a genuinely positional one does not.
     "PLR0913",
 ]
 
