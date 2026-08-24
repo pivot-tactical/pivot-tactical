@@ -39,10 +39,14 @@ jobs:
           python -m pip install --upgrade pip
           # Base deps are all permissive/testable; native extras (aiortc,
           # faster-whisper) are intentionally NOT installed here.
-          pip install -e ./server
+          # The [dev] extra is the single source of truth for the test/lint
+          # tool versions — installing them loose here let CI drift onto a
+          # newer ruff than developers had, which silently changed the lint
+          # gate (a promoted preview rule failed a PR that was clean locally).
+          pip install -e "./server[dev]"
           # cryptography is a build/release-only dep (Ed25519 appcast signing in
           # packaging/sign_appcast.py); its tests run here, so install it too.
-          pip install pytest pytest-asyncio httpx ruff cryptography
+          pip install cryptography
 
       # Licence gate runs FIRST so a compliance problem fails fast, before we
       # spend time linting and testing (spec §13.7).

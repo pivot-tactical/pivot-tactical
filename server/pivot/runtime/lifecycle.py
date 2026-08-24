@@ -64,7 +64,9 @@ def publish_install_mutex() -> None:
     version until it exits. Best-effort and Windows-only; failing to publish the
     mutex must never stop the server from starting.
     """
-    global _mutex_handle
+    # The handle is process-wide by nature: the named mutex must outlive this
+    # call and stay owned until the process exits, or Setup stops waiting.
+    global _mutex_handle  # noqa: PLW0603
     if sys.platform != "win32" or _mutex_handle is not None:  # pragma: no cover
         return
     try:  # pragma: no cover - Windows-only

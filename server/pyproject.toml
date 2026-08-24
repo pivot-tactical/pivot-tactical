@@ -40,7 +40,10 @@ dependencies = [
 # The server is headless (browser-based instructor + trainees) — no GUI extra.
 audio = ["aiortc>=1.6", "av>=12.0"]
 transcription = ["faster-whisper>=1.0"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "httpx>=0.27", "ruff>=0.4"]
+# ruff is bounded because lint.select enables the PL family as a wildcard: a
+# minor ruff release can promote a preview rule to stable and turn CI red with
+# no code change (0.16 did exactly that with PLR0917). Bump deliberately.
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "httpx>=0.27", "ruff>=0.16.4,<0.17"]
 
 [project.scripts]
 pivot = "pivot.__main__:main"
@@ -59,8 +62,36 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
-ignore = ["E501"]
+# PL = ruff's reimplementation of pylint's checks. Enabled as a family, so a
+# ruff upgrade can introduce new findings without a code change here; the three
+# PL rules below are switched off permanently because they fight decisions this
+# codebase makes deliberately, not because the cleanup is outstanding.
+select = ["E", "F", "I", "UP", "B", "PL"]
+ignore = [
+    "E501",
+    # Imports inside functions are load-bearing here. The native extras
+    # (aiortc/av, faster-whisper) and the build-only cryptography dep are
+    # deliberately absent from the base install and from CI, so the modules
+    # that use them defer the import to keep the core importable without them
+    # (see the install step in .github/workflows/ci.yml). Hoisting those to
+    # module scope breaks the test suite outright.
+    "PLC0415",
+    # Comparisons against literals. The bulk of these are the ITU band edges in
+    # core/bands.py — `30_000_000.0` reads better at the point of comparison
+    # than a name that just restates it, and the edge semantics are pinned by
+    # tests rather than by the constant.
+    "PLR2004",
+    # too-many-arguments counts keyword-only parameters, so it fires on the
+    # wide-but-named signatures this codebase uses on purpose:
+    # repository.create_event takes 13 keyword-only fields, UpdateService's
+    # constructor injects 8 collaborators. Both are readable at the call site
+    # precisely because nothing is positional. Collapsing them into option
+    # objects trades that for stringly-typed indirection (see #293, #298, #299).
+    # PLR0917 stays ON and is the rule that carries the intent here: it counts
+    # only what a caller can pass positionally, so a wide keyword-only signature
+    # passes while a genuinely positional one does not.
+    "PLR0913",
+]
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI dependency-injection markers are evaluated once and are the idiomatic

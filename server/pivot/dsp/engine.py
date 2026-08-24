@@ -239,6 +239,7 @@ def render_reception(
     reception: Reception,
     voice: np.ndarray,
     conditions: BandConditions,
+    *,
     sample_rate: int = 16_000,
     rng: np.random.Generator | None = None,
     with_transients: bool = False,
