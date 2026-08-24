@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 
 from pivot.api.app import _maybe_start_transcription, create_app
 from pivot.api.deps import require_instructor
-from pivot.core.radios import RadioBusyError
 from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD
+from pivot.core.radios import RadioBusyError
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
 from pivot.version import version_info
