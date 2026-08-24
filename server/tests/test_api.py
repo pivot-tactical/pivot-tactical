@@ -7,8 +7,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pivot.api.app import _maybe_start_transcription, create_app
-from pivot.api.deps import require_instructor
+from pivot.api.deps import get_manager, require_instructor
 from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD
+from pivot.core.radios import RadioBusyError
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
 from pivot.version import version_info
@@ -90,6 +91,18 @@ def test_login_and_tune_and_mode(client):
 def test_tune_unknown_radio_404(client):
     r = client.post("/api/radio/tune", json={"radio_id": "nope", "frequency": "14.0"})
     assert r.status_code == 404
+
+
+def test_tune_busy_radio_409(client, monkeypatch):
+    mock_manager = MagicMock()
+    mock_manager.tune.side_effect = RadioBusyError("cannot retune while transmitting")
+    # Make sure we don't trip _reject_instructor_radio which raises 403
+    mock_manager.registry.get.return_value = MagicMock(is_instructor=False)
+    monkeypatch.setitem(client.app.dependency_overrides, get_manager, lambda: mock_manager)
+
+    r = client.post("/api/radio/tune", json={"radio_id": "radio1", "frequency": "14.0"})
+    assert r.status_code == 409
+    assert r.json() == {"detail": "cannot retune while transmitting"}
 
 
 def test_band_profile_endpoint(client):
