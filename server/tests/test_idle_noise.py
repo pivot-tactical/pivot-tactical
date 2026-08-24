@@ -7,9 +7,14 @@ nets with a station on air, and one frame per shared sink (instructor).
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from unittest.mock import Mock
+
 import numpy as np
 import pytest
 
+from pivot.audio.noise_stream import NoiseBroadcaster
 from pivot.core.bands import BandProfile, JammingSpan
 from pivot.dsp.engine import DspEngine
 from pivot.dsp.filters import rms
@@ -248,33 +253,32 @@ def test_idle_noise_amplitude():
 
 
 @pytest.mark.asyncio
-async def test_noise_broadcaster_survives_tick_exception():
-    import asyncio
-    from unittest.mock import Mock
-    from pivot.audio.noise_stream import NoiseBroadcaster
-
+async def test_noise_broadcaster_survives_tick_exception(caplog):
+    """A failing tick is logged and the cadence carries on — one bad frame must
+    not silence the band floor for the rest of the session."""
     manager = Mock()
     manager.session_active = True
 
-    event = asyncio.Event()
+    second_tick = asyncio.Event()
+    calls = 0
 
-    call_count = 0
-    def mock_render(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
+    def tick(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
             raise RuntimeError("simulated failure")
-        elif call_count == 2:
-            event.set()
+        second_tick.set()
 
-    manager.render_idle_noise_tick.side_effect = mock_render
+    manager.render_idle_noise_tick.side_effect = tick
 
     broadcaster = NoiseBroadcaster(manager, frame_ms=10)
-    broadcaster.start()
+    with caplog.at_level(logging.ERROR):
+        broadcaster.start()
+        try:
+            await asyncio.wait_for(second_tick.wait(), timeout=2.0)
+        finally:
+            await broadcaster.stop()
 
-    try:
-        await asyncio.wait_for(event.wait(), timeout=1.0)
-    finally:
-        await broadcaster.stop()
-
-    assert call_count >= 2
+    assert calls >= 2
+    assert "idle-noise tick failed" in caplog.text
+    assert "simulated failure" in caplog.text
