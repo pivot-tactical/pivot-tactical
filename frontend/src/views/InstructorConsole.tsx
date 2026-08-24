@@ -913,12 +913,16 @@ function fmtLogStamp(iso: string, tz: string): { date: string; time: string } {
       });
       _fmtCache.set(key, fmt);
     }
-    const parts = fmt.formatToParts(new Date(iso));
-    const at = (type: Intl.DateTimeFormatPartTypes) =>
-      parts.find((p) => p.type === type)?.value ?? "";
+    const parts = fmt.formatToParts(new Date(iso)).reduce(
+      (acc, part) => {
+        acc[part.type] = part.value;
+        return acc;
+      },
+      {} as Record<string, string>,
+    );
     return {
-      date: `${at("day")} ${at("month")} ${at("year")}`,
-      time: `${at("hour")}:${at("minute")}:${at("second")}`,
+      date: `${parts.day ?? ""} ${parts.month ?? ""} ${parts.year ?? ""}`,
+      time: `${parts.hour ?? ""}:${parts.minute ?? ""}:${parts.second ?? ""}`,
     };
   } catch {
     // Browser rejected the timezone name: fall back to the stored UTC text,
