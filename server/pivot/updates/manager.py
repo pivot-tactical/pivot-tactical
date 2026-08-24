@@ -102,20 +102,30 @@ def _with_sharing_retry(fn, *, attempts: int = 8, delay: float = 0.25):
             time.sleep(delay * (attempt + 1))
 
 
+# Update URLs come from the releases JSON, which a self-hosted/overridden repo
+# setting can influence — so the download side re-checks them rather than
+# trusting `browser_download_url` to point where GitHub normally does. HTTPS
+# only: an update fetched over plaintext is tamperable in transit, and every
+# real GitHub asset URL is already https.
+_GITHUB_HOST_SUFFIXES = (".github.com", ".githubusercontent.com")
+
+
 def _is_safe_github_url(url: str) -> bool:
     try:
         parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https"):
-            return False
-        if parsed.netloc != parsed.hostname:
-            return False
-        if not parsed.hostname:
-            return False
-        if parsed.hostname in ("api.github.com", "github.com", "objects.githubusercontent.com"):
-            return True
-        return parsed.hostname.endswith(".github.com") or parsed.hostname.endswith(".githubusercontent.com")
-    except Exception:
+    except ValueError:
         return False
+    if parsed.scheme != "https":
+        return False
+    host = parsed.hostname
+    if not host:
+        return False
+    # netloc carries userinfo and port; anything beyond the bare host means the
+    # URL is trying to look like GitHub without being it (e.g.
+    # "https://github.com@evil.example").
+    if parsed.netloc.lower() != host:
+        return False
+    return host in ("github.com", "api.github.com") or host.endswith(_GITHUB_HOST_SUFFIXES)
 
 
 def _http_get(url: str, token: str | None = None, timeout: float = 30.0) -> bytes:
