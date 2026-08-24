@@ -34,6 +34,8 @@ from pivot.core.radios import RadioBusyError
 
 @dataclass
 class TraineeContext:
+    """Per-connection state a trainee message handler needs, built once per socket."""
+
     trainee_id: str
     primary_id: str
     active_tx: set[str]
@@ -43,8 +45,11 @@ class TraineeContext:
 
 @dataclass
 class InstructorContext:
+    """Per-connection state an instructor message handler needs."""
+
     active_tx: set[str]
     sync_tasks: dict[str, asyncio.Task]
+
 
 router = APIRouter()
 
@@ -123,6 +128,9 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
                 manager.register_audio_sink(rid, sink)
 
     sync_radio_sinks()
+    # Fixed for the life of the socket: the ids never change, and the set/dict
+    # are mutated in place by the handlers.
+    ctx = TraineeContext(trainee_id, primary_id, active_tx, sync_tasks, sync_radio_sinks)
     await ws.send_json({"type": "welcome", "payload": {"role": "trainee", **info}})
     await ws.send_json({"type": "band_profile_update", "payload": manager.band_profile_snapshot()})
 
@@ -143,19 +151,7 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
             mtype = data.get("type")
             payload = data.get("payload") or {}
 
-            await _handle_trainee_message(
-                ws,
-                manager,
-                mtype,
-                payload,
-                TraineeContext(
-                    trainee_id,
-                    primary_id,
-                    active_tx,
-                    sync_tasks,
-                    sync_radio_sinks,
-                ),
-            )
+            await _handle_trainee_message(ws, manager, mtype, payload, ctx)
     except WebSocketDisconnect:
         pass
     finally:
@@ -207,6 +203,7 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
                 manager.register_audio_sink(rid, sink)
 
     sync_radio_sinks()
+    ctx = InstructorContext(active_tx, sync_tasks)
     unwatch = manager.watch_instructor_radios(sync_radio_sinks)
     await ws.send_json({"type": "welcome", "payload": {"role": "instructor"}})
     await ws.send_json({"type": "band_profile_update", "payload": manager.band_profile_snapshot()})
@@ -232,13 +229,7 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
             data = json.loads(message["text"])
             mtype = data.get("type")
             payload = data.get("payload") or {}
-            await _handle_instructor_message(
-                ws,
-                manager,
-                mtype,
-                payload,
-                InstructorContext(active_tx, sync_tasks),
-            )
+            await _handle_instructor_message(ws, manager, mtype, payload, ctx)
     except WebSocketDisconnect:
         pass
     finally:
