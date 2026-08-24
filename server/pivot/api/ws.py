@@ -484,4 +484,3 @@ async def _shutdown(tasks: list[asyncio.Task], manager, queue: asyncio.Queue) ->
 def _cancel(task: asyncio.Task | None) -> None:
     if task is not None and not task.done():
         task.cancel()
-    return None

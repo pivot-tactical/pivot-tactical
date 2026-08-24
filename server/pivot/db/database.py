@@ -94,7 +94,9 @@ _db: Database | None = None
 
 def init_database(cfg: Settings | None = None) -> Database:
     """Create (or reuse) the process-wide database and initialise it."""
-    global _db
+    # The database handle is deliberately process-wide: one SQLite file, opened
+    # once, shared by the API and the background workers.
+    global _db  # noqa: PLW0603
     cfg = cfg or settings
     cfg.ensure_dirs()
     _db = Database(cfg.db_path)

@@ -439,10 +439,9 @@ def admin_update_settings(updates: dict = Body(...), manager=Depends(get_manager
                 continue
             # The start frequency must be one the radios can actually tune to,
             # so snap it to the tuning grid before persisting.
-            if key == "default_frequency_hz":
-                value = snap_frequency(float(value))
-            cfg.set(key, value)
-            applied[key] = value
+            stored = snap_frequency(float(value)) if key == "default_frequency_hz" else value
+            cfg.set(key, stored)
+            applied[key] = stored
     if "display_timezone" in applied:
         manager.set_display_timezone(applied["display_timezone"])
     if "crypto_enabled" in applied:
