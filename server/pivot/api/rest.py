@@ -4,6 +4,7 @@ Trainee endpoints are open (callsign only). Instructor/admin endpoints require a
 valid instructor bearer token (:func:`pivot.api.deps.require_instructor`).
 """
 
+import asyncio
 import logging
 import uuid
 
@@ -19,7 +20,7 @@ from fastapi import (
 )
 
 from pivot import exporting
-from pivot.api.deps import get_auth, get_manager, require_instructor
+from pivot.api.deps import _extract_token, get_auth, get_manager, require_instructor
 from pivot.api.schemas import (
     ApplyUpdateRequest,
     LoginRequest,
@@ -41,7 +42,11 @@ from pivot.core.crypto import RadioMode
 from pivot.core.radios import RadioBusyError
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
+from pivot.runtime.lifecycle import restart_mode
 from pivot.runtime.reveal import open_in_file_manager
+from pivot.updates import github
+from pivot.updates.manager import Release, UpdateManager, classify_release
+from pivot.version import SemVer, version_info
 
 router = APIRouter(prefix="/api")
 # Named for this module, not "pivot.updates": that name belongs to
@@ -123,7 +128,6 @@ def refresh_token(response: Response, auth=Depends(get_auth)) -> dict:
 @router.post("/logout")
 def logout(request: Request, response: Response, auth=Depends(get_auth)) -> dict:
     """Revoke the caller's instructor token, if any."""
-    from pivot.api.deps import _extract_token
 
     auth.revoke(_extract_token(request, request.headers.get("authorization")))
     response.delete_cookie(key="pivot_token", httponly=True, secure=True, samesite="lax")
@@ -483,7 +487,6 @@ def admin_refresh_updates(manager=Depends(get_manager)) -> dict:
     Touches the internet and degrades gracefully (``reachable: false``) so
     air-gapped sites can ignore it and use offline import instead (§3.7.1).
     """
-    from pivot.updates import github
 
     # "Check now" must reach the network, not return a stale TTL-cached result:
     # forcing a fresh fetch is the whole point of this endpoint (the background
@@ -512,8 +515,6 @@ def _shape_update_status(snap: dict, manager) -> dict:
     service's last poll, and the pane must show *that* version, not a stale
     guess (and never the newest release when something else was chosen).
     """
-    from pivot.updates.manager import UpdateManager
-    from pivot.version import version_info
 
     out = dict(snap)
     mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
@@ -527,9 +528,6 @@ def _shape_update_status(snap: dict, manager) -> dict:
 
 def _live_update_check(manager) -> dict:
     """One-shot live check used when the background service isn't running."""
-    from pivot.updates import github
-    from pivot.updates.manager import UpdateManager
-    from pivot.version import SemVer, version_info
 
     cfg = manager.get_config()
     repo = str(cfg.get("github_repo") or "")
@@ -576,8 +574,6 @@ def _live_update_check(manager) -> dict:
 
 
 def _format_release(r, cur_semver) -> dict:
-    from pivot.updates.manager import classify_release
-
     return {
         "tag": r.tag,
         "name": r.name,
@@ -649,8 +645,6 @@ def admin_apply_update(req: ApplyUpdateRequest, manager=Depends(get_manager)) ->
     lets stable and prerelease behave identically and channel switches take
     effect on the fly.
     """
-    from pivot.updates.manager import Release, UpdateManager
-    from pivot.version import version_info
 
     cfg = manager.get_config()
     token = str(cfg.get("github_token") or "") or None
@@ -693,8 +687,6 @@ def admin_rollback(req: RollbackRequest | None = None, manager=Depends(get_manag
     the in-app counterpart to the ``--rollback`` recovery flag. A downgrade may
     cross a DB schema migration; the UI warns before calling this.
     """
-    from pivot.updates.manager import UpdateManager
-    from pivot.version import version_info
 
     req = req or RollbackRequest()
     mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
@@ -722,8 +714,6 @@ def admin_retained_versions(manager=Depends(get_manager)) -> dict:
     these are already on disk. Lets the Updates pane show what's stored and how
     much space it uses before deleting it.
     """
-    from pivot.updates.manager import UpdateManager
-    from pivot.version import version_info
 
     mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
     return {"retained": mgr.retained_details(), "current_version": version_info.version}
@@ -732,8 +722,6 @@ def admin_retained_versions(manager=Depends(get_manager)) -> dict:
 @router.delete("/admin/updates/retained/{tag}", dependencies=[Depends(require_instructor)])
 def admin_delete_retained(tag: str, manager=Depends(get_manager)) -> dict:
     """Delete a retained version to free disk space (§3.7.7)."""
-    from pivot.updates.manager import UpdateManager
-    from pivot.version import version_info
 
     mgr = UpdateManager(version_info.version, manager.settings.versions_dir)
     if not mgr.delete_retained(tag):
@@ -756,9 +744,7 @@ def admin_restart(
     the way back up. Refused while a session is live unless ``force`` is set, so
     trainees are never cut off mid-exercise by accident.
     """
-    import asyncio
 
-    from pivot.runtime.lifecycle import restart_mode
 
     req = req or RestartRequest()
     if manager.session_active and not req.force:
@@ -784,8 +770,6 @@ def admin_restart(
 
     background_tasks.add_task(_go)
 
-    from pivot.updates.manager import UpdateManager
-    from pivot.version import version_info
 
     staged = UpdateManager(version_info.version, manager.settings.versions_dir).staged_tag()
     return {"restarting": True, "mode": mode, "staged": staged}
@@ -797,7 +781,6 @@ def admin_restart(
 @router.get("/status")
 def status(request: Request, manager=Depends(get_manager)) -> dict:
     """Public health/info endpoint for the login screen and trainee connect."""
-    from pivot.version import version_info
 
     with manager.db.session() as s:
         tz = ConfigStore(s).display_timezone()
