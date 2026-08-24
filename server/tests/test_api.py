@@ -88,6 +88,18 @@ def test_login_and_tune_and_mode(client):
     assert r.json()["mode"] == "Cypher"
 
 
+def test_set_mode_busy_409(client):
+    r = client.post("/api/login", json={"name": "ALPHA"})
+    assert r.status_code == 200
+    rid = r.json()["radio_id"]
+
+    manager = client.app.state.manager
+    with patch.object(manager, "set_mode", side_effect=RadioBusyError("busy")):
+        r = client.post("/api/radio/mode", json={"radio_id": rid, "mode": "Cypher"})
+        assert r.status_code == 409
+        assert "busy" in r.json()["detail"]
+
+
 def test_tune_unknown_radio_404(client):
     r = client.post("/api/radio/tune", json={"radio_id": "nope", "frequency": "14.0"})
     assert r.status_code == 404
