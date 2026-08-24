@@ -1,5 +1,6 @@
 """Tests for the async transcription worker (spec §3.5.2)."""
 
+import threading
 from unittest.mock import patch
 
 import numpy as np
@@ -160,7 +161,6 @@ def test_worker_run_exception_is_handled(database, settings, manager):
     """An exception during process_event must not kill the worker thread."""
     worker = TranscriptionWorker(database, settings, transcriber=FakeTranscriber())
 
-    import threading
     done_event = threading.Event()
     calls = []
 
