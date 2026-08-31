@@ -54,8 +54,9 @@ export function playClick(freq = 900) {
 function floatToPcm16(f32: Float32Array): ArrayBuffer {
   const i16 = new Int16Array(f32.length);
   for (let i = 0; i < f32.length; i++) {
-    const s = Math.max(-1, Math.min(1, f32[i]));
-    i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    const s = f32[i];
+    const v = s < -1 ? -1 : (s > 1 ? 1 : s);
+    i16[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
   }
   return i16.buffer;
 }
