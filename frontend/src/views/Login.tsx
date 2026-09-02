@@ -23,7 +23,10 @@ export function Login({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.status().then(() => setOnline(true)).catch(() => setOnline(false));
+    api
+      .status()
+      .then(() => setOnline(true))
+      .catch(() => setOnline(false));
   }, []);
 
   const valid = NAME_RE.test(name.trim());
@@ -65,11 +68,23 @@ export function Login({
     }
   }
 
+  async function submitTrainee() {
+    if (!valid || busy) return;
+    setBusy(true);
+    try {
+      await onTrainee(name.trim());
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="login">
       <div className="card login__card">
         <h1 className="login__title">PIVOT</h1>
-        <p className="login__subtitle">Procedural Interactive Voice Operations Trainer</p>
+        <p className="login__subtitle">
+          Procedural Interactive Voice Operations Trainer
+        </p>
 
         {mode === "trainee" ? (
           <>
@@ -82,7 +97,7 @@ export function Login({
                 placeholder="e.g. ALPHA-1"
                 autoFocus
                 onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && valid && onTrainee(name.trim())}
+                onKeyDown={(e) => e.key === "Enter" && valid && submitTrainee()}
                 aria-invalid={name.trim().length > 0 && !valid}
                 aria-describedby="callsign-error"
               />
@@ -94,12 +109,18 @@ export function Login({
             )}
             <button
               className="btn btn--primary"
-              disabled={!valid}
-              onClick={() => onTrainee(name.trim())}
+              disabled={!valid || busy}
+              onClick={submitTrainee}
             >
-              Join Net
+              {busy && mode === "trainee" ? "Joining…" : "Join Net"}
             </button>
-            <button className="btn btn--ghost login__switch" onClick={() => { setMode("instructor"); setError(""); }}>
+            <button
+              className="btn btn--ghost login__switch"
+              onClick={() => {
+                setMode("instructor");
+                setError("");
+              }}
+            >
               Log in as instructor →
             </button>
           </>
@@ -114,24 +135,49 @@ export function Login({
                 autoFocus
                 placeholder="default: instructor"
                 onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && password && submitInstructor()}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && password && submitInstructor()
+                }
               />
             </label>
             {error && <p className="login__hint">{error}</p>}
-            <button className="btn btn--primary" disabled={busy || !password} onClick={submitInstructor}>
+            <button
+              className="btn btn--primary"
+              disabled={busy || !password}
+              onClick={submitInstructor}
+            >
               {busy ? "Signing in…" : "Sign In"}
             </button>
-            <button className="btn btn--ghost login__switch" onClick={() => { setMode("trainee"); setError(""); }}>
+            <button
+              className="btn btn--ghost login__switch"
+              onClick={() => {
+                setMode("trainee");
+                setError("");
+              }}
+            >
               ← Back to trainee login
             </button>
           </>
         )}
 
         <div className="login__status">
-          <StatusDot ok={online} label={online == null ? "Connecting…" : online ? "Server online" : "Server unreachable"} />
+          <StatusDot
+            ok={online}
+            label={
+              online == null
+                ? "Connecting…"
+                : online
+                  ? "Server online"
+                  : "Server unreachable"
+            }
+          />
           {mode === "trainee" && (
             <button className="btn btn--ghost" onClick={checkMic}>
-              {micOk == null ? "Check microphone" : micOk ? "Microphone OK" : "Microphone blocked"}
+              {micOk == null
+                ? "Check microphone"
+                : micOk
+                  ? "Microphone OK"
+                  : "Microphone blocked"}
             </button>
           )}
         </div>
@@ -139,12 +185,13 @@ export function Login({
           <p className="login__hint">
             {micInsecure ? (
               <>
-                This connection isn't secure, so the browser won't allow microphone
-                access at all (no permission prompt will appear). If the address
-                bar shows <code>http://</code>, ask the instructor for the{" "}
-                <code>https://</code> address instead — the browser will warn that
-                it isn't verified (PIVOT uses a private, self-signed certificate);
-                choose <strong>Advanced → Proceed</strong> once, then reload this page.
+                This connection isn't secure, so the browser won't allow
+                microphone access at all (no permission prompt will appear). If
+                the address bar shows <code>http://</code>, ask the instructor
+                for the <code>https://</code> address instead — the browser will
+                warn that it isn't verified (PIVOT uses a private, self-signed
+                certificate); choose <strong>Advanced → Proceed</strong> once,
+                then reload this page.
               </>
             ) : micMissing ? (
               "No microphone found. Please connect a microphone and try again."
