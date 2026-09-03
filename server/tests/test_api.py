@@ -540,11 +540,11 @@ def test_websocket_plain_ptt_creates_event(client):
 
 _FAKE_RELEASES = [
     {
-        "tag_name": "1.1.0",
-        "name": "1.1.0",
+        "tag_name": "1.1.2",
+        "name": "1.1.2",
         "prerelease": False,
         "assets": [
-            {"name": "PIVOT-Tactical-v1.1.0-win64.zip", "browser_download_url": "http://x/w"}
+            {"name": "PIVOT-Tactical-v1.1.2-win64.zip", "browser_download_url": "http://x/w"}
         ],
     },
     {
@@ -566,18 +566,18 @@ def test_update_check_respects_channel(client, monkeypatch):
 
     # /refresh forces a synchronous re-check; the background service caches it so
     # the (non-blocking) /check then returns the same result.
-    # Stable channel: prerelease excluded, only 1.1.0 is an available update.
+    # Stable channel: prerelease excluded, only 1.1.2 is an available update.
     r = client.post("/api/admin/updates/refresh").json()
     assert r["reachable"] is True and r["current_version"] == version_info.version
-    assert [a["tag"] for a in r["available"]] == ["1.1.0"]
+    assert [a["tag"] for a in r["available"]] == ["1.1.2"]
     cached = client.get("/api/admin/updates/check").json()
-    assert [a["tag"] for a in cached["available"]] == ["1.1.0"]
+    assert [a["tag"] for a in cached["available"]] == ["1.1.2"]
 
     # Include prereleases: the rc shows up too (newest first).
     with client.app.state.manager.db.session() as s:
         ConfigStore(s).set("update_channel", "include_prereleases")
     r = client.post("/api/admin/updates/refresh").json()
-    assert [a["tag"] for a in r["available"]] == ["1.2.0-rc.1", "1.1.0"]
+    assert [a["tag"] for a in r["available"]] == ["1.2.0-rc.1", "1.1.2"]
 
 
 def test_update_check_graceful_when_unreachable(client, monkeypatch):
