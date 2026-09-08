@@ -51,7 +51,11 @@ export function playClick(freq = 900) {
   osc.stop(now + 0.05);
 }
 
-function floatToPcm16(f32: Float32Array): ArrayBuffer {
+// Asymmetric scaling matches the Int16 range: negatives use 0x8000 so -1 maps to
+// the true floor (-32768), positives use 0x7fff so +1 maps to the ceiling (32767).
+// Out-of-range samples are clamped rather than wrapped; NaN falls through the
+// comparisons and lands on 0 via Int16Array's coercion.
+export function floatToPcm16(f32: Float32Array): ArrayBuffer {
   const i16 = new Int16Array(f32.length);
   for (let i = 0; i < f32.length; i++) {
     const s = Math.max(-1, Math.min(1, f32[i]));

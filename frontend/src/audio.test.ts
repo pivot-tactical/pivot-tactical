@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { loadVolume, parseTaggedAudio, saveVolume, pcmLevel } from "./audio";
+import { floatToPcm16, loadVolume, parseTaggedAudio, saveVolume, pcmLevel } from "./audio";
 
 // Build an instructor-style tagged frame: [1-byte id length][radio_id][PCM…].
 function taggedFrame(radioId: string, samples: number[]): ArrayBuffer {
@@ -69,6 +69,35 @@ describe("volume persistence", () => {
     expect(loadVolume("trainee")).toBe(1);
     saveVolume("trainee", -1);
     expect(loadVolume("trainee")).toBe(0);
+  });
+});
+
+describe("floatToPcm16", () => {
+  // Locks in the clamp: out-of-range samples saturate at the Int16 rails instead
+  // of wrapping, and NaN degrades to silence rather than to a random sample.
+  const cases: [label: string, input: number, expected: number][] = [
+    ["clamps below the floor", -2, -32768],
+    ["maps -1 to the Int16 floor", -1, -32768],
+    ["scales negatives by 0x8000", -0.5, -16384],
+    ["maps silence to 0", 0, 0],
+    ["scales positives by 0x7fff, truncating toward zero", 0.5, 16383],
+    ["maps +1 to the Int16 ceiling", 1, 32767],
+    ["clamps above the ceiling", 2, 32767],
+    ["maps NaN to 0", NaN, 0],
+  ];
+
+  it.each(cases)("%s (%s -> %s)", (_label, input, expected) => {
+    const pcm = floatToPcm16(new Float32Array([input]));
+    expect(Array.from(new Int16Array(pcm))).toEqual([expected]);
+  });
+
+  it("converts a whole frame in one pass", () => {
+    const pcm = floatToPcm16(new Float32Array(cases.map(([, input]) => input)));
+    expect(Array.from(new Int16Array(pcm))).toEqual(cases.map(([, , expected]) => expected));
+  });
+
+  it("returns an empty buffer for an empty frame", () => {
+    expect(floatToPcm16(new Float32Array([])).byteLength).toBe(0);
   });
 });
 
