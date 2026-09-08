@@ -41,7 +41,6 @@ log = logging.getLogger("pivot.audio.router")
 # Opus on a LAN; narrowband/wideband consistent with the simulated voice
 # bandwidth (§6.3). 20 ms frames at the recording rate.
 FRAME_MS = 20
-FRAME_SAMPLES = RECORDING_SAMPLE_RATE * FRAME_MS // 1000
 
 
 def aiortc_available() -> bool:
