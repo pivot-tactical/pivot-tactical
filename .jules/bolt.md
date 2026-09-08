@@ -11,3 +11,7 @@
 ## 2024-08-03 - [Deferred Numpy Processing in High Frequency Accumulation]
 **Learning:** When accumulating numpy arrays from high-frequency calls like `push_tx_audio`, intermediate casting, shaping, or `np.asarray` operations cause noticeable overhead due to extra allocations.
 **Action:** Defer `astype` and `reshape(-1)` to the final `_collect_audio` concatenation step.
+
+## 2024-05-24 - V8 Math Functions vs Inlining
+**Learning:** When optimizing tight inner loops in JavaScript/V8 (e.g., PCM audio conversion running 16,000 times a second), calling standard Math functions like `Math.max` and `Math.min` per sample incurs noticeable overhead compared to manually inlining the min/max checks with conditionals or ternaries. Caching the array length in a local variable also provides a minor speedup over accessing `.length` on every iteration.
+**Action:** Avoid nested math function calls in hot loops where simple manual clamping logic suffices.
