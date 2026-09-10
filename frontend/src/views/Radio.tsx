@@ -254,6 +254,7 @@ export function Radio({
 
   function removeRadio(r: TraineeRadio) {
     if (r.slot === 1) return; // the terminal's own radio goes with the terminal
+    if (!window.confirm(`Are you sure you want to remove ${r.name}?`)) return;
     socket.removeRadio(r.radioId);
     // Local filter for snappiness; the server's radio_removed follows.
     setRadios((prev) => prev.filter((x) => x.radioId !== r.radioId));

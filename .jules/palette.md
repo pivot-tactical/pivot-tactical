@@ -22,3 +22,6 @@
 ## $(date +%Y-%m-%d) - Consistent Async Button State
 **Learning:** For async actions (like the Trainee "Join Net" form), using a local `busy` state flag with a `try...finally` block reliably disables the UI during the network request, preventing duplicate submissions. This matches the existing instructor login pattern and establishes a clean, reusable UX pattern for forms throughout the design system.
 **Action:** Apply the `busy` state + `try...finally` wrapper to all new async button submissions, keeping the button visually distinct during loading (e.g. changing text to "Joining...") and setting `disabled={busy}` to protect backend boundaries.
+## 2026-09-09 - Trainee Radio Deletion UX
+**Learning:** High-stress tactical interfaces require destructive action protection on both ends. While the instructor console strictly guarded deletions, the trainee interface allowed accidental one-click deletion of active radio configurations, which could disrupt a live training exercise without a straightforward undo.
+**Action:** Apply the `window.confirm` pattern to all destructive actions across both instructor and trainee views, not just administrative ones.

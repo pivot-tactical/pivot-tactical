@@ -400,9 +400,12 @@ describe('Radio', () => {
     fireEvent.keyUp(window, { code: 'Numpad2' });
     expect(mockSocket.pttEnd).toHaveBeenLastCalledWith('trainee-1#2');
 
+    const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true);
     fireEvent.click(screen.getByLabelText('Remove ALPHA/R2'));
+    expect(confirmSpy).toHaveBeenCalledWith('Are you sure you want to remove ALPHA/R2?');
     expect(mockSocket.removeRadio).toHaveBeenCalledWith('trainee-1#2');
     expect(screen.queryByLabelText('Push to talk on ALPHA/R2')).not.toBeInTheDocument();
+    confirmSpy.mockRestore();
   });
 
   it('never offers to remove the radio the terminal logged in with', () => {
