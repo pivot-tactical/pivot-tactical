@@ -47,7 +47,7 @@ to a temporary directory at runtime, which still preserves replaceability.)
 If you prefer to rebuild the whole application against your own libsndfile:
 
 ```bash
-pip install -r server/requirements.txt          # installs soundfile/libsndfile
+pip install -r server/requirements.txt pyinstaller # installs deps & build tools
 cd frontend && npm install && npm run build && cd ..
 pyinstaller packaging/pivot.spec                 # produces dist/PIVOT-Tactical/
 ```
