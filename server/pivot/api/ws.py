@@ -348,6 +348,7 @@ async def _handle_instructor_radio_config(
     mtype: str,
     payload: dict,
 ) -> bool:
+    """Serve the tune/mode/noise/add/remove group. True if ``mtype`` was ours."""
     if mtype == "instr_tune":
         rid = _instructor_radio_id(manager, payload)
         await ws.send_json(
@@ -386,6 +387,7 @@ async def _handle_instructor_ptt(
     payload: dict,
     ctx: InstructorContext,
 ) -> bool:
+    """Serve the PTT start/end/abort group. True if ``mtype`` was ours."""
     if mtype == "instr_ptt_start":
         rid = _instructor_radio_id(manager, payload)
         result = manager.ptt_start(
@@ -433,11 +435,13 @@ async def _handle_instructor_message(
     try:
         if mtype == "heartbeat":
             await ws.send_json({"type": "heartbeat", "payload": {}})
-        elif await _handle_instructor_radio_config(ws, manager, mtype, payload):
-            pass
-        elif await _handle_instructor_ptt(ws, manager, mtype, payload, ctx):
-            pass
-        else:
+        # Each group handler returns True once it has served the message, so
+        # `or` walks the groups in order and stops at the first that claims it.
+        # Nothing claiming it means the type is unknown.
+        elif not (
+            await _handle_instructor_radio_config(ws, manager, mtype, payload)
+            or await _handle_instructor_ptt(ws, manager, mtype, payload, ctx)
+        ):
             await ws.send_json({"type": "error", "payload": {"detail": f"unknown: {mtype}"}})
     except (RadioBusyError, KeyError, ValueError) as exc:
         await ws.send_json({"type": "error", "payload": {"detail": str(exc)}})
