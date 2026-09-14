@@ -1,8 +1,15 @@
 """The updater only ever talks to GitHub over TLS (SSRF guard on §3.7 fetches)."""
 
+import urllib.request
+
 import pytest
 
-from pivot.updates.manager import _http_download, _http_get, _is_safe_github_url
+from pivot.updates.manager import (
+    _http_download,
+    _http_get,
+    _is_safe_github_url,
+    _SafeRedirectHandler,
+)
 
 
 @pytest.mark.parametrize(
@@ -47,3 +54,21 @@ def test_http_get_refuses_an_untrusted_url():
 def test_http_download_refuses_an_untrusted_url(tmp_path):
     with pytest.raises(ValueError, match="Invalid or unsafe URL"):
         _http_download("https://malicious.example/api.github.com", tmp_path / "asset.zip")
+
+
+def test_safe_redirect_handler_rejects_untrusted_redirect():
+    handler = _SafeRedirectHandler()
+    req = urllib.request.Request("https://github.com/foo/bar")
+    with pytest.raises(ValueError, match="Invalid or unsafe URL"):
+        handler.redirect_request(
+            req, None, 302, "Found", {}, "http://169.254.169.254/latest/meta-data/"
+        )
+
+
+def test_safe_redirect_handler_allows_valid_github_redirect():
+    handler = _SafeRedirectHandler()
+    req = urllib.request.Request("https://github.com/foo/bar")
+    redirect_req = handler.redirect_request(
+        req, None, 302, "Found", {}, "https://objects.githubusercontent.com/asset.zip"
+    )
+    assert redirect_req.full_url == "https://objects.githubusercontent.com/asset.zip"
