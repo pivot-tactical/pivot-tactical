@@ -86,21 +86,32 @@ class AuthService:
         self._failed_attempts: dict[str, list[float]] = {}
         self._lock = threading.Lock()
 
+    def _prune(self, ip: str, cutoff: float) -> list[float]:
+        """Drop expired attempts for ``ip``; caller holds the lock.
+
+        An IP with nothing left in the window is removed from the map entirely
+        rather than left behind holding an empty list. The key is the client's
+        source address, so keeping spent entries would let a caller grow this
+        dict without bound just by attempting a login from each address.
+        """
+        attempts = [t for t in self._failed_attempts.get(ip, []) if t > cutoff]
+        if attempts:
+            self._failed_attempts[ip] = attempts
+        else:
+            self._failed_attempts.pop(ip, None)
+        return attempts
+
     def is_rate_limited(self, ip: str) -> bool:
         """Check if client IP has exceeded failed login attempt threshold."""
-        now = time.time()
-        cutoff = now - RATE_LIMIT_WINDOW_SECONDS
+        cutoff = time.time() - RATE_LIMIT_WINDOW_SECONDS
         with self._lock:
-            attempts = [t for t in self._failed_attempts.get(ip, []) if t > cutoff]
-            self._failed_attempts[ip] = attempts
-            return len(attempts) >= MAX_FAILED_LOGIN_ATTEMPTS
+            return len(self._prune(ip, cutoff)) >= MAX_FAILED_LOGIN_ATTEMPTS
 
     def record_failed_attempt(self, ip: str) -> None:
         """Record a failed login attempt for client IP."""
         now = time.time()
-        cutoff = now - RATE_LIMIT_WINDOW_SECONDS
         with self._lock:
-            attempts = [t for t in self._failed_attempts.get(ip, []) if t > cutoff]
+            attempts = self._prune(ip, now - RATE_LIMIT_WINDOW_SECONDS)
             attempts.append(now)
             self._failed_attempts[ip] = attempts
 
