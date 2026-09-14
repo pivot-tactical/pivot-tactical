@@ -153,6 +153,34 @@ def test_default_asset_pattern_matches_current_platform():
     assert pattern in r.asset_name or r.asset_name == ""
 
 
+@pytest.mark.parametrize(
+    ("sys_platform", "machine", "expected_pattern"),
+    [
+        ("win32", "AMD64", "win64"),
+        ("win32", "x86_64", "win64"),
+        ("win64", "AMD64", "win64"),
+        ("linux", "x86_64", "linux-x86_64"),
+        ("linux", "AMD64", "linux-x86_64"),
+        ("linux", "i686", "linux-x86_64"),
+        ("linux", "aarch64", "linux-arm64"),
+        ("linux", "arm64", "linux-arm64"),
+        ("linux2", "AARCH64", "linux-arm64"),
+        ("darwin", "x86_64", "macos"),
+        ("darwin", "arm64", "macos"),
+        ("freebsd12", "amd64", "win64"),
+        ("sunos5", "i386", "win64"),
+    ],
+)
+def test_default_asset_pattern_parametrized(monkeypatch, sys_platform, machine, expected_pattern):
+    import platform
+    import sys
+
+    monkeypatch.setattr(sys, "platform", sys_platform)
+    monkeypatch.setattr(platform, "machine", lambda: machine)
+
+    assert default_asset_pattern() == expected_pattern
+
+
 def test_verify_sha256(tmp_path):
     pkg = tmp_path / "pkg.zip"
     pkg.write_bytes(b"hello world")
