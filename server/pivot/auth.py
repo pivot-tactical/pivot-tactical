@@ -23,6 +23,7 @@ import hashlib
 import hmac
 import os
 import secrets
+import threading
 import time
 
 from pivot.db.config_store import ConfigStore
@@ -40,6 +41,9 @@ _SECRET_KEY = "instructor_token_secret"
 # refresh or a restart (and to be refreshed while the console is open), not a
 # long-lived credential. The frontend slides it by re-issuing while active.
 TOKEN_TTL_SECONDS = 60 * 60  # 1 hour
+
+MAX_FAILED_LOGIN_ATTEMPTS = 5
+RATE_LIMIT_WINDOW_SECONDS = 60
 
 
 def _b64(b: bytes) -> str:
@@ -79,6 +83,31 @@ class AuthService:
         # tokens can't be un-issued across a restart, but they expire on their
         # own within token_ttl, which is acceptable for a LAN training tool.
         self._revoked: set[str] = set()
+        self._failed_attempts: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def is_rate_limited(self, ip: str) -> bool:
+        """Check if client IP has exceeded failed login attempt threshold."""
+        now = time.time()
+        cutoff = now - RATE_LIMIT_WINDOW_SECONDS
+        with self._lock:
+            attempts = [t for t in self._failed_attempts.get(ip, []) if t > cutoff]
+            self._failed_attempts[ip] = attempts
+            return len(attempts) >= MAX_FAILED_LOGIN_ATTEMPTS
+
+    def record_failed_attempt(self, ip: str) -> None:
+        """Record a failed login attempt for client IP."""
+        now = time.time()
+        cutoff = now - RATE_LIMIT_WINDOW_SECONDS
+        with self._lock:
+            attempts = [t for t in self._failed_attempts.get(ip, []) if t > cutoff]
+            attempts.append(now)
+            self._failed_attempts[ip] = attempts
+
+    def record_successful_login(self, ip: str) -> None:
+        """Clear recorded failed login attempts for client IP."""
+        with self._lock:
+            self._failed_attempts.pop(ip, None)
 
     # -- password ---------------------------------------------------------- #
 

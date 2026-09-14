@@ -128,3 +128,18 @@ def test_is_default_delegates_to_verify(database):
     with patch.object(auth, "verify", return_value=False) as mock_verify:
         assert auth.is_default() is False
         mock_verify.assert_called_once_with(DEFAULT_INSTRUCTOR_PASSWORD)
+
+
+def test_auth_service_rate_limiting(database):
+    auth = AuthService(database)
+    ip = "192.168.1.50"
+    assert not auth.is_rate_limited(ip)
+
+    for _ in range(5):
+        auth.record_failed_attempt(ip)
+
+    assert auth.is_rate_limited(ip)
+
+    # Success clears attempts
+    auth.record_successful_login(ip)
+    assert not auth.is_rate_limited(ip)
