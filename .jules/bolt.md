@@ -15,3 +15,6 @@
 ## 2024-05-24 - V8 Math Functions vs Inlining
 **Learning:** When optimizing tight inner loops in JavaScript/V8 (e.g., PCM audio conversion running 16,000 times a second), calling standard Math functions like `Math.max` and `Math.min` per sample incurs noticeable overhead compared to manually inlining the min/max checks with conditionals or ternaries. Caching the array length in a local variable also provides a minor speedup over accessing `.length` on every iteration.
 **Action:** Avoid nested math function calls in hot loops where simple manual clamping logic suffices.
+## 2026-03-30 - Optimize file checksum hashing using hashlib.file_digest
+**Learning:** Python 3.11+ `hashlib.file_digest(f, "sha256")` performs file reading and hash calculation directly in C-level code, eliminating Python interpreter loop overhead (`iter(lambda: f.read(...), b"")`) and intermediate buffer allocations.
+**Action:** Use `hashlib.file_digest` for computing cryptographic digests directly from binary file streams.

@@ -327,11 +327,8 @@ def verify_sha256(path: Path, expected_hex: str) -> bool:
 
 
 def sha256_of(path: Path) -> str:
-    h = hashlib.sha256()
     with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
+        return hashlib.file_digest(f, "sha256").hexdigest()
 
 
 def _verify_signature(dest: Path, release: Release, token: str | None) -> None:
