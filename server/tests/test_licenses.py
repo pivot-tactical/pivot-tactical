@@ -6,6 +6,7 @@ from pivot.tools.licenses import (
     Finding,
     is_denied,
     main,
+    normalize_license,
     scan_environment,
     violations,
 )
@@ -131,3 +132,48 @@ def test_main_with_violations(capsys, monkeypatch):
 def test_main_system_exit(monkeypatch):
     with patch("sys.argv", ["licenses.py"]):
         assert main() == 0
+
+
+class MockDistMetadata:
+    def __init__(self, metadata_dict):
+        self._meta = metadata_dict
+
+    def get_all(self, name):
+        val = self._meta.get(name)
+        if val is None:
+            return None
+        return val if isinstance(val, list) else [val]
+
+    def get(self, name):
+        return self._meta.get(name)
+
+
+class MockDist:
+    def __init__(self, metadata_dict):
+        self.metadata = MockDistMetadata(metadata_dict)
+
+
+def test_normalize_license():
+    # Classifier takes precedence
+    dist = MockDist({"Classifier": ["Operating System :: OS Independent", "License :: OSI Approved :: MIT License"]})
+    assert normalize_license(dist) == "MIT License"
+
+    # License field fallback
+    dist = MockDist({"License": "Apache-2.0"})
+    assert normalize_license(dist) == "Apache-2.0"
+
+    # License field multi-line and truncation
+    long_license = "BSD-3-Clause\nThis is additional text that exceeds eighty characters in total length for sure."
+    dist = MockDist({"License": long_license})
+    assert normalize_license(dist) == "BSD-3-Clause"
+
+    long_line = "A" * 100
+    dist = MockDist({"License": long_line})
+    assert normalize_license(dist) == "A" * 80
+
+    # UNKNOWN fallback when License is UNKNOWN or missing
+    dist = MockDist({"License": "UNKNOWN"})
+    assert normalize_license(dist) == "UNKNOWN"
+
+    dist = MockDist({})
+    assert normalize_license(dist) == "UNKNOWN"
