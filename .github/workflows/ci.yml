@@ -322,7 +322,9 @@ jobs:
               .filter((r) => r.prerelease && r.tag_name.includes('-dev.'))
               .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
             for (const r of dev.slice(10)) {
-              await github.rest.repos.deleteRelease({ ...context.repo, release_id: r.id });
+              try {
+                await github.rest.repos.deleteRelease({ ...context.repo, release_id: r.id });
+              } catch (e) { /* release already gone */ }
               try {
                 await github.rest.git.deleteRef({ ...context.repo, ref: `tags/${r.tag_name}` });
               } catch (e) { /* tag already gone */ }
