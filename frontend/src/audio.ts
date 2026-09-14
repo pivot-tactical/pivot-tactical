@@ -61,7 +61,8 @@ export function floatToPcm16(f32: Float32Array): ArrayBuffer {
   const i16 = new Int16Array(len);
   for (let i = 0; i < len; i++) {
     const s = f32[i];
-    i16[i] = s < 0 ? Math.max(-1, s) * 0x8000 : Math.min(1, s) * 0x7fff;
+    // Inline Math.max/min checks for performance in the hot loop
+    i16[i] = s < 0 ? (s < -1 ? -1 : s) * 0x8000 : (s > 1 ? 1 : s) * 0x7fff;
   }
   return i16.buffer;
 }
