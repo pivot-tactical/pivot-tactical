@@ -420,8 +420,8 @@ class SessionManager:
         radio = self.registry.get(radio_id)
         if radio is None:
             raise KeyError(f"unknown radio: {radio_id}")
-        # Honour the frequency/mode reported at key-down (the client is the truth
-        # for the instant of keying), else use the radio's current state.
+        # Honor frequency/mode reported at key-down (client state takes
+        # precedence at keying time); otherwise use radio's current state.
         if frequency is not None:
             radio.frequency_hz = self._snap(frequency)
         if tx_mode is not None:
