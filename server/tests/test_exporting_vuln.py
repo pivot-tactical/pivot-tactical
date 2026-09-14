@@ -14,20 +14,21 @@ def test_export_zip_path_traversal(database, settings, tmp_path):
         cfg.set("display_timezone", "UTC")
         sess = repo.start_session(s, "Test Session")
         sid = sess.id
-        repo.create_event(
-            s,
-            session_id=sid,
-            trainee_name="T-1",
-            frequency="14.250 MHz",
-            band_region="HF",
-            tx_mode=RadioMode.PLAIN,
-            audibility=Audibility.HEARD,
-            sync_status=SyncStatus.COMPLETED,
-            timestamp_start="2026-06-05T12:00:00+00:00",
-            duration_ms=1000,
-            audio_path="../secret.txt",
-            dsp_profile={},
-        )
+        for idx, path in enumerate(["../secret.txt", "sub/../../secret.txt", "/etc/passwd"]):
+            repo.create_event(
+                s,
+                session_id=sid,
+                trainee_name=f"T-{idx}",
+                frequency="14.250 MHz",
+                band_region="HF",
+                tx_mode=RadioMode.PLAIN,
+                audibility=Audibility.HEARD,
+                sync_status=SyncStatus.COMPLETED,
+                timestamp_start="2026-06-05T12:00:00+00:00",
+                duration_ms=1000,
+                audio_path=path,
+                dsp_profile={},
+            )
 
     rec_dir = Path(settings.recordings_dir)
     rec_dir.mkdir(parents=True, exist_ok=True)
