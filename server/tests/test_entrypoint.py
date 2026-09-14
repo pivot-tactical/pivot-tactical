@@ -216,7 +216,7 @@ def test_lan_ip_fallback_on_oserror(monkeypatch):
     mock_socket_instance.connect.assert_called_once_with(("8.8.8.8", 80))
 
 
-def test_spawn_relauncher_works_outside_the_versions_tree(monkeypatch):
+def test_spawn_relauncher_works_outside_the_versions_tree(monkeypatch, tmp_path):
     """The relaunch helper must not have its CWD inside ``versions/``.
 
     Windows locks a process's current directory, and this helper is the one that
@@ -232,16 +232,47 @@ def test_spawn_relauncher_works_outside_the_versions_tree(monkeypatch):
 
     def fake_popen(argv, **kwargs):
         captured.update(kwargs)
+        captured["argv"] = argv
         return object()
 
+    fake_exe = tmp_path / "pivot.exe"
+    fake_exe.touch()
+
     monkeypatch.setattr(lifecycle.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(lifecycle, "_relauncher_exe", lambda settings: "pivot.exe")
+    monkeypatch.setattr(lifecycle, "_relauncher_exe", lambda settings: str(fake_exe))
     monkeypatch.setattr(lifecycle, "install_root", lambda: Path("/opt/pivot"))
 
     lifecycle.spawn_relauncher()
 
     assert captured["cwd"] == str(Path("/opt/pivot"))
     assert "versions" not in Path(captured["cwd"]).parts
+    assert captured["executable"] == str(fake_exe.resolve())
+
+
+def test_spawn_app_validates_target_and_passes_executable(monkeypatch, tmp_path):
+    """spawn_app resolves and validates target path, passing executable explicitly."""
+    import pytest
+    from pivot.runtime import lifecycle
+
+    with pytest.raises(ValueError, match="Invalid executable path"):
+        lifecycle.spawn_app(str(tmp_path / "nonexistent.exe"))
+
+    fake_exe = tmp_path / "app.exe"
+    fake_exe.touch()
+
+    captured = {}
+
+    def fake_popen(argv, **kwargs):
+        captured.update(kwargs)
+        captured["argv"] = argv
+        return object()
+
+    monkeypatch.setattr(lifecycle.subprocess, "Popen", fake_popen)
+
+    lifecycle.spawn_app(str(fake_exe))
+
+    assert captured["executable"] == str(fake_exe.resolve())
+    assert captured["argv"] == [str(fake_exe.resolve())]
 
 
 def test_publish_install_mutex_is_a_noop_off_windows(monkeypatch):

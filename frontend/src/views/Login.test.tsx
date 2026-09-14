@@ -42,7 +42,7 @@ describe("Login", () => {
     expect(screen.getByRole("button", { name: /Log in as instructor/i })).toBeInTheDocument();
   });
 
-  it("disables the Join Net button for invalid callsigns", async () => {
+  it("disables the Join Net button and shows callsign error for invalid callsigns", async () => {
     const user = userEvent.setup();
     render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
 
@@ -50,13 +50,68 @@ describe("Login", () => {
     const joinBtn = screen.getByRole("button", { name: /Join Net/i });
 
     expect(joinBtn).toBeDisabled();
+    expect(input).toHaveAttribute("aria-invalid", "false");
 
     await user.type(input, "A@!");
     expect(joinBtn).toBeDisabled();
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Only letters, numbers, spaces, and hyphens allowed.")).toBeInTheDocument();
 
     await user.clear(input);
     await user.type(input, "ALPHA-1");
     expect(joinBtn).not.toBeDisabled();
+    expect(input).toHaveAttribute("aria-invalid", "false");
+    expect(screen.queryByText("Only letters, numbers, spaces, and hyphens allowed.")).not.toBeInTheDocument();
+  });
+
+  it("shows Joining... busy state during asynchronous trainee submission", async () => {
+    const user = userEvent.setup();
+    let resolveTrainee: () => void = () => {};
+    const pendingPromise = new Promise<void>((resolve) => {
+      resolveTrainee = resolve;
+    });
+    mockOnTrainee.mockReturnValue(pendingPromise);
+
+    render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
+
+    const input = screen.getByPlaceholderText("e.g. ALPHA-1");
+    await user.type(input, "ALPHA-1");
+
+    const joinBtn = screen.getByRole("button", { name: /Join Net/i });
+    await user.click(joinBtn);
+
+    expect(screen.getByRole("button", { name: /Joining…/i })).toBeDisabled();
+
+    resolveTrainee();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Join Net/i })).not.toBeDisabled();
+    });
+  });
+
+  it("shows Signing in... busy state during asynchronous instructor submission", async () => {
+    const user = userEvent.setup();
+    let resolveInstructor: () => void = () => {};
+    const pendingPromise = new Promise<void>((resolve) => {
+      resolveInstructor = resolve;
+    });
+    mockOnInstructor.mockReturnValue(pendingPromise);
+
+    render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
+
+    await user.click(screen.getByRole("button", { name: /Log in as instructor/i }));
+
+    const input = screen.getByPlaceholderText("default: instructor");
+    await user.type(input, "secret");
+
+    const signInBtn = screen.getByRole("button", { name: /Sign In/i });
+    await user.click(signInBtn);
+
+    expect(screen.getByRole("button", { name: /Signing in…/i })).toBeDisabled();
+
+    resolveInstructor();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Sign In/i })).not.toBeDisabled();
+    });
   });
 
   it("submits trainee login on button click", async () => {

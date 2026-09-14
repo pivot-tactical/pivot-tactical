@@ -15,6 +15,9 @@
 ## 2024-05-24 - V8 Math Functions vs Inlining
 **Learning:** When optimizing tight inner loops in JavaScript/V8 (e.g., PCM audio conversion running 16,000 times a second), calling standard Math functions like `Math.max` and `Math.min` per sample incurs noticeable overhead compared to manually inlining the min/max checks with conditionals or ternaries. Caching the array length in a local variable also provides a minor speedup over accessing `.length` on every iteration.
 **Action:** Avoid nested math function calls in hot loops where simple manual clamping logic suffices.
+## 2026-03-30 - Optimize file checksum hashing using hashlib.file_digest
+**Learning:** Python 3.11+ `hashlib.file_digest(f, "sha256")` performs file reading and hash calculation directly in C-level code, eliminating Python interpreter loop overhead (`iter(lambda: f.read(...), b"")`) and intermediate buffer allocations.
+**Action:** Use `hashlib.file_digest` for computing cryptographic digests directly from binary file streams.
 ## 2026-10-27 - [Division vs Multiplication in V8]
 **Learning:** In JavaScript/V8 (e.g., tight audio processing loops), replacing division by a constant with multiplication by its reciprocal (e.g. `s / 0x8000` to `s * 0.000030517578125`) does not consistently improve performance and may actually degrade it slightly, as V8 is highly optimized for standard math operations.
 **Action:** Focus micro-optimizations in JavaScript tight loops on avoiding nested function calls (like `Math.min`/`Math.max` or object creations) rather than attempting to outsmart V8's basic arithmetic handling, unless verified thoroughly by benchmarks.

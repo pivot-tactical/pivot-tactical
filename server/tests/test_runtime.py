@@ -628,3 +628,36 @@ def test_kick_by_any_of_a_terminals_radio_ids(manager):
     assert "t-1" not in manager.terminals
     assert manager.registry.get("t-1") is None
     assert manager.registry.get(extra) is None
+
+
+def test_open_in_file_manager_valid_dir(tmp_path, monkeypatch):
+    from pivot.runtime.reveal import open_in_file_manager
+
+    calls = []
+
+    def mock_run(cmd, check=True):
+        calls.append(cmd)
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+    monkeypatch.setattr("os.startfile", mock_run, raising=False)
+
+    open_in_file_manager(tmp_path)
+    assert len(calls) == 1
+    assert str(tmp_path.resolve()) in calls[0] if isinstance(calls[0], list) else str(tmp_path.resolve()) == calls[0]
+
+
+def test_open_in_file_manager_non_existent(tmp_path):
+    from pivot.runtime.reveal import open_in_file_manager
+
+    non_existent = tmp_path / "does_not_exist"
+    with pytest.raises(FileNotFoundError):
+        open_in_file_manager(non_existent)
+
+
+def test_open_in_file_manager_file_not_dir(tmp_path):
+    from pivot.runtime.reveal import open_in_file_manager
+
+    file_path = tmp_path / "file.txt"
+    file_path.write_text("hello")
+    with pytest.raises(NotADirectoryError):
+        open_in_file_manager(file_path)

@@ -74,6 +74,10 @@ vi.mock('../api', () => ({
     rollbackUpdate: vi.fn().mockResolvedValue({ staged: true, tag: '', rollback: true, restart_required: true }),
     retainedVersions: vi.fn().mockResolvedValue({ retained: [], current_version: '1.0.0' }),
     restartServer: vi.fn().mockResolvedValue({}),
+    startSession: vi.fn().mockResolvedValue({ id: 'sess-1' }),
+    endSession: vi.fn().mockResolvedValue({}),
+    addInstructorRadio: vi.fn().mockResolvedValue({}),
+    removeInstructorRadio: vi.fn().mockResolvedValue({}),
   },
   getToken: vi.fn().mockReturnValue('mock-token'),
 }));
@@ -451,5 +455,79 @@ describe('running event log timestamps', () => {
     await act(async () => { fireEvent.keyDown(window, { code: 'Digit1', shiftKey: true }); });
     await act(async () => { fireEvent.keyDown(window, { code: 'Numpad5' }); });
     expect(sock.instrPttStart).not.toHaveBeenCalled();
+  });
+
+  it('can start and stop a session with confirmation', async () => {
+    vi.mocked(api.startSession).mockResolvedValueOnce({ id: 'sess-123' });
+    vi.mocked(api.endSession).mockResolvedValueOnce({} as any);
+
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+
+    const sessionInput = screen.getByPlaceholderText('Session name');
+    await act(async () => {
+      fireEvent.change(sessionInput, { target: { value: 'Alpha Exercise' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Start Session' }));
+    });
+
+    expect(api.startSession).toHaveBeenCalledWith('Alpha Exercise');
+    expect(screen.getByRole('button', { name: 'Stop Session' })).toBeInTheDocument();
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => false);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Stop Session' }));
+    });
+    expect(confirmSpy).toHaveBeenCalledWith('Are you sure you want to stop the current session?');
+    expect(api.endSession).not.toHaveBeenCalled();
+
+    confirmSpy.mockImplementation(() => true);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Stop Session' }));
+    });
+    expect(api.endSession).toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Start Session' })).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it('can add and remove an instructor radio with confirmation', async () => {
+    const mockRadio = {
+      radio_id: 'instr-1',
+      name: 'Radio 1',
+      is_instructor: true,
+      frequency: '30.0000 MHz',
+      frequency_hz: 30000000,
+      band_region: 'VHF',
+      mode: 'Plain',
+      status: 'idle',
+      rx_noise: true,
+    };
+    vi.mocked(api.addInstructorRadio).mockResolvedValueOnce(mockRadio as any);
+    vi.mocked(api.removeInstructorRadio).mockResolvedValueOnce({} as any);
+
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /add radio/i }));
+    });
+    expect(api.addInstructorRadio).toHaveBeenCalled();
+    expect(await screen.findByText('Radio 1')).toBeInTheDocument();
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => false);
+    const removeBtn = screen.getByRole('button', { name: 'Remove radio Radio 1' });
+    await act(async () => {
+      fireEvent.click(removeBtn);
+    });
+    expect(confirmSpy).toHaveBeenCalledWith('Are you sure you want to remove this radio?');
+    expect(api.removeInstructorRadio).not.toHaveBeenCalled();
+
+    confirmSpy.mockImplementation(() => true);
+    await act(async () => {
+      fireEvent.click(removeBtn);
+    });
+    expect(api.removeInstructorRadio).toHaveBeenCalledWith('instr-1');
+    confirmSpy.mockRestore();
   });
 });

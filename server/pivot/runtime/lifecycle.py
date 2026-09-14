@@ -182,7 +182,10 @@ def spawn_relauncher(settings=None) -> None:
     it.
     """
     exe = _relauncher_exe(settings)
-    kwargs: dict = {"close_fds": True}
+    exe_path = Path(exe).resolve()
+    if not exe_path.is_file():
+        raise ValueError(f"Invalid executable path: {exe}")
+    kwargs: dict = {"close_fds": True, "executable": str(exe_path)}
     # Never let the helper's working directory sit inside the versions tree.
     # Windows locks a process's CWD, and this helper is the one that flips
     # `versions/current` — inheriting ours would have it holding open the very
@@ -196,7 +199,7 @@ def spawn_relauncher(settings=None) -> None:
         kwargs["creationflags"] = _DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW
     else:
         kwargs["start_new_session"] = True
-    subprocess.Popen([exe, "--relaunch-after", str(os.getpid())], **kwargs)
+    subprocess.Popen([str(exe_path), "--relaunch-after", str(os.getpid())], **kwargs)
 
 
 def app_exe(settings=None) -> str:
@@ -247,12 +250,15 @@ def spawn_app(exe: str | None = None) -> None:
     active ``current`` exe so the freshly activated version is the one that runs.
     """
     target = exe or sys.executable
-    kwargs: dict = {"close_fds": True}
+    target_path = Path(target).resolve()
+    if not target_path.is_file():
+        raise ValueError(f"Invalid executable path: {target}")
+    kwargs: dict = {"close_fds": True, "executable": str(target_path)}
     if sys.platform == "win32":  # pragma: no cover - Windows-only
         kwargs["creationflags"] = _CREATE_NEW_CONSOLE
     else:
         kwargs["start_new_session"] = True
-    subprocess.Popen([target], **kwargs)
+    subprocess.Popen([str(target_path)], **kwargs)
 
 
 def perform_relaunch(settings=None) -> None:

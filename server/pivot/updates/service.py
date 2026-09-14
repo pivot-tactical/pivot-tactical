@@ -212,22 +212,50 @@ class UpdateService:
         try:
             raw = self._fetch(repo, token)
         except Exception as exc:
-            # Surfaced verbatim in Settings ("GitHub unreachable — <reason>") and
-            # logged here so the instructor can diagnose proxy/DNS/TLS/rate-limit
-            # failures that don't affect ordinary browsing (the browser uses the
-            # OS proxy/cert store; this stdlib urllib request does not) (§3.7.3).
-            log.warning("update check for %r failed: %s", repo, exc)
-            self._merge(
-                {
-                    "reachable": False,
-                    "error": str(exc),
-                    "checking": False,
-                    "last_checked": to_iso_utc(utc_now()),
-                    "staged_tag": staged,
-                }
-            )
-            return self.snapshot()
+            return self._handle_fetch_error(repo, exc, staged)
 
+        update, available = self._build_check_update(
+            mgr=mgr,
+            raw=raw,
+            channel=channel,
+            auto=auto,
+            staged=staged,
+        )
+
+        # Apply the auto-update policy (modifies `update` dict in place).
+        self._apply_auto_update_policy(
+            update, auto=auto, available=available, staged=staged, cfg=cfg, mgr=mgr
+        )
+
+        self._merge(update)
+        return self.snapshot()
+
+    def _handle_fetch_error(self, repo: str, exc: Exception, staged: str | None) -> dict:
+        # Surfaced verbatim in Settings ("GitHub unreachable — <reason>") and
+        # logged here so the instructor can diagnose proxy/DNS/TLS/rate-limit
+        # failures that don't affect ordinary browsing (the browser uses the
+        # OS proxy/cert store; this stdlib urllib request does not) (§3.7.3).
+        log.warning("update check for %r failed: %s", repo, exc)
+        self._merge(
+            {
+                "reachable": False,
+                "error": str(exc),
+                "checking": False,
+                "last_checked": to_iso_utc(utc_now()),
+                "staged_tag": staged,
+            }
+        )
+        return self.snapshot()
+
+    def _build_check_update(
+        self,
+        *,
+        mgr: UpdateManager,
+        raw: list[dict],
+        channel: str,
+        auto: bool,
+        staged: str | None,
+    ) -> tuple[dict, list[Release]]:
         cur = SemVer.parse(self._version)
         releases = mgr.list_releases(raw)
         available = mgr.available_updates(raw)
@@ -250,17 +278,10 @@ class UpdateService:
             # has to guess it from the release list.
             "staged_tag": staged,
             # A completed check means no download is in flight; the auto-apply
-            # branch below repopulates this live while it downloads.
+            # branch repopulates this live while it downloads.
             "download_progress": None,
         }
-
-        # Apply the auto-update policy (modifies `update` dict in place).
-        self._apply_auto_update_policy(
-            update, auto=auto, available=available, staged=staged, cfg=cfg, mgr=mgr
-        )
-
-        self._merge(update)
-        return self.snapshot()
+        return update, available
 
     # -- auto update policy ----------------------------------------------- #
 

@@ -25,7 +25,13 @@ def open_in_file_manager(path: Path) -> None:
     client input, so there is no command-injection surface — and each launcher
     is invoked with an argv list rather than a shell string regardless.
     """
-    target = str(path)
+    resolved_path = Path(path).resolve()
+    if not resolved_path.exists():
+        raise FileNotFoundError(f"Path does not exist: {resolved_path}")
+    if not resolved_path.is_dir():
+        raise NotADirectoryError(f"Path is not a directory: {resolved_path}")
+
+    target = str(resolved_path)
     if sys.platform.startswith("win"):
         # The reliable "open this folder in Explorer" on Windows. Fixed,
         # server-owned path — no injection surface.

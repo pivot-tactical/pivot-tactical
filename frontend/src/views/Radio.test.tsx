@@ -493,4 +493,113 @@ describe('Radio', () => {
 
     expect(mockAudioIO.play).toHaveBeenCalledWith(expect.any(ArrayBuffer), 'trainee-1#2');
   });
+
+  it('handles server-initiated radio_removed event', () => {
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    act(() => { handlers['radio_added'](addedRadio()); });
+    expect(screen.getByLabelText('Push to talk on ALPHA/R2')).toBeInTheDocument();
+
+    act(() => { handlers['radio_removed']({ radio_id: 'trainee-1#2' }); });
+    expect(screen.queryByLabelText('Push to talk on ALPHA/R2')).not.toBeInTheDocument();
+  });
+
+  it('does not remove radio if confirmation is cancelled', () => {
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    act(() => { handlers['radio_added'](addedRadio()); });
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => false);
+    fireEvent.click(screen.getByLabelText('Remove ALPHA/R2'));
+
+    expect(confirmSpy).toHaveBeenCalledWith('Are you sure you want to remove ALPHA/R2?');
+    expect(mockSocket.removeRadio).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Push to talk on ALPHA/R2')).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it('handles touch events on PTT button', async () => {
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    const pttBtn = ptt('ALPHA');
+
+    await act(async () => {
+      fireEvent.touchStart(pttBtn);
+    });
+    expect(mockAudioIO.startCapture).toHaveBeenCalled();
+    expect(mockSocket.pttStart).toHaveBeenCalledWith('7.0000 MHz', 'Plain', 'radio1');
+
+    act(() => {
+      fireEvent.touchEnd(pttBtn);
+    });
+    expect(mockAudioIO.stopCapture).toHaveBeenCalled();
+    expect(mockSocket.pttEnd).toHaveBeenCalledWith('radio1');
+  });
+
+  it('handles mic capture rejection gracefully during PTT start', async () => {
+    mockAudioIO.startCapture.mockRejectedValueOnce(new Error('Permission denied'));
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+
+    await act(async () => {
+      fireEvent.mouseDown(ptt('ALPHA'));
+    });
+
+    expect(mockSocket.pttStart).toHaveBeenCalledWith('7.0000 MHz', 'Plain', 'radio1');
+  });
+
+  it('aborts PTT start if ended before audio capture resolves', async () => {
+    let resolveCapture: (value?: unknown) => void = () => {};
+    mockAudioIO.startCapture.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveCapture = resolve; })
+    );
+
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    const pttBtn = ptt('ALPHA');
+
+    act(() => {
+      fireEvent.mouseDown(pttBtn);
+    });
+
+    act(() => {
+      fireEvent.mouseUp(pttBtn);
+    });
+
+    await act(async () => {
+      resolveCapture();
+    });
+
+    expect(mockSocket.pttStart).not.toHaveBeenCalled();
+  });
+
+  it('hides Add Radio button when maximum limit (9) is reached', () => {
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+
+    for (let slot = 2; slot <= 9; slot++) {
+      act(() => {
+        handlers['radio_added'](addedRadio({ radio_id: `trainee-1#${slot}`, name: `ALPHA/R${slot}` }));
+      });
+    }
+
+    expect(screen.queryByText('+ Add Radio')).not.toBeInTheDocument();
+  });
+
+  it('uses fallback defaults when login props are omitted or partial', () => {
+    const fallbackLogin = {} as LoginResponse;
+    render(<Radio socket={mockSocket as PivotSocket} login={fallbackLogin} timezone="UTC" />);
+
+    expect(screen.getByText('7.0000')).toBeInTheDocument();
+    expect(screen.getByTestId('mode-dial')).toHaveTextContent('Plain');
+    expect(screen.queryByText('ON NET')).not.toBeInTheDocument();
+  });
+
+  it('disables controls while transmitting', async () => {
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    act(() => { handlers['radio_added'](addedRadio()); });
+
+    act(() => { handlers['ptt_started']({ radio_id: 'trainee-1#2', sync_applies: false }); });
+
+    expect(screen.getByLabelText('Decrease frequency on ALPHA/R2')).toBeDisabled();
+    expect(screen.getByLabelText('Increase frequency on ALPHA/R2')).toBeDisabled();
+    expect(screen.getByLabelText('Frequency in MHz on ALPHA/R2')).toBeDisabled();
+    expect(screen.getByLabelText('Tune ALPHA/R2')).toBeDisabled();
+    expect(screen.getAllByTestId('mode-dial')[1]).toBeDisabled();
+    expect(screen.getByLabelText('Remove ALPHA/R2')).toBeDisabled();
+  });
 });

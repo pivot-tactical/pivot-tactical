@@ -128,6 +128,16 @@ def _is_safe_github_url(url: str) -> bool:
     return host in ("github.com", "api.github.com") or host.endswith(_GITHUB_HOST_SUFFIXES)
 
 
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: PLR0917, PLR0913
+        if not _is_safe_github_url(newurl):
+            raise ValueError("Invalid or unsafe URL")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_opener = urllib.request.build_opener(_SafeRedirectHandler())
+
+
 def _http_get(url: str, token: str | None = None, timeout: float = 30.0) -> bytes:
     if not _is_safe_github_url(url):
         raise ValueError("Invalid or unsafe URL")
@@ -136,7 +146,7 @@ def _http_get(url: str, token: str | None = None, timeout: float = 30.0) -> byte
         req.add_header("Authorization", f"Bearer {token}")
 
     def _fetch() -> bytes:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        with _opener.open(req, timeout=timeout) as resp:
             return resp.read()
 
     return _with_http_retry(_fetch)
@@ -166,7 +176,7 @@ def _http_download(
     def _fetch() -> None:
         # Re-open from scratch each attempt so a connection dropped mid-stream
         # doesn't leave a truncated file behind to be staged.
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        with _opener.open(req, timeout=timeout) as resp:
             length = resp.getheader("Content-Length")
             total = int(length) if length and length.isdigit() else None
             received = 0
@@ -317,11 +327,8 @@ def verify_sha256(path: Path, expected_hex: str) -> bool:
 
 
 def sha256_of(path: Path) -> str:
-    h = hashlib.sha256()
     with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
+        return hashlib.file_digest(f, "sha256").hexdigest()
 
 
 def _verify_signature(dest: Path, release: Release, token: str | None) -> None:
