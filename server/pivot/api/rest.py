@@ -85,14 +85,22 @@ _SETTABLE_KEYS = {
 @router.post("/login", response_model=LoginResponse)
 def login(
     req: LoginRequest,
+    request: Request,
     response: Response,
     manager=Depends(get_manager),
     auth=Depends(get_auth),
 ) -> LoginResponse:
     """Trainee login (callsign) or instructor login (password → bearer token)."""
     if req.role == "instructor":
+        client_ip = request.client.host if request.client else "unknown"
+        if auth.is_rate_limited(client_ip):
+            raise HTTPException(
+                status_code=429, detail="too many failed login attempts; please try again later"
+            )
         if not req.password or not auth.verify(req.password):
+            auth.record_failed_attempt(client_ip)
             raise HTTPException(status_code=401, detail="invalid instructor password")
+        auth.record_successful_login(client_ip)
         token = auth.issue_token()
         response.set_cookie(
             key="pivot_token", value=token, httponly=True, secure=True, samesite="lax"

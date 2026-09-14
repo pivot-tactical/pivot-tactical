@@ -326,6 +326,16 @@ def test_retained_versions_list_and_delete(client, settings):
     assert client.delete("/api/admin/updates/retained/9.9.9").status_code == 404
 
 
+def test_instructor_login_rate_limiting(raw_client):
+    for _ in range(5):
+        r = raw_client.post("/api/login", json={"role": "instructor", "password": "wrong"})
+        assert r.status_code == 401
+
+    r = raw_client.post("/api/login", json={"role": "instructor", "password": "wrong"})
+    assert r.status_code == 429
+    assert "too many failed login attempts" in r.json()["detail"].lower()
+
+
 def test_change_password_and_relogin(raw_client):
     raw_client.post(
         "/api/login", json={"role": "instructor", "password": DEFAULT_INSTRUCTOR_PASSWORD}

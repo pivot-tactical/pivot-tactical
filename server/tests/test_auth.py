@@ -1,9 +1,11 @@
 """Tests for instructor authentication (password + bearer tokens)."""
 
+import time
 from unittest.mock import patch
 
 from pivot.auth import (
     DEFAULT_INSTRUCTOR_PASSWORD,
+    RATE_LIMIT_WINDOW_SECONDS,
     AuthService,
     hash_password,
     verify_password,
@@ -128,3 +130,40 @@ def test_is_default_delegates_to_verify(database):
     with patch.object(auth, "verify", return_value=False) as mock_verify:
         assert auth.is_default() is False
         mock_verify.assert_called_once_with(DEFAULT_INSTRUCTOR_PASSWORD)
+
+
+def test_auth_service_rate_limiting(database):
+    auth = AuthService(database)
+    ip = "192.168.1.50"
+    assert not auth.is_rate_limited(ip)
+
+    for _ in range(5):
+        auth.record_failed_attempt(ip)
+
+    assert auth.is_rate_limited(ip)
+
+    # Success clears attempts
+    auth.record_successful_login(ip)
+    assert not auth.is_rate_limited(ip)
+
+
+def test_rate_limit_map_does_not_grow_without_bound(database):
+    """Spent entries are evicted, so probing from many IPs can't grow the map.
+
+    The key is the client's source address. If a merely-queried or expired IP
+    kept a slot, anyone could inflate this dict just by attempting a login from
+    each address they control.
+    """
+    auth = AuthService(database)
+
+    # Querying an IP that has never failed must not create an entry.
+    for i in range(50):
+        assert not auth.is_rate_limited(f"10.0.0.{i}")
+    assert auth._failed_attempts == {}
+
+    # An IP whose attempts have all aged out is dropped, not left empty.
+    auth.record_failed_attempt("10.0.1.1")
+    assert "10.0.1.1" in auth._failed_attempts
+    auth._failed_attempts["10.0.1.1"] = [time.time() - RATE_LIMIT_WINDOW_SECONDS - 1]
+    assert not auth.is_rate_limited("10.0.1.1")
+    assert "10.0.1.1" not in auth._failed_attempts
