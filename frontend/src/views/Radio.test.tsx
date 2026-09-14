@@ -526,7 +526,9 @@ describe('Radio', () => {
     expect(mockAudioIO.startCapture).toHaveBeenCalled();
     expect(mockSocket.pttStart).toHaveBeenCalledWith('7.0000 MHz', 'Plain', 'radio1');
 
-    fireEvent.touchEnd(pttBtn);
+    act(() => {
+      fireEvent.touchEnd(pttBtn);
+    });
     expect(mockAudioIO.stopCapture).toHaveBeenCalled();
     expect(mockSocket.pttEnd).toHaveBeenCalledWith('radio1');
   });
@@ -543,7 +545,7 @@ describe('Radio', () => {
   });
 
   it('aborts PTT start if ended before audio capture resolves', async () => {
-    let resolveCapture: () => void = () => {};
+    let resolveCapture: (value?: unknown) => void = () => {};
     mockAudioIO.startCapture.mockImplementationOnce(
       () => new Promise((resolve) => { resolveCapture = resolve; })
     );
@@ -551,16 +553,16 @@ describe('Radio', () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
     const pttBtn = ptt('ALPHA');
 
-    let startPromise: Promise<void>;
     act(() => {
-      startPromise = fireEvent.mouseDown(pttBtn) as any;
+      fireEvent.mouseDown(pttBtn);
     });
 
-    fireEvent.mouseUp(pttBtn);
+    act(() => {
+      fireEvent.mouseUp(pttBtn);
+    });
 
     await act(async () => {
       resolveCapture();
-      await startPromise;
     });
 
     expect(mockSocket.pttStart).not.toHaveBeenCalled();
