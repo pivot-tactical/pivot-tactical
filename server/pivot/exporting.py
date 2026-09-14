@@ -110,7 +110,7 @@ def export_zip(db: Database, settings, session_id: str) -> bytes:
             audio_p = Path(e["audio_path"])
             if audio_p.is_absolute() or ".." in audio_p.parts:
                 continue
-            wav_path = (Path(settings.recordings_dir) / e["audio_path"]).resolve()
-            if wav_path.is_relative_to(base_dir) and wav_path.exists():
+            wav_path = (base_dir / e["audio_path"]).resolve()
+            if wav_path.is_relative_to(base_dir) and wav_path.is_file():
                 zf.write(wav_path, arcname=f"{root}/recordings/{audio_p.name}")
     return buf.getvalue()
