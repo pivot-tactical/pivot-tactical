@@ -12,3 +12,7 @@
 **Vulnerability:** The FastAPI CORS configuration in `server/pivot/api/app.py` set `allow_methods=["*"]` and `allow_headers=["*"]`, allowing any HTTP method and any header from any matched origin.
 **Learning:** Even if `allow_origins` or `allow_origin_regex` restricts requests to intended domains or LAN IPs, using wildcard (`*`) for methods or headers unnecessarily increases the attack surface. An attacker exploiting XSS on a permitted origin could leverage unexpected methods (like `PUT` or `PATCH`) or inject dangerous headers (like `X-HTTP-Method-Override`) if they were processed downstream.
 **Prevention:** Always follow the principle of least privilege in CORS configurations. Explicitly list only the exact HTTP methods (e.g., `["GET", "POST", "DELETE", "OPTIONS"]`) and headers (e.g., `["Content-Type", "Authorization"]`) that the API actually requires and is designed to handle safely.
+## 2024-05-24 - [CRITICAL] Fix Path Traversal in Audio Playback
+**Vulnerability:** The API endpoint returning audio playback dynamically joined a user-controlled path string from the database with a base directory without path sanitization, allowing arbitrary file retrieval.
+**Learning:** Always sanitize `Path` constructs generated from dynamic or database-stored values using `.is_absolute()` and verifying traversal (`..`) attempts before trusting the `Path.resolve()` boundary check.
+**Prevention:** Use defensive input validation enforcing `.is_relative_to(base_dir)` alongside absolute path and traversal character rejections.

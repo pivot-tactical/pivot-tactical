@@ -7,6 +7,7 @@ valid instructor bearer token (:func:`pivot.api.deps.require_instructor`).
 import asyncio
 import logging
 import uuid
+from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -240,10 +241,21 @@ def event_audio(
         row = repo.get_event(s, event_id)
         if row is None:
             raise HTTPException(status_code=404, detail="event not found")
+        # Prevent path traversal and absolute path escaping in audio_path.
+        audio_p = Path(row.audio_path)
+        if audio_p.is_absolute() or ".." in audio_p.parts:
+            raise HTTPException(status_code=400, detail="Invalid audio path")
+
+        base_dir = manager.settings.recordings_dir.resolve()
+        wav_path = (base_dir / row.audio_path).resolve()
+
+        if not wav_path.is_relative_to(base_dir):
+            raise HTTPException(status_code=400, detail="Invalid audio path")
+
         # No WAV on disk means no audio was captured for this transmission (the
         # voice transport is not yet wired — see ROADMAP). Return a clean 404
         # rather than letting soundfile raise a 500.
-        if not (manager.settings.recordings_dir / row.audio_path).exists():
+        if not wav_path.exists():
             raise HTTPException(
                 status_code=404, detail="no recording was captured for this transmission"
             )
