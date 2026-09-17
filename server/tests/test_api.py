@@ -12,7 +12,7 @@ from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD
 from pivot.core.radios import RadioBusyError
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
-from pivot.version import version_info
+from pivot.version import SemVer, version_info
 
 
 @pytest.fixture
@@ -548,24 +548,40 @@ def test_websocket_plain_ptt_creates_event(client):
         assert ended["payload"]["audibility"] == "Heard"
 
 
+# Derived from the running version rather than hard-coded: to count as available
+# updates these must stay *above* whatever ``__version__`` currently is. Pinning
+# them to literals silently breaks the moment a release bumps past them - which
+# is exactly what happened when 1.1.2 shipped and the version moved to 1.1.3.
+_CUR = SemVer.parse(version_info.version)
+_PATCH_TAG = f"{_CUR.major}.{_CUR.minor}.{_CUR.patch + 1}"
+_RC_TAG = f"{_CUR.major}.{_CUR.minor + 1}.0-rc.1"
+# Below the current version, so it must never be offered as an update.
+_OLD_TAG = "0.9.0"
+
 _FAKE_RELEASES = [
     {
-        "tag_name": "1.1.2",
-        "name": "1.1.2",
+        "tag_name": _PATCH_TAG,
+        "name": _PATCH_TAG,
         "prerelease": False,
         "assets": [
-            {"name": "PIVOT-Tactical-v1.1.2-win64.zip", "browser_download_url": "http://x/w"}
+            {
+                "name": f"PIVOT-Tactical-v{_PATCH_TAG}-win64.zip",
+                "browser_download_url": "http://x/w",
+            }
         ],
     },
     {
-        "tag_name": "1.2.0-rc.1",
+        "tag_name": _RC_TAG,
         "name": "rc",
         "prerelease": True,
         "assets": [
-            {"name": "PIVOT-Tactical-v1.2.0-rc.1-win64.zip", "browser_download_url": "http://x/r"}
+            {
+                "name": f"PIVOT-Tactical-v{_RC_TAG}-win64.zip",
+                "browser_download_url": "http://x/r",
+            }
         ],
     },
-    {"tag_name": "0.9.0", "name": "old", "prerelease": False, "assets": []},
+    {"tag_name": _OLD_TAG, "name": "old", "prerelease": False, "assets": []},
 ]
 
 
@@ -576,18 +592,18 @@ def test_update_check_respects_channel(client, monkeypatch):
 
     # /refresh forces a synchronous re-check; the background service caches it so
     # the (non-blocking) /check then returns the same result.
-    # Stable channel: prerelease excluded, only 1.1.2 is an available update.
+    # Stable channel: prerelease excluded, only the next patch is an available update.
     r = client.post("/api/admin/updates/refresh").json()
     assert r["reachable"] is True and r["current_version"] == version_info.version
-    assert [a["tag"] for a in r["available"]] == ["1.1.2"]
+    assert [a["tag"] for a in r["available"]] == [_PATCH_TAG]
     cached = client.get("/api/admin/updates/check").json()
-    assert [a["tag"] for a in cached["available"]] == ["1.1.2"]
+    assert [a["tag"] for a in cached["available"]] == [_PATCH_TAG]
 
     # Include prereleases: the rc shows up too (newest first).
     with client.app.state.manager.db.session() as s:
         ConfigStore(s).set("update_channel", "include_prereleases")
     r = client.post("/api/admin/updates/refresh").json()
-    assert [a["tag"] for a in r["available"]] == ["1.2.0-rc.1", "1.1.2"]
+    assert [a["tag"] for a in r["available"]] == [_RC_TAG, _PATCH_TAG]
 
 
 def test_update_check_graceful_when_unreachable(client, monkeypatch):
