@@ -15,7 +15,12 @@ permissions:
   contents: write # publish release assets
 
 jobs:
+  # Gate: must pass before anything else in this workflow runs.
+  empty-commit-check:
+    uses: ./.github/workflows/empty-commit-check.yml
+
   build:
+    needs: empty-commit-check
     name: Build ${{ matrix.artifact }}
     strategy:
       fail-fast: false
