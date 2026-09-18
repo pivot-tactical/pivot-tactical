@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
+from pivot.audio.recording import recording_path
 from pivot.core.bands import BandConditions
 from pivot.core.crypto import RadioMode, Reception
 from pivot.db.models import EventRow
@@ -60,7 +61,7 @@ def render_event(
     rng: np.random.Generator | None = None,
 ) -> tuple[np.ndarray, int]:
     """Return ``(audio, sample_rate)`` for an event under the given AAR toggles."""
-    path = recordings_dir / event.audio_path
+    path = recording_path(recordings_dir, event.audio_path)
     clean, sr = _read(path)
 
     if mode is PlaybackMode.CLEAN:

@@ -7,7 +7,6 @@ valid instructor bearer token (:func:`pivot.api.deps.require_instructor`).
 import asyncio
 import logging
 import uuid
-from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -37,6 +36,7 @@ from pivot.api.schemas import (
     TranscriptionEditRequest,
     TuneRequest,
 )
+from pivot.audio.recording import UnsafeRecordingPath, recording_path
 from pivot.audio.render import AarCryptoView, PlaybackMode, render_event_wav_bytes
 from pivot.core.bands import snap_frequency
 from pivot.core.crypto import RadioMode
@@ -241,16 +241,12 @@ def event_audio(
         row = repo.get_event(s, event_id)
         if row is None:
             raise HTTPException(status_code=404, detail="event not found")
-        # Prevent path traversal and absolute path escaping in audio_path.
-        audio_p = Path(row.audio_path)
-        if audio_p.is_absolute() or ".." in audio_p.parts:
-            raise HTTPException(status_code=400, detail="Invalid audio path")
-
-        base_dir = manager.settings.recordings_dir.resolve()
-        wav_path = (base_dir / row.audio_path).resolve()
-
-        if not wav_path.is_relative_to(base_dir):
-            raise HTTPException(status_code=400, detail="Invalid audio path")
+        # `audio_path` round-trips through the database, so it is re-checked
+        # here rather than trusted (§3.5.3).
+        try:
+            wav_path = recording_path(manager.settings.recordings_dir, row.audio_path)
+        except UnsafeRecordingPath as exc:
+            raise HTTPException(status_code=400, detail="Invalid audio path") from exc
 
         # No WAV on disk means no audio was captured for this transmission (the
         # voice transport is not yet wired — see ROADMAP). Return a clean 404
