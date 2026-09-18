@@ -75,6 +75,38 @@ def relative_audio_path(
     return f"{session_dir_name(session_name, session_started_at)}/{filename}"
 
 
+class UnsafeRecordingPath(ValueError):
+    """A stored ``audio_path`` that does not resolve inside the recordings tree."""
+
+
+def recording_path(recordings_dir: Path | str, audio_path: str) -> Path:
+    """The absolute path of a stored recording, refusing anything outside the tree.
+
+    ``audio_path`` is written by :func:`relative_audio_path` and is always a
+    relative path under ``recordings_dir``, but it round-trips through the
+    database before it is used again, so it is re-checked on the way back out
+    rather than trusted. A value that is absolute, walks up with ``..``, or
+    resolves through a symlink to somewhere outside ``recordings_dir`` is
+    refused rather than read.
+
+    Note that ``base / audio_path`` alone is not a check: pathlib discards the
+    left-hand side entirely when the right-hand side is absolute, so a stored
+    ``/etc/passwd`` would silently become that file.
+    """
+    base = Path(recordings_dir).resolve()
+    candidate = Path(audio_path)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise UnsafeRecordingPath(
+            f"audio_path is not a relative path inside the recordings tree: {audio_path!r}"
+        )
+    resolved = (base / candidate).resolve()
+    if not resolved.is_relative_to(base):
+        raise UnsafeRecordingPath(
+            f"audio_path resolves outside the recordings tree: {audio_path!r}"
+        )
+    return resolved
+
+
 def write_recording(
     path: Path,
     audio: np.ndarray,
