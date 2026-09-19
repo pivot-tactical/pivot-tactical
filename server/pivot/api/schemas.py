@@ -1,6 +1,6 @@
 """Pydantic request/response models for the REST + WS API (spec §6)."""
 
-import urllib.parse
+import urllib.parse  # Used in ApplyUpdateRequest.validate_github_url
 
 from pydantic import BaseModel, Field, field_validator
 
