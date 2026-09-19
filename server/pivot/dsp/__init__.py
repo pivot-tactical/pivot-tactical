@@ -17,6 +17,7 @@ Implemented entirely on numpy + scipy (BSD), keeping the audio path fully
 permissive (spec §13.5).
 """
 
+# Public API exports
 from pivot.dsp.engine import DspEngine, render_reception
 from pivot.dsp.hash_gen import encrypted_hash, envelope_follower
 from pivot.dsp.tone import crypto_sync_tone
