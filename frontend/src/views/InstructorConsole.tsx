@@ -37,6 +37,7 @@ function getTimezoneOptions(): string[] {
   return FALLBACK_TIMEZONES;
 }
 
+/** Main orchestrator view for the Instructor Console. */
 export function InstructorConsole({
   timezone,
   mustChangePassword,
