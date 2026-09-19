@@ -68,7 +68,7 @@ CREATE_WINDOW_EX_ARGTYPES = [
 ]
 
 
-def _configure_win32_prototypes() -> None:
+def _configure_window_prototypes() -> None:
     user32.DefWindowProcW.restype = LRESULT
     user32.DefWindowProcW.argtypes = [HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
     user32.CreateWindowExW.restype = HWND
@@ -79,6 +79,9 @@ def _configure_win32_prototypes() -> None:
     user32.SetForegroundWindow.argtypes = [HWND]
     user32.LoadIconW.restype = wintypes.HICON
     user32.LoadIconW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR]
+
+
+def _configure_menu_prototypes() -> None:
     # Menu calls — the heart of the empty-menu bug: handles must be 64-bit.
     user32.CreatePopupMenu.restype = HMENU
     user32.CreatePopupMenu.argtypes = []
@@ -95,6 +98,9 @@ def _configure_win32_prototypes() -> None:
         ctypes.c_void_p,
     ]
     user32.DestroyMenu.argtypes = [HMENU]
+
+
+def _configure_clipboard_prototypes() -> None:
     # Clipboard: GlobalAlloc/GlobalLock/SetClipboardData return pointers/handles
     # that would be truncated (and then dereferenced) without these.
     user32.OpenClipboard.restype = wintypes.BOOL
@@ -106,11 +112,21 @@ def _configure_win32_prototypes() -> None:
     kernel32.GlobalLock.restype = ctypes.c_void_p
     kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
     kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+
+
+def _configure_system_prototypes() -> None:
     kernel32.GetModuleHandleW.restype = wintypes.HMODULE
     kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
     kernel32.GetConsoleWindow.restype = HWND
     shell32.Shell_NotifyIconW.restype = wintypes.BOOL
     shell32.Shell_NotifyIconW.argtypes = [wintypes.DWORD, ctypes.c_void_p]
+
+
+def _configure_win32_prototypes() -> None:
+    _configure_window_prototypes()
+    _configure_menu_prototypes()
+    _configure_clipboard_prototypes()
+    _configure_system_prototypes()
 
 
 _configure_win32_prototypes()
