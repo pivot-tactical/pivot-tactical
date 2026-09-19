@@ -340,3 +340,17 @@ def test_soft_clip_bounds_and_linearity():
     x_small = np.array([-0.1, 0.0, 0.1], dtype=np.float32)
     y_small = soft_clip(x_small)
     assert np.allclose(x_small, y_small, atol=0.01)
+
+
+def test_pivot_dsp_exports():
+    """Verify that pivot.dsp exports all required public API symbols in __all__."""
+    import pivot.dsp
+
+    expected = [
+        "DspEngine",
+        "render_reception",
+        "encrypted_hash",
+        "envelope_follower",
+        "crypto_sync_tone",
+    ]
+    assert pivot.dsp.__all__ == expected
