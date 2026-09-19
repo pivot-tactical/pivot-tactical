@@ -19,16 +19,16 @@ from pivot.db.models import (
 )
 
 __all__ = [
-    "Base",
-    "Database",
-    "get_database",
-    "init_database",
-    "ConfigRow",
     "BandProfileRow",
+    "Base",
+    "ConfigRow",
+    "Database",
+    "EventRow",
     "InstructorRadioRow",
     "RadioStateRow",
     "SessionRow",
-    "EventRow",
     "TraineeRow",
     "TranscriptionStatus",
+    "get_database",
+    "init_database",
 ]
