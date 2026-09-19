@@ -1,17 +1,43 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import { AudioIO, parseTaggedAudio, pcmLevel } from "../audio";
+import type { ReleaseInfo, UpdateStatus } from "../api";
+import { AudioIO, loadVolume, parseTaggedAudio, pcmLevel, playClick, playSyncTone, saveVolume } from "../audio";
 import { ConnectionBanner } from "../components/ConnectionBanner";
 import type { ConnState } from "../components/ConnectionBanner";
+import { ModeDial } from "../components/ModeDial";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
-import type { EventRow, LogEntry, NetScenario, RadioState, SessionLogMarker, Terminal } from "../types";
+import { METER_DECAY, SignalMeter } from "../components/SignalMeter";
+import { VolumeSlider } from "../components/VolumeSlider";
+import { formatMHz, netKey, snapToGrid, steppedFrom } from "../freq";
+import type { EventRow, LogEntry, NetScenario, RadioState, SessionLogMarker, SessionSummary, Terminal, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
-import { AarTab } from "./instructor/AarTab";
-import { MonitorTab } from "./instructor/MonitorTab";
-import { RadiosTab, updateRadio } from "./instructor/RadiosTab";
-import { SettingsTab } from "./instructor/SettingsTab";
-import { Tab, timestampOf } from "./instructor/utils";
 
+type Tab = "radios" | "monitor" | "aar" | "settings";
+
+const FALLBACK_TIMEZONES = [
+  "UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+  "America/Anchorage", "Pacific/Honolulu", "Europe/London", "Europe/Berlin", "Europe/Paris",
+  "Europe/Moscow", "Africa/Cairo", "Asia/Jerusalem", "Asia/Dubai", "Asia/Karachi",
+  "Asia/Kolkata", "Asia/Bangkok", "Asia/Shanghai", "Asia/Tokyo", "Australia/Sydney",
+  "Pacific/Auckland",
+];
+
+// Sort key for merging history events and session markers into one timeline.
+function timestampOf(e: LogEntry): string {
+  return e.kind === "event" ? e.event.timestamp_start : e.marker.timestamp;
+}
+
+function getTimezoneOptions(): string[] {
+  try {
+    const supported = (Intl as any).supportedValuesOf?.("timeZone");
+    if (Array.isArray(supported) && supported.length) return supported;
+  } catch {
+    // fall through to fallback list
+  }
+  return FALLBACK_TIMEZONES;
+}
+
+/** Main orchestrator view for the Instructor Console. */
 export function InstructorConsole({
   timezone,
   mustChangePassword,
@@ -19,7 +45,7 @@ export function InstructorConsole({
   onLogout,
 }: {
   timezone: string;
-  mustChangePassword?: boolean;
+  mustChangePassword: boolean;
   onTimezone: (tz: string) => void;
   onLogout: () => void;
 }) {
@@ -31,256 +57,1670 @@ export function InstructorConsole({
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionName, setSessionName] = useState("");
   const [conn, setConn] = useState<ConnState>("online");
-
   const restartingRef = useRef(false);
   const restartPollRef = useRef<number | undefined>(undefined);
   const socketRef = useRef<PivotSocket | null>(null);
-
   const audio = useRef(new AudioIO());
+  // Live receive level per instructor radio, topped up by each tagged PCM
+  // frame and decayed by each card's meter loop. A ref (not state): the meters
+  // write straight to the DOM at animation rate.
   const rxLevels = useRef<Record<string, number>>({});
 
+  // Poll the server until it answers again, then reload to pick up the (possibly
+  // updated) frontend and a clean session. Started once the socket has dropped.
   function startRestartPoll() {
-    if (restartPollRef.current) return;
-    setConn("restarting");
-    restartPollRef.current = window.setInterval(async () => {
-      try {
-        await api.checkUpdates();
-        window.clearInterval(restartPollRef.current);
-        restartPollRef.current = undefined;
-        restartingRef.current = false;
-        window.location.reload();
-      } catch {
-        /* keep polling until server responds */
-      }
+    if (restartPollRef.current !== undefined) return;
+    restartPollRef.current = window.setInterval(() => {
+      api.status()
+        .then(() => {
+          window.clearInterval(restartPollRef.current);
+          window.location.reload();
+        })
+        .catch(() => {});
     }, 1500);
   }
 
   useEffect(() => {
     const sock = new PivotSocket(() => ({}));
-    socketRef.current = sock;
-    sock.connect();
-
+    sock.on("open", () => setConn("online"));
+    sock.on("close", () => {
+      if (restartingRef.current) { setConn("restarting"); startRestartPoll(); }
+      else setConn("offline");
+    });
+    sock.on("instructor_radios", (p) => setRadios(p));
+    // band_profile_update payloads are partial; only the keys present changed.
+    // The connect-time snapshot carries the full per-net override list.
+    sock.on("band_profile_update", (p) => {
+      if (p.net_scenarios) setNetScenarios(p.net_scenarios);
+    });
+    sock.on("terminal_update", (p) => setTerminals((p.terminals || []).filter((t: Terminal) => !t.is_instructor)));
+    sock.on("event_logged", (ev) =>
+      setEntries((prev) => [{ kind: "event", event: ev } as LogEntry, ...prev].slice(0, 200))
+    );
+    sock.on("transcription_updated", (ev) =>
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.kind === "event" && e.event.event_id === ev.event_id
+            ? { kind: "event", event: { ...e.event, ...ev } }
+            : e
+        )
+      )
+    );
+    // Session start/stop get their own divider rows in the log, timestamped so
+    // the boundary between exercises is visible after the fact.
+    sock.on("session_started", (p) => {
+      setSessionActive(true);
+      setEntries((prev) =>
+        [
+          { kind: "session", marker: { session_id: p.id, session_name: p.name, type: "started", timestamp: p.started_at } } as LogEntry,
+          ...prev,
+        ].slice(0, 200)
+      );
+    });
+    sock.on("session_ended", (p) => {
+      setSessionActive(false);
+      setEntries((prev) =>
+        [
+          { kind: "session", marker: { session_id: p.id, session_name: p.name, type: "ended", timestamp: p.ended_at } } as LogEntry,
+          ...prev,
+        ].slice(0, 200)
+      );
+    });
+    // Each instructor radio's frames are tagged with its radio_id so the mixed
+    // playback stream can carry independent per-radio headset volumes — and so
+    // each card's signal meter can track its own radio's receive level.
     sock.onAudio((buf) => {
       const { radioId, pcm } = parseTaggedAudio(buf);
       rxLevels.current[radioId] = Math.max(rxLevels.current[radioId] ?? 0, pcmLevel(pcm));
       audio.current.play(pcm, radioId);
     });
+    sock.connect();
+    socketRef.current = sock;
 
-    sock.on("conn_state", (st) => {
-      if (st === "offline" && restartingRef.current) {
-        startRestartPoll();
-        return;
-      }
-      setConn(st as ConnState);
-    });
+    // Warm the mic + playback as soon as the console loads (login is a fresh
+    // gesture), so the browser's mic-permission prompt appears now, not on the
+    // first PTT. Retry on the first in-view gesture if it was blocked (that
+    // fallback also covers playback autoplay).
+    const io = audio.current;
+    io.prewarm().catch(() => {});
+    const enable = () => io.prewarm().catch(() => {});
+    window.addEventListener("pointerdown", enable, { once: true });
+    window.addEventListener("keydown", enable, { once: true });
 
-    sock.on("instructor_radios", (list: RadioState[]) => setRadios(list));
-    sock.on("radio_state", (r: RadioState) => setRadios((prev) => updateRadio(prev, r)));
-    sock.on("terminals", (ts: Terminal[]) => setTerminals(ts));
-    sock.on("net_scenarios", (scs: NetScenario[]) => setNetScenarios(scs));
-
-    sock.on("recent_events", (history: EventRow[]) => {
+    api.instructorRadios().then(setRadios).catch(() => {});
+    // Seed the running log from the DB so entries (and session start/stop
+    // dividers) recorded before a refresh, a server restart or an update are
+    // still listed — with clips playable and transcripts visible. Live
+    // broadcasts may land before this resolves, so merge by key with the live
+    // entries kept in place.
+    Promise.all([api.recentEvents(), api.sessions()]).then(([history, sessions]) => {
       const historyEntries: LogEntry[] = history.map((event) => ({ kind: "event", event }));
-      setEntries((prev) => {
-        const markers: LogEntry[] = [];
-        for (const e of prev) {
-          if (e.kind === "session") markers.push(e);
+      const markers: LogEntry[] = [];
+      for (const s of sessions) {
+        markers.push({ kind: "session", marker: { session_id: s.id, session_name: s.name, type: "started", timestamp: s.started_at } });
+        if (s.ended_at) {
+          markers.push({ kind: "session", marker: { session_id: s.id, session_name: s.name, type: "ended", timestamp: s.ended_at } });
         }
-        const seenEvents = new Set(prev.filter((e) => e.kind === "event").map((e) => (e as { kind: "event"; event: EventRow }).event.event_id));
-        const newHistory = historyEntries.filter((e) => !seenEvents.has((e.event as EventRow).event_id));
-        const merged = [...newHistory, ...prev];
-        merged.sort((a, b) => timestampOf(b).localeCompare(timestampOf(a)));
-        return merged;
-      });
-    });
-
-    sock.on("event_logged", (event: EventRow) => {
-      setEntries((prev) => {
-        const idx = prev.findIndex((e) => e.kind === "event" && e.event.event_id === event.event_id);
-        if (idx !== -1) {
-          const updated = [...prev];
-          updated[idx] = { kind: "event", event };
-          return updated;
-        }
-        return [{ kind: "event", event }, ...prev];
-      });
-    });
-
-    sock.on("session_marker", (marker: SessionLogMarker) => {
-      setEntries((prev) => {
-        const exists = prev.some(
-          (e) => e.kind === "session" && e.marker.session_id === marker.session_id && e.marker.type === marker.type
-        );
-        if (exists) return prev;
-        const merged = [{ kind: "session", marker }, ...prev];
-        merged.sort((a, b) => timestampOf(b).localeCompare(timestampOf(a)));
-        return merged;
-      });
-      if (marker.type === "started") {
-        setSessionActive(true);
-        setSessionName(marker.session_name);
-      } else if (marker.type === "stopped") {
-        setSessionActive(false);
-        setSessionName("");
       }
-    });
-
-    api.status()
-      .then((s: any) => {
-        if (s.session_active) {
-          setSessionActive(true);
-          setSessionName(s.session_name ?? "");
-        }
-      })
-      .catch(() => {});
-
-    api.instructorRadios()
-      .then((list) => setRadios(list))
-      .catch(() => {});
-
-    api.recentEvents()
-      .then((history) => {
-        const historyEntries: LogEntry[] = history.map((event) => ({ kind: "event", event }));
-        setEntries((prev) => {
-          const seenEvents = new Set(
-            prev.filter((e) => e.kind === "event").map((e) => (e as { kind: "event"; event: EventRow }).event.event_id)
-          );
-          const seenMarkers = new Set(
-            prev.filter((e) => e.kind === "session").map((e) => {
-              const m = (e as { kind: "session"; marker: SessionLogMarker }).marker;
-              return `${m.session_id}:${m.type}`;
-            })
-          );
-          const newHistory = historyEntries.filter((e) => !seenEvents.has((e.event as EventRow).event_id));
-          const existingMarkers = prev.filter((e) => e.kind === "session" && seenMarkers.has(`${(e as { kind: "session"; marker: SessionLogMarker }).marker.session_id}:${(e as { kind: "session"; marker: SessionLogMarker }).marker.type}`));
-          const merged = [...newHistory, ...existingMarkers];
-          merged.sort((a, b) => timestampOf(b).localeCompare(timestampOf(a)));
-          return merged;
-        });
-      })
-      .catch(() => {});
-
-    api.terminals()
-      .then((data) => setTerminals(data.terminals ?? []))
-      .catch(() => {});
+      setEntries((prev) => {
+        const seenEvents = new Set(prev.filter((e) => e.kind === "event").map((e) => (e as { kind: "event"; event: EventRow }).event.event_id));
+        const seenMarkers = new Set(
+          prev.filter((e) => e.kind === "session").map((e) => {
+            const m = (e as { kind: "session"; marker: SessionLogMarker }).marker;
+            return `${m.session_id}-${m.type}`;
+          })
+        );
+        const merged = [
+          ...prev,
+          ...historyEntries.filter((e) => !seenEvents.has((e as { kind: "event"; event: EventRow }).event.event_id)),
+          ...markers.filter((e) => {
+            const m = (e as { kind: "session"; marker: SessionLogMarker }).marker;
+            return !seenMarkers.has(`${m.session_id}-${m.type}`);
+          }),
+        ];
+        merged.sort((a, b) => timestampOf(b).localeCompare(timestampOf(a)));
+        return merged.slice(0, 200);
+      });
+    }).catch(() => {});
+    api.terminals().then((t) => {
+      setSessionActive(t.session_active);
+      // Restore the running scenario's name after a refresh or a server restart
+      // (a resumed session has no session_started broadcast to carry it).
+      if (t.session_name) setSessionName(t.session_name);
+      setTerminals(t.terminals.filter((x) => !x.is_instructor));
+    }).catch(() => {});
 
     return () => {
       sock.disconnect();
-      socketRef.current = null;
-      if (restartPollRef.current) window.clearInterval(restartPollRef.current);
+      io.close();
+      window.clearInterval(restartPollRef.current);
     };
   }, []);
 
+  // Merge a (possibly partial) event update into the running log — shared by the
+  // live `transcription_updated` feed and the instructor's own manual edits, so
+  // a correction shows immediately without waiting on the socket round-trip.
   const updateEvent = useCallback((ev: Partial<EventRow> & { event_id: string }) => {
     setEntries((prev) =>
-      prev.map((e) => {
-        if (e.kind !== "event" || e.event.event_id !== ev.event_id) return e;
-        return { kind: "event", event: { ...e.event, ...ev } };
-      })
+      prev.map((e) =>
+        e.kind === "event" && e.event.event_id === ev.event_id
+          ? { kind: "event", event: { ...e.event, ...ev } }
+          : e
+      )
     );
   }, []);
 
+  // Settings → Restart server flips us into the reconnecting state; the socket
+  // close handler then starts polling for the server to come back.
   function enterRestarting() {
     restartingRef.current = true;
+    setConn("restarting");
     startRestartPoll();
   }
 
-  async function handleStartSession() {
-    const name = sessionName.trim() || undefined;
-    const res = await api.startSession(name);
-    setSessionActive(true);
-    setSessionName(res.name ?? name ?? "Session");
-  }
-
-  async function handleStopSession() {
-    if (!window.confirm("Are you sure you want to stop the current session?")) return;
-    await api.endSession();
-    setSessionActive(false);
-    setSessionName("");
+  async function toggleSession() {
+    if (sessionActive) {
+      if (!window.confirm("Are you sure you want to stop the current session?")) return;
+      await api.endSession();
+      setSessionActive(false);
+    } else {
+      await api.startSession(sessionName.trim() || "Untitled Exercise");
+      setSessionActive(true);
+    }
   }
 
   return (
-    <div className="app instr-app" onClick={() => audio.current.prewarm().catch(() => {})}>
+    <div className="console">
       <ConnectionBanner state={conn} />
-      <header className="instr-header">
-        <div className="header__title">
-          <span className="logo">PIVOT</span>
-          <span className="subtitle">INSTRUCTOR CONSOLE</span>
+      <header className="console__bar">
+        <div className="console__brand mono">PIVOT · INSTRUCTOR</div>
+        <div className="console__session">
+          <input
+            className="input mono"
+            placeholder="Session name"
+            value={sessionName}
+            disabled={sessionActive}
+            onChange={(e) => setSessionName(e.target.value)}
+          />
+          <button className={`btn ${sessionActive ? "btn--danger" : "btn--primary"}`} onClick={toggleSession}>
+            {sessionActive ? "Stop Session" : "Start Session"}
+          </button>
         </div>
-
-        <div className="instr-session flex items-center gap-2">
-          {sessionActive ? (
-            <>
-              <span className="session-badge active mono">
-                ● SESSION: {sessionName || "ACTIVE"}
-              </span>
-              <button className="btn btn--danger btn--tiny" onClick={handleStopSession}>
-                Stop Session
-              </button>
-            </>
-          ) : (
-            <>
-              <input
-                type="text"
-                placeholder="Session name"
-                className="input input--tiny mono"
-                value={sessionName}
-                onChange={(e) => setSessionName(e.target.value)}
-              />
-              <button className="btn btn--primary btn--tiny" onClick={handleStartSession}>
-                Start Session
-              </button>
-            </>
-          )}
-        </div>
-
-        <nav className="header__nav" role="tablist">
-          {(["radios", "monitor", "aar", "settings"] as const).map((t) => (
-            <button
-              key={t}
-              role="tab"
-              aria-selected={tab === t}
-              className={`nav__tab ${tab === t ? "nav__tab--active" : ""}`}
-              onClick={() => setTab(t)}
-            >
-              {t === "aar" ? "AAR" : t.charAt(0).toUpperCase() + t.slice(1)}
-            </button>
-          ))}
-        </nav>
-
-        <div className="header__clock">
-          <SevenSegmentClock timezone={timezone} />
-        </div>
-
-        <button className="btn btn--ghost btn--tiny" onClick={onLogout}>Logout</button>
+        <SevenSegmentClock timezone={timezone} />
+        <button className="btn btn--ghost" onClick={onLogout}>Log out</button>
       </header>
 
-      <main className="instr-main">
-        {tab === "radios" && (
-          <RadiosTab
-            radios={radios}
-            socket={socketRef.current}
-            audio={audio.current}
-            onChange={setRadios}
-            entries={entries}
-            timezone={timezone}
-            netScenarios={netScenarios}
-            rxLevels={rxLevels}
-            onEventUpdate={updateEvent}
-          />
-        )}
+      <nav className="console__tabs" role="tablist">
+        {(["radios", "monitor", "aar", "settings"] as Tab[]).map((t) => (
+          <button key={t} className={`tabbtn ${tab === t ? "tabbtn--on" : ""}`} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
+            {t === "aar" ? "AAR" : t[0].toUpperCase() + t.slice(1)}
+          </button>
+        ))}
+      </nav>
+
+      <main className="console__body">
+        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} entries={entries} timezone={timezone} netScenarios={netScenarios} rxLevels={rxLevels} onEventUpdate={updateEvent} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
         {tab === "aar" && <AarTab timezone={timezone} />}
-        {tab === "settings" && (
-          <SettingsTab
-            mustChangePassword={mustChangePassword}
-            onTimezone={onTimezone}
-            socket={socketRef.current}
-            onRestart={enterRestarting}
-            sessionActive={sessionActive}
-          />
-        )}
+        {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} socket={socketRef.current} onRestart={enterRestarting} sessionActive={sessionActive} />}
       </main>
     </div>
   );
+}
+
+// --------------------------------------------------------------------------- //
+
+const fmtMHz = formatMHz;
+// Two frequencies on the same net index share a net — and therefore share one
+// per-net scenario override.
+function scenarioFor(netScenarios: NetScenario[], hz: number): NetScenario | undefined {
+  return netScenarios.find((s) => netKey(s.freq_hz) === netKey(hz));
+}
+
+// The per-radio receive levels live in a ref shared with the socket's audio
+// handler; the meters poll and decay it at animation rate without re-renders.
+type RxLevels = { current: Record<string, number> };
+
+function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScenarios, rxLevels, onEventUpdate }: {
+  radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
+  entries: LogEntry[]; timezone: string; netScenarios: NetScenario[]; rxLevels: RxLevels;
+  onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
+}) {
+  // TX phase per keyed radio (absent = IDLE). Several radios can be keyed at
+  // once — the one mic feeds them all, and each runs its own PTT/crypto-sync
+  // lifecycle on the server (ptt_* messages carry the radio_id).
+  const [phases, setPhases] = useState<Record<string, TxPhase>>({});
+  // Radios this console is currently holding keyed: gates duplicate key-downs
+  // and decides when the last release stops the shared mic capture. A ref —
+  // start/end fire from event handlers and must see the live set.
+  const keyed = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!socket) return;
+    const setPhase = (id: string, ph: TxPhase) =>
+      setPhases((prev) => ({ ...prev, [id]: ph }));
+    const clearPhase = (id: string) =>
+      setPhases((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    const offs = [
+      socket.on("ptt_started", (p) => {
+        if (!p.radio_id) return;
+        setPhase(p.radio_id, p.sync_applies ? "CRYPTO_SYNC" : "TX");
+        if (p.sync_applies) playSyncTone();
+      }),
+      socket.on("secure_tx", (p) => { if (p.radio_id) setPhase(p.radio_id, "SECURE_TX"); }),
+      socket.on("ptt_ended", (p) => { if (p.radio_id) clearPhase(p.radio_id); }),
+      socket.on("ptt_aborted", (p) => { if (p.radio_id) clearPhase(p.radio_id); }),
+      socket.on("tuned", (r) => onChange(updateRadio(radios, r))),
+      socket.on("mode_changed", (r) => onChange(updateRadio(radios, r))),
+    ];
+    return () => offs.forEach((o) => o && o());
+  }, [socket, radios, onChange]);
+
+  const startTx = useCallback(async (r: RadioState) => {
+    if (!socket || keyed.current.has(r.radio_id)) return;
+    playClick();
+    keyed.current.add(r.radio_id);
+    try {
+      await audio.startCapture((pcm) => socket.sendAudio(pcm));
+    } catch {
+      /* mic blocked: control proceeds, no audio reaches the net */
+    }
+    // A quick tap can release before the mic finished opening — don't key a
+    // radio whose end has already been sent.
+    if (!keyed.current.has(r.radio_id)) return;
+    socket.instrPttStart(r.radio_id, r.frequency, r.mode);
+  }, [socket, audio]);
+
+  const endTx = useCallback((r: RadioState) => {
+    if (!socket || !keyed.current.has(r.radio_id)) return;
+    keyed.current.delete(r.radio_id);
+    playClick(700);
+    if (keyed.current.size === 0) audio.stopCapture();
+    if (phases[r.radio_id] === "CRYPTO_SYNC") socket.instrPttAbort(r.radio_id);
+    else socket.instrPttEnd(r.radio_id);
+  }, [socket, phases, audio]);
+
+  // Per-radio PTT hotkey: the numpad key with the radio's number (§3.4.5) — one
+  // key per radio, laid out like a keying panel under the operating hand. Each
+  // card shows its own key so there is no ambiguity about which radio keys up.
+  // Matched on e.code, which is the physical key, so it works with Num Lock off.
+  useEffect(() => {
+    const numbered = (e: KeyboardEvent): RadioState | undefined => {
+      const m = e.code.match(/^Numpad([1-9])$/);
+      return m ? radios[parseInt(m[1], 10) - 1] : undefined;
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.repeat || typing(e)) return;
+      const r = numbered(e);
+      if (r) { e.preventDefault(); startTx(r); }
+    };
+    const up = (e: KeyboardEvent) => {
+      if (typing(e)) return;
+      const r = numbered(e);
+      if (r) { e.preventDefault(); endTx(r); }
+    };
+    window.addEventListener("keydown", down); window.addEventListener("keyup", up);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+  }, [radios, startTx, endTx]);
+
+  async function addRadio() {
+    // Omit the frequency so the server applies the operator-configured
+    // default start frequency (Settings → Default start frequency).
+    const r = await api.addInstructorRadio();
+    onChange([...radios, r]);
+  }
+  async function removeRadio(id: string) {
+    if (!window.confirm("Are you sure you want to remove this radio?")) return;
+    await api.removeInstructorRadio(id);
+    delete rxLevels.current[id];
+    // Local filter for snappiness; the server's instructor_radios broadcast
+    // follows with the surviving radios renumbered (Radio 1…N in order).
+    onChange(radios.filter((r) => r.radio_id !== id));
+  }
+
+  return (
+    <div className="radios-layout">
+      <div className="instr-radios">
+        {radios.map((r, i) => (
+          <InstrRadioCard
+            key={r.radio_id}
+            radio={r}
+            index={i + 1}
+            socket={socket}
+            audio={audio}
+            phase={phases[r.radio_id] ?? "IDLE"}
+            scenario={scenarioFor(netScenarios, r.frequency_hz)}
+            rxLevels={rxLevels}
+            onStart={startTx}
+            onEnd={endTx}
+            onRemove={removeRadio}
+          />
+        ))}
+      </div>
+      {/* Below the radios, right-aligned — out of the way, but never scrolled
+          out of sight like a grid tile would be when a row is exactly full. */}
+      <button className="instr-radios__add" onClick={addRadio}>+ Add Radio</button>
+      <LiveLogTab entries={entries} timezone={timezone} onEventUpdate={onEventUpdate} />
+    </div>
+  );
+}
+
+// One instructor radio rendered like the trainee panel: large frequency display
+// + tuning, the Plain/Cypher dial, a signal indicator, its own PTT keyed by the
+// numpad key with the card's number (shown on the control so there is no doubt),
+// and the channel-effects controls — per-net interference and jamming applied
+// to whatever frequency this radio is tuned to (§3.1.5).
+function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels, onStart, onEnd, onRemove }: {
+  radio: RadioState; index: number; socket: PivotSocket | null; audio: AudioIO; phase: TxPhase;
+  scenario: NetScenario | undefined; rxLevels: RxLevels;
+  onStart: (r: RadioState) => void; onEnd: (r: RadioState) => void; onRemove: (id: string) => void;
+}) {
+  const [entry, setEntry] = useState(fmtMHz(radio.frequency_hz));
+  const [volume, setVolume] = useState(() => loadVolume(`instr.${radio.radio_id}`));
+  const entryRef = useRef<HTMLInputElement>(null);
+  const transmitting = phase !== "IDLE";
+  const shortcut = index <= 9 ? `NUMPAD ${index}` : null;
+
+  const interference = scenario?.interference ?? 0;
+  const jammed = scenario?.jammed ?? false;
+  // This radio's receive-noise toggle (off = monitor the net noiseless). A
+  // personal control like volume — the channel itself, and what every other
+  // station hears, is shaped by the CHANNEL NOISE controls above instead.
+  const rxNoiseOn = radio.rx_noise !== false;
+
+  // This radio's live receive level (shared map, see RadiosTab): the meter
+  // shows what the channel actually sounds like — the ambient floor with its
+  // crashes and swells, the jam warble, and a transmitting station's voice.
+  const readRxLevel = useCallback(
+    () => (rxLevels.current[radio.radio_id] = (rxLevels.current[radio.radio_id] ?? 0) * METER_DECAY),
+    [rxLevels, radio.radio_id],
+  );
+
+  // Local slider value for a smooth drag; the server's broadcast echoes the
+  // applied level back through `scenario` (and on retune the box re-syncs to
+  // the new channel's setting).
+  const [intPct, setIntPct] = useState(Math.round(interference * 100));
+  useEffect(() => {
+    setIntPct(Math.round(interference * 100));
+  }, [interference, radio.frequency_hz]);
+
+  // Apply a per-net override to this radio's current channel ("god mode").
+  function setNet(patch: { interference?: number; jammed?: boolean }) {
+    api.scenario({ net_scenario: { frequency_hz: radio.frequency_hz, ...patch } }).catch(() => {});
+  }
+
+  // Keep the entry box in step with server-confirmed tunes (step buttons,
+  // external retunes) without clobbering what the instructor is typing mid-edit.
+  useEffect(() => { setEntry(fmtMHz(radio.frequency_hz)); }, [radio.frequency_hz]);
+
+  // Apply this radio's saved headset volume to the shared player (and on change).
+  useEffect(() => { audio.setVolume(volume, radio.radio_id); }, [audio, radio.radio_id, volume]);
+  function changeVolume(v: number) {
+    setVolume(v);
+    saveVolume(`instr.${radio.radio_id}`, v);
+  }
+
+  function tuneTo(hz: number) {
+    const snapped = snapToGrid(hz);
+    socket?.instrTune(radio.radio_id, `${fmtMHz(snapped)} MHz`);
+  }
+  // Confirm a typed frequency and hand focus back so the numpad PTT keys up
+  // instead of typing into the box.
+  function confirmEntry() {
+    const v = parseFloat(entry);
+    if (!isNaN(v)) tuneTo(v * 1e6);
+    entryRef.current?.blur();
+  }
+
+  return (
+    <section className="card instr-radio">
+      <div className="instr-radio__info">
+        <div className="instr-radio__head">
+          <span className="instr-radio__num mono" aria-hidden>{index}</span>
+          <span className="instr-radio__name mono">{radio.name}</span>
+          <button className="btn btn--ghost instr-radio__remove" aria-label={`Remove radio ${radio.name}`} title={`Remove radio ${radio.name}`}
+            onClick={() => onRemove(radio.radio_id)} disabled={transmitting}>✕</button>
+        </div>
+
+        <div className="freq">
+          <div className="freq__display mono">{fmtMHz(radio.frequency_hz)}<span className="freq__unit">MHz</span></div>
+          <div className="freq__controls">
+            <button className="btn btn--step" aria-label={`Decrease frequency on ${radio.name}`}
+              onClick={() => tuneTo(steppedFrom(radio.frequency_hz, -1))} disabled={transmitting}>▼</button>
+            <input ref={entryRef} className="input mono freq__entry" aria-label={`Frequency in MHz on ${radio.name}`}
+              value={entry} disabled={transmitting}
+              onChange={(e) => setEntry(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") confirmEntry(); }} />
+            <button className="btn btn--step" aria-label={`Increase frequency on ${radio.name}`}
+              onClick={() => tuneTo(steppedFrom(radio.frequency_hz, 1))} disabled={transmitting}>▲</button>
+            <button className="btn btn--primary" aria-label={`Tune ${radio.name}`} onClick={confirmEntry} disabled={transmitting}>Tune</button>
+          </div>
+        </div>
+
+        <div className="radio__row">
+          <ModeDial
+            mode={radio.mode}
+            onToggle={() => socket?.instrMode(radio.radio_id, radio.mode === "Cypher" ? "Plain" : "Cypher")}
+            disabled={transmitting}
+            title={`Plain / Cypher on ${radio.name} (persists across retuning)`}
+          />
+          <SignalMeter label={`SIGNAL · ${radio.band_region}`} read={readRxLevel} />
+        </div>
+
+        <div className={`neteffects ${jammed || intPct !== 0 ? "neteffects--active" : ""}`}>
+          <span className="neteffects__label">
+            CHANNEL NOISE{jammed ? " · JAMMED" : intPct > 0 ? ` · +${intPct}%` : intPct < 0 ? ` · CLEANED ${-intPct}%` : " · BASELINE"}
+          </span>
+          <div className="row gap">
+            <input
+              type="range" min={-100} max={100} value={intPct} list={`net-baseline-${radio.radio_id}`}
+              aria-label={`Noise offset on ${radio.name} channel (0 = natural baseline)`}
+              title={`Noise on ${radio.name} channel: 0 is the frequency's natural baseline; raise it to induce interference, lower it to temporarily clean the channel up`}
+              onChange={(e) => {
+                const v = +e.target.value;
+                setIntPct(v);
+                setNet({ interference: v / 100 });
+              }}
+              onDoubleClick={() => { setIntPct(0); setNet({ interference: 0 }); }}
+            />
+            <datalist id={`net-baseline-${radio.radio_id}`}>
+              <option value={0} label="baseline" />
+            </datalist>
+            <button
+              className={`btn ${jammed ? "btn--danger" : ""}`}
+              aria-label={`Jam ${radio.name} channel`}
+              title={`Jam ${radio.name} channel (a wall of jammer noise; trainees must change frequency)`}
+              onClick={() => setNet({ jammed: !jammed })}
+            >
+              {jammed ? "JAMMING" : "Jam"}
+            </button>
+          </div>
+        </div>
+
+        <div className="rxctl">
+          <VolumeSlider value={volume} onChange={changeVolume} ariaLabel={`Headset volume for ${radio.name}`} />
+          <button
+            className={`btn ${rxNoiseOn ? "" : "btn--warn"}`}
+            aria-label={`Toggle RX Noise on ${radio.name}`}
+            title={`Channel noise on ${radio.name}'s receive only — turn it off to monitor this net unhindered. Every other station still hears the channel noise (shape the net itself with the CHANNEL NOISE controls).`}
+            onClick={() => socket?.instrRxNoise(radio.radio_id, !rxNoiseOn)}
+          >
+            {rxNoiseOn ? "RX Noise: On" : "RX NOISE OFF"}
+          </button>
+        </div>
+      </div>
+
+      <button
+        className={`ptt ptt--${phase.toLowerCase()}`}
+        aria-label={`Push to talk on ${radio.name}`}
+        onMouseDown={() => onStart(radio)}
+        onMouseUp={() => onEnd(radio)}
+        onMouseLeave={() => transmitting && onEnd(radio)}
+        onTouchStart={(e) => { e.preventDefault(); onStart(radio); }}
+        onTouchEnd={(e) => { e.preventDefault(); onEnd(radio); }}
+      >
+        <span className="ptt__state">{phaseLabel(phase)}</span>
+        <span className="ptt__hint">{shortcut ? `HOLD · ${shortcut}` : "HOLD"}</span>
+      </button>
+    </section>
+  );
+}
+
+function LiveLogTab({ entries, timezone, onEventUpdate }: {
+  entries: LogEntry[];
+  timezone: string;
+  onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
+}) {
+  const [audio] = useState(() => new Audio());
+  // Two independent playbacks of the one stored recording: "clean" is the raw
+  // pre-DSP capture (no noise); "dirty" re-renders it through the original DSP
+  // profile so the instructor hears it as it was received over the air.
+  function play(ev: EventRow, mode: "clean" | "dirty") {
+    audio.pause();
+    audio.src = api.eventAudioUrl(ev.event_id, mode, "cypher");
+    audio.play().catch(() => {});
+  }
+  return (
+    <section className="card pad logcard">
+      <h3>Running Event Log</h3>
+      {entries.length === 0 && <p className="muted">Transmissions will appear here as they happen.</p>}
+      <div className="log">
+        {entries.map((entry) => {
+          if (entry.kind === "session") {
+            const m = entry.marker;
+            const stamp = fmtLogStamp(m.timestamp, timezone);
+            return (
+              <div className="logrow logrow--session" key={`session-${m.session_id}-${m.type}`}>
+                {/* A divider row, not a grid column — room for the full stamp. */}
+                <span className="mono muted">{`${stamp.date} ${stamp.time}`}</span>
+                <span className="logrow__session-label">
+                  Session “{m.session_name}” {m.type === "started" ? "started" : "stopped"}
+                </span>
+              </div>
+            );
+          }
+          const ev = entry.event;
+          const stamp = fmtLogStamp(ev.timestamp_start, timezone);
+          return (
+            <div className="logrow" key={ev.event_id}>
+              <span className="event__play-group">
+                <button className="event__play" onClick={() => play(ev, "clean")} aria-label="Play without noise" title="Play without noise">▶</button>
+                <button className="event__play" onClick={() => play(ev, "dirty")} aria-label="Play with noise (as heard)" title="Play with noise (as heard)">📻</button>
+              </span>
+              <span className="mono muted logstamp">
+                <span className="logstamp__date">{stamp.date}</span>
+                <span>{stamp.time}</span>
+              </span>
+              <span className="mono">{ev.trainee_name}</span>
+              <span className="mono">{ev.frequency}</span>
+              <span title={ev.tx_mode}>{ev.tx_mode === "Cypher" ? "🔒" : "◌"}</span>
+              <span className={`event__aud aud--${ev.audibility.split("-")[0].toLowerCase()}`}>{ev.audibility}</span>
+              <TranscriptCell ev={ev} onEventUpdate={onEventUpdate} />
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// One transcript, single-click-to-edit (§3.5.3). Displayed it shows the current
+// text; a machine transcription below the amber-confidence threshold is tinted,
+// and a hand-corrected one diffs against the preserved machine text so the words
+// the instructor changed are highlighted. Clicking swaps in a freeform box;
+// Enter (or Save) confirms, Escape (or Cancel) reverts.
+function TranscriptCell({ ev, onEventUpdate }: {
+  ev: EventRow;
+  onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // Don't offer editing until the machine transcription has settled — editing a
+  // row still being transcribed would race the worker's result.
+  const pending = ev.transcription_status === "Pending";
+  const low = !ev.transcription_edited &&
+    ev.transcription_confidence != null && ev.transcription_confidence < 0.8;
+
+  function begin() {
+    if (pending) return;
+    setDraft(ev.transcription ?? "");
+    setEditing(true);
+  }
+  useEffect(() => {
+    if (editing) {
+      const ta = taRef.current;
+      ta?.focus();
+      ta?.select();
+    }
+  }, [editing]);
+
+  async function confirm() {
+    const text = draft.trim();
+    // No-op edit: just close the box.
+    if (text === (ev.transcription ?? "").trim()) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      const updated = await api.editTranscription(ev.event_id, text);
+      onEventUpdate(updated);
+      setEditing(false);
+    } catch {
+      // Leave the box open so the instructor can retry without losing the text.
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const jammedBadge = ev.jammed && (
+    <span
+      className="event__jammed"
+      title={`Captured while its channel was jammed${
+        ev.snr_db != null ? ` (SNR ${Math.round(ev.snr_db)} dB)` : ""
+      }. "Play with noise" re-renders it as a wall of jammer noise.`}
+    >
+      JAMMED
+    </span>
+  );
+
+  if (editing) {
+    return (
+      <span className="logtext transcript transcript--editing">
+        {jammedBadge}
+        <textarea
+          ref={taRef}
+          className="input transcript__box"
+          rows={2}
+          value={draft}
+          disabled={saving}
+          aria-label="Edit transcript"
+          placeholder="Type what was said…"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter confirms (Shift+Enter inserts a newline); Escape cancels.
+            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); confirm(); }
+            else if (e.key === "Escape") { e.preventDefault(); setEditing(false); }
+          }}
+        />
+        <span className="transcript__actions">
+          <button className="btn btn--primary btn--tiny" onClick={confirm} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button className="btn btn--tiny" onClick={() => setEditing(false)} disabled={saving}>
+            Cancel
+          </button>
+        </span>
+      </span>
+    );
+  }
+
+  const hasText = !!ev.transcription;
+  // The "edited" badge trails the text so a corrected row's transcript still
+  // starts at the same left edge as every other row (the badge on the left
+  // bumped it out of column alignment).
+  const body = (
+    <>
+      {jammedBadge}
+      {ev.transcription_edited && hasText
+        ? renderDiff(ev.transcription_original, ev.transcription!)
+        : (ev.transcription || (pending ? "transcribing…" : "—"))}
+      {ev.transcription_edited && (
+        <span className="transcript__badge" title="Manually edited — highlighted words differ from the machine transcription.">✎ edited</span>
+      )}
+    </>
+  );
+
+  // While the machine transcription is still pending there's nothing to correct
+  // yet, so it's shown as plain (non-editable) text; every settled row is
+  // single-click-to-edit.
+  if (pending) {
+    return <span className="logtext transcript text--none">{body}</span>;
+  }
+  return (
+    <span
+      className={`logtext transcript ${low ? "text--amber" : ""} ${!hasText ? "text--none" : ""}`}
+      role="button"
+      tabIndex={0}
+      title="Click to edit the transcript"
+      onClick={begin}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); begin(); } }}
+    >
+      {body}
+    </span>
+  );
+}
+
+// Diff of a hand-corrected transcript against the machine one, hybrid word +
+// character (§3.5.3). Words are aligned first (a word is the meaningful unit of
+// a transcript, and aligning on words keeps a reworded phrase from fragmenting).
+// A word the instructor *replaced* is then refined to the character level so a
+// one-digit or suffix fix highlights only the characters that changed — but only
+// when the two words are similar enough; a wholesale reword highlights the whole
+// word instead of scattering marks across it. A null original means the line was
+// typed from scratch, so all of it is a change.
+
+// Longest-common-subsequence alignment of two token arrays into ordered ops.
+function lcsOps<T extends string>(a: T[], b: T[]): { t: "eq" | "del" | "ins"; v: T }[] {
+  const n = a.length, m = b.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out: { t: "eq" | "del" | "ins"; v: T }[] = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ t: "eq", v: b[j] }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: "del", v: a[i] }); i++; }
+    else { out.push({ t: "ins", v: b[j] }); j++; }
+  }
+  while (i < n) { out.push({ t: "del", v: a[i] }); i++; }
+  while (j < m) { out.push({ t: "ins", v: b[j] }); j++; }
+  return out;
+}
+
+// Render one word `to` that replaced machine word `from` (or was inserted when
+// `from` is null): highlight the characters that differ, or the whole word when
+// the two are too dissimilar to refine cleanly.
+function renderWord(from: string | null, to: string, key: React.Key): React.ReactNode {
+  const whole = <mark key={key} className="transcript__edit">{to}</mark>;
+  if (from == null) return whole;
+  const chars = lcsOps([...from], [...to]).filter((o) => o.t !== "del");
+  const unchanged = chars.filter((c) => c.t === "eq").length;
+  // Refine only when at least half the correction's characters are shared with
+  // the machine word — otherwise it's a reword, not a typo fix.
+  const isTypoFix = unchanged / Math.max(from.length, to.length) >= 0.5;
+  if (!isTypoFix) return whole;
+  // Coalesce adjacent same-kind characters into as few marks as possible.
+  const nodes: React.ReactNode[] = [];
+  let buf = "", changed = chars.length > 0 && chars[0].t === "ins", part = 0;
+  const flush = () => {
+    if (!buf) return;
+    nodes.push(
+      changed
+        ? <mark key={`${key}-${part}`} className="transcript__edit">{buf}</mark>
+        : <span key={`${key}-${part}`}>{buf}</span>
+    );
+    buf = ""; part++;
+  };
+  for (const c of chars) {
+    const isChanged = c.t === "ins";
+    if (isChanged !== changed) { flush(); changed = isChanged; }
+    buf += c.v;
+  }
+  flush();
+  return <span key={key}>{nodes}</span>;
+}
+
+function renderDiff(original: string | null, edited: string): React.ReactNode {
+  const a = original ? original.split(/\s+/).filter(Boolean) : [];
+  const b = edited.split(/\s+/).filter(Boolean);
+  const ops = lcsOps(a, b);
+  const words: React.ReactNode[] = [];
+  let k = 0;
+  while (k < ops.length) {
+    if (ops[k].t === "eq") { words.push(ops[k].v); k++; continue; }
+    // A maximal run of deletes/inserts is one replace block; pair each new word
+    // with the machine word it replaced (by position) for character refinement.
+    const dels: string[] = [], inss: string[] = [];
+    while (k < ops.length && ops[k].t !== "eq") {
+      if (ops[k].t === "del") dels.push(ops[k].v); else inss.push(ops[k].v);
+      k++;
+    }
+    inss.forEach((w, idx) =>
+      words.push(renderWord(idx < dels.length ? dels[idx] : null, w, `w${words.length}`))
+    );
+  }
+  return words.map((n, idx) => <span key={idx}>{idx > 0 ? " " : ""}{n}</span>);
+}
+
+function MonitorTab({ terminals }: { terminals: Terminal[] }) {
+  async function kick(id: string) {
+    if (!window.confirm("Are you sure you want to kick this trainee?")) return;
+    await api.scenario({ kick_trainee_id: id });
+  }
+  return (
+    <section className="card pad">
+      <h3>Connected Terminals ({terminals.length})</h3>
+      <table className="tbl">
+        <thead><tr><th>Callsign</th><th>Frequency</th><th>Mode</th><th>Status</th><th>Last</th><th></th></tr></thead>
+        <tbody>
+          {terminals.map((t) => (
+            <tr key={t.radio_id}>
+              <td className="mono">{t.name}</td>
+              <td className="mono">{t.frequency} <small className="muted">{t.band_region}</small></td>
+              <td>{t.mode}</td>
+              <td>{t.status}</td>
+              <td className="mono muted">{t.last_activity.slice(11, 19)}</td>
+              <td><button className="btn btn--ghost" onClick={() => kick(t.radio_id)}>Kick</button></td>
+            </tr>
+          ))}
+          {terminals.length === 0 && <tr><td colSpan={6} className="muted">No trainees connected.</td></tr>}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+// Performance optimization: cache Intl.DateTimeFormat instances by timezone
+// to avoid the ~0.14ms instantiation cost per row when rendering large AAR lists.
+const _fmtCache = new Map<string, Intl.DateTimeFormat>();
+
+// Format a stored UTC timestamp in the configured display timezone (§3.8). Used
+// for the AAR session list; falls back to a bare slice if the browser rejects
+// the timezone name.
+function fmtDateTime(iso: string, tz: string): string {
+  try {
+    let fmt = _fmtCache.get(tz);
+    if (!fmt) {
+      fmt = new Intl.DateTimeFormat([], {
+        timeZone: tz,
+        year: "numeric", month: "short", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false,
+      });
+      _fmtCache.set(tz, fmt);
+    }
+    return fmt.format(new Date(iso));
+  } catch {
+    return iso.slice(0, 16).replace("T", " ");
+  }
+}
+
+const _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// The running log's stamp — "03 Aug 26 03:30:34" — split so the row can drop the
+// date when the viewport can't spare the width (see .logstamp__date in
+// styles.css).
+//
+// Assembled from parts against a pinned locale rather than handed to Intl as a
+// whole string. A named month is what makes it unambiguous: 06/05 is two
+// different days either side of the Atlantic, which is exactly the confusion a
+// date is being added to remove. Pinning the locale then keeps the month
+// spelling and the field order identical wherever it renders, so the output
+// doesn't drift with the browser's (or CI's) own locale.
+function fmtLogStamp(iso: string, tz: string): { date: string; time: string } {
+  try {
+    const key = `${tz}|parts`;
+    let fmt = _fmtCache.get(key);
+    if (!fmt) {
+      // hourCycle h23 rather than hour12:false — the latter still renders
+      // midnight as "24" under some locales, which would read as tomorrow.
+      fmt = new Intl.DateTimeFormat("en-GB", {
+        timeZone: tz,
+        year: "2-digit", month: "short", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+        hourCycle: "h23",
+      });
+      _fmtCache.set(key, fmt);
+    }
+    const parts = fmt.formatToParts(new Date(iso)).reduce(
+      (acc, part) => {
+        acc[part.type] = part.value;
+        return acc;
+      },
+      {} as Record<string, string>,
+    );
+    return {
+      date: `${parts.day ?? ""} ${parts.month ?? ""} ${parts.year ?? ""}`,
+      time: `${parts.hour ?? ""}:${parts.minute ?? ""}:${parts.second ?? ""}`,
+    };
+  } catch {
+    // Browser rejected the timezone name: fall back to the stored UTC text,
+    // reshaped to the same layout so the column doesn't change form.
+    return {
+      date: `${iso.slice(8, 10)} ${_MONTHS[Number(iso.slice(5, 7)) - 1] ?? "???"} ${iso.slice(2, 4)}`,
+      time: iso.slice(11, 19),
+    };
+  }
+}
+
+// After Action Review (§3.6.4): pick a past session on the left, review its
+// transmissions on the right, and export the whole thing as plain text, CSV, or
+// a ZIP that also bundles every WAV recording. The export endpoints and the
+// per-format wiring live in api.ts; this tab is their home in the console.
+function AarTab({ timezone }: { timezone: string }) {
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [events, setEvents] = useState<EventRow[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  // Which export format is currently downloading (buttons disable while busy).
+  const [busy, setBusy] = useState<"zip" | "text" | "csv" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load the session list once; newest first so the most recent exercise is at
+  // the top and pre-selected.
+  useEffect(() => {
+    api.sessions().then((rows) => {
+      const sorted = [...rows].sort((a, b) => b.started_at.localeCompare(a.started_at));
+      setSessions(sorted);
+      setSelectedId((cur) => cur ?? sorted[0]?.id ?? null);
+    }).catch(() => {});
+  }, []);
+
+  // Pull the selected session's transmissions for the review timeline.
+  useEffect(() => {
+    if (!selectedId) { setEvents([]); return; }
+    let cancelled = false;
+    setLoadingEvents(true);
+    api.events(selectedId)
+      .then((rows) => { if (!cancelled) setEvents(rows); })
+      .catch(() => { if (!cancelled) setEvents([]); })
+      .finally(() => { if (!cancelled) setLoadingEvents(false); });
+    return () => { cancelled = true; };
+  }, [selectedId]);
+
+  const selected = sessions.find((s) => s.id === selectedId) ?? null;
+
+  async function doExport(fmt: "zip" | "text" | "csv") {
+    if (!selected) return;
+    setBusy(fmt);
+    setError(null);
+    try {
+      await api.exportSession(selected.id, fmt, selected.name);
+    } catch {
+      setError("Export failed — please try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="aar">
+      <div className="aar__bar">
+        <h2 className="mono">{selected ? selected.name : "After Action Review"}</h2>
+        <div className="aar__toggles">
+          <button className="btn" disabled={!selected || busy !== null} onClick={() => doExport("text")}>
+            {busy === "text" ? "Exporting…" : "Export Text"}
+          </button>
+          <button className="btn" disabled={!selected || busy !== null} onClick={() => doExport("csv")}>
+            {busy === "csv" ? "Exporting…" : "Export CSV"}
+          </button>
+          <button className="btn btn--primary" disabled={!selected || busy !== null} onClick={() => doExport("zip")}>
+            {busy === "zip" ? "Exporting…" : "Export ZIP + audio"}
+          </button>
+        </div>
+      </div>
+      {error && <div className="aar__error">{error}</div>}
+      <div className="aar__body">
+        <div className="aar__sessions">
+          {sessions.length === 0 && <p className="muted" style={{ padding: 10 }}>No sessions recorded yet.</p>}
+          {sessions.map((s) => (
+            <button
+              key={s.id}
+              className={`session ${s.id === selectedId ? "session--active" : ""}`}
+              onClick={() => setSelectedId(s.id)}
+            >
+              <div className="session__name">{s.name}</div>
+              <div className="session__meta">
+                {fmtDateTime(s.started_at, timezone)}
+                {s.event_count != null && ` · ${s.event_count} tx`}
+                {s.ended_at == null && " · live"}
+              </div>
+            </button>
+          ))}
+        </div>
+        <div className="aar__timeline">
+          {loadingEvents && <p className="muted">Loading transmissions…</p>}
+          {!loadingEvents && selected && events.length === 0 && (
+            <p className="muted">No transmissions in this session.</p>
+          )}
+          {!loadingEvents && events.map((ev) => <AarRow key={ev.event_id} ev={ev} />)}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// One read-only transmission in the AAR timeline: timestamp, callsign, channel,
+// crypto mode, who copied it (audibility), the transcript and its duration. A
+// machine transcription below the confidence threshold is tinted amber, an
+// empty one is shown as a muted placeholder, and a hand-corrected one is flagged
+// (§3.5.3) — matching the running log without the inline editing.
+function AarRow({ ev }: { ev: EventRow }) {
+  const low = !ev.transcription_edited &&
+    ev.transcription_confidence != null && ev.transcription_confidence < 0.8;
+  const text = ev.transcription?.trim();
+  const durS = (ev.duration_ms / 1000).toFixed(1);
+  return (
+    <div className="event event--readonly">
+      <span className="event__time mono">{ev.timestamp_start.slice(11, 19)}</span>
+      <span className="mono">{ev.trainee_name}</span>
+      <span className="event__freq mono">{ev.frequency} <small>{ev.band_region}</small></span>
+      <span className="event__mode" title={ev.tx_mode}>{ev.tx_mode === "Cypher" ? "🔒" : "◌"}</span>
+      <span className={`event__aud aud--${ev.audibility.split("-")[0].toLowerCase()}`}>{ev.audibility}</span>
+      <span className={`event__text ${low ? "text--amber" : ""} ${text ? "" : "text--none"}`}>
+        {ev.jammed && <span className="event__jammed" title="Channel was jammed">JAMMED</span>}
+        {text || "(no transcription)"}
+        {ev.transcription_edited && <span className="muted"> [edited]</span>}
+      </span>
+      <span className="event__dur mono">{durS}s</span>
+    </div>
+  );
+}
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+}
+
+// Where recordings live + a one-click "open it" for the instructor who can't
+// find the WAVs on disk. The server host opens its own file manager; when it
+// can't (headless), we fall back to showing the absolute path to copy.
+function RecordingsCard() {
+  const [path, setPath] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    api.recordingsLocation().then((r) => setPath(r.path)).catch(() => {});
+  }, []);
+
+  async function openFolder() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api.openRecordingsFolder();
+      setPath(r.path);
+      setMsg(
+        r.opened
+          ? "Opened on the machine running PIVOT."
+          : "Couldn’t open a file manager here — browse to the path below on the PIVOT server."
+      );
+    } catch {
+      setMsg("Couldn’t open the folder. Use the path below.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyPath() {
+    if (!path) return;
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked (insecure origin) — the path is on screen to copy */
+    }
+  }
+
+  return (
+    <section className="card pad">
+      <h3>Recordings</h3>
+      <p className="muted" style={{ marginTop: 0 }}>
+        Per-transmission WAVs, named by session and time so they’re easy to find
+        in a file browser.
+      </p>
+      <div className="row gap" style={{ flexWrap: "wrap" }}>
+        <button className="btn btn--primary" onClick={openFolder} disabled={busy}>
+          {busy ? "Opening…" : "Open recordings folder"}
+        </button>
+        <button className="btn" onClick={copyPath} disabled={!path}>
+          {copied ? "Copied ✓" : "Copy path"}
+        </button>
+      </div>
+      {path && (
+        <div className="muted mono mt" style={{ wordBreak: "break-all" }}>{path}</div>
+      )}
+      {msg && <p className="muted mt" style={{ fontSize: "0.85em" }}>{msg}</p>}
+    </section>
+  );
+}
+
+// Live download progress for an update in flight. Shows a determinate bar +
+// percentage when the server reported a size, else an indeterminate bar (the
+// native <progress> renders indeterminate when `value` is undefined).
+function DownloadBar({ tag, progress }: {
+  tag: string;
+  progress?: { received: number; total: number | null } | null;
+}) {
+  const received = progress?.received ?? 0;
+  const total = progress?.total ?? null;
+  const pct = total && total > 0 ? Math.min(100, Math.round((received / total) * 100)) : null;
+  return (
+    <div className="mt">
+      <p style={{ fontWeight: 600, margin: 0 }}>
+        ⟳ Downloading {tag}…{" "}
+        <span className="mono" style={{ fontWeight: 400 }}>
+          {pct !== null
+            ? `${pct}% (${fmtBytes(received)} / ${fmtBytes(total!)})`
+            : received > 0 ? fmtBytes(received) : ""}
+        </span>
+      </p>
+      <progress
+        className="dl-progress mt"
+        style={{ width: "100%" }}
+        max={100}
+        value={pct ?? undefined}
+      />
+    </div>
+  );
+}
+
+function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessionActive }: {
+  mustChangePassword: boolean; onTimezone: (tz: string) => void; socket: PivotSocket | null;
+  onRestart: () => void; sessionActive: boolean;
+}) {
+  const [cfg, setCfg] = useState<Record<string, any>>({});
+  const [saved, setSaved] = useState(false);
+  const [pw, setPw] = useState({ current: "", next: "" });
+  const [pwMsg, setPwMsg] = useState("");
+  const timezoneOptions = useMemo(getTimezoneOptions, []);
+  const [upd, setUpd] = useState<UpdateStatus | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [applying, setApplying] = useState<string | null>(null);
+  const [staged, setStaged] = useState<string | null>(null);
+  // The version the instructor deliberately picked this session (a manual apply
+  // or rollback). Lets the headline positively confirm *their* choice is what a
+  // restart will run — distinct from a version auto-update staged on its own.
+  const [chosen, setChosen] = useState<string | null>(null);
+  // Live byte progress of the download the instructor just kicked off, polled
+  // from the cached status while the (synchronous) apply runs.
+  const [dlProgress, setDlProgress] =
+    useState<{ tag: string; received: number; total: number | null } | null>(null);
+  const [applyErr, setApplyErr] = useState<string | null>(null);
+  const [restartErr, setRestartErr] = useState<string | null>(null);
+  const [showDowngrade, setShowDowngrade] = useState(false);
+  // Re-open the version lists while an update is staged, to swap the pending
+  // version for a different pick before restarting.
+  const [showChoose, setShowChoose] = useState(false);
+  // The version awaiting restart: the server's fresh staged_tag is the truth;
+  // local `staged` covers the moment right after a manual apply, and
+  // auto_staged is a fallback for older payload shapes.
+  const stagedTag = staged || upd?.staged_tag || upd?.auto_staged || null;
+  // The tag currently downloading via a manual "install" (a plain apply, not a
+  // rollback/delete op, which are keyed "rollback:"/"delete:"). Suppresses the
+  // "ready" headline while a fresh pick is still coming down the wire.
+  const applyingTag = applying && !applying.includes(":") ? applying : null;
+  // Versions actually stored on disk (instant rollback / deletable), loaded
+  // lazily when the downgrade pane is opened. Distinct from older *releases*,
+  // which re-download.
+  const [retained, setRetained] = useState<{ tag: string; bytes: number }[] | null>(null);
+
+  async function restart(force: boolean) {
+    setRestartErr(null);
+    try {
+      await api.restartServer(force);
+      onRestart();
+    } catch (e: any) {
+      const msg = String(e?.message ?? "");
+      // 409 = a session is running; offer to force.
+      if (msg.startsWith("409")) {
+        setRestartErr("A session is running. Use “Restart anyway” to apply now and disconnect trainees.");
+      } else {
+        setRestartErr(msg || "Restart failed.");
+      }
+    }
+  }
+
+  function absorb(result: UpdateStatus) {
+    setUpd(result);
+    // staged_tag is the truth (read fresh from the pending marker server-side):
+    // the exact version awaiting restart, whether it was chosen manually or
+    // auto-staged. auto_staged is kept as a fallback for older payloads only.
+    if (result.staged_tag) setStaged(result.staged_tag);
+    else if (result.auto_staged) setStaged(result.auto_staged);
+    if (result.auto_update_error) setApplyErr(result.auto_update_error);
+  }
+
+  // The background service checks out-of-band; show its cached status on mount
+  // and update live as it broadcasts (no network wait, always current). If the
+  // service has never checked (fresh boot), kick one refresh so the card is
+  // populated without the instructor having to press anything.
+  useEffect(() => {
+    api.checkUpdates()
+      .then((snap) => {
+        absorb(snap);
+        if (!snap.last_checked && !snap.checking) {
+          setChecking(true);
+          api.refreshUpdates().then(absorb).catch(() => {}).finally(() => setChecking(false));
+        }
+      })
+      .catch(() => {});
+    if (!socket) return;
+    const off = socket.on("update_status", (snap: UpdateStatus) => absorb(snap));
+    return () => { off(); };
+  }, [socket]);
+
+  // "Check now" forces a synchronous re-check rather than reading the cache.
+  async function checkUpdates() {
+    setChecking(true);
+    setApplyErr(null);
+    try {
+      absorb(await api.refreshUpdates());
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function applyUpdate(a: ReleaseInfo) {
+    // Downgrades can cross a DB schema migration — confirm first.
+    if (a.standing === "older" &&
+        !window.confirm(`Install ${a.tag}? This is a DOWNGRADE from the running version. ` +
+          `If it crosses a database change, back up your data first. It applies on restart.`)) {
+      return;
+    }
+    setApplying(a.tag);
+    setApplyErr(null);
+    setDlProgress(null);
+    // The apply is one synchronous request (download + verify + stage). Poll the
+    // cached status alongside it for live byte progress, so the pane shows a real
+    // bar rather than a static "Downloading…". The poll only reads progress — it
+    // never touches the staged headline, so an in-flight poll can't revert it.
+    const poll = window.setInterval(async () => {
+      try {
+        const s = await api.checkUpdates();
+        if (s.download_progress && s.download_progress.tag === a.tag) {
+          setDlProgress(s.download_progress);
+        }
+      } catch { /* transient poll error — ignore */ }
+    }, 700);
+    try {
+      await api.applyUpdate(a.tag, a.asset_url, a.sha256_url, a.sig_url, a.asset_name);
+      // Verified + staged; the swap finishes on the next restart. This replaces
+      // any previously staged version (the last explicit choice wins). Record it
+      // as the deliberate pick so the headline confirms *this* version is ready.
+      setChosen(a.tag);
+      setStaged(a.tag);
+      setShowChoose(false);
+    } catch (e: any) {
+      setApplyErr(e?.message ?? "Download failed");
+    } finally {
+      window.clearInterval(poll);
+      setApplying(null);
+      setDlProgress(null);
+    }
+  }
+
+  // Instant offline rollback to a retained version (no re-download).
+  async function rollback(tag: string) {
+    if (!window.confirm(`Roll back to ${tag}? It applies on the next restart. ` +
+        `If the downgrade crosses a database change, back up your data first.`)) {
+      return;
+    }
+    setApplying(`rollback:${tag}`);
+    setApplyErr(null);
+    try {
+      const res = await api.rollbackUpdate(tag);
+      setChosen(res.tag);
+      setStaged(res.tag);
+      setShowChoose(false);
+    } catch (e: any) {
+      setApplyErr(e?.message ?? "Rollback failed");
+    } finally {
+      setApplying(null);
+    }
+  }
+
+  // Load the on-disk version list when the downgrade pane is first opened (and
+  // after a delete), so the size walk only runs when the instructor looks.
+  useEffect(() => {
+    if (!showDowngrade) return;
+    api.retainedVersions().then((r) => setRetained(r.retained)).catch(() => setRetained([]));
+  }, [showDowngrade]);
+
+  async function deleteRetained(tag: string) {
+    if (!window.confirm(`Delete stored version ${tag} from disk? ` +
+        `You can re-download it later, but instant rollback to it will no longer be available.`)) {
+      return;
+    }
+    setApplying(`delete:${tag}`);
+    setApplyErr(null);
+    try {
+      const res = await api.deleteRetained(tag);
+      setRetained(res.retained);
+    } catch (e: any) {
+      setApplyErr(e?.message ?? "Delete failed");
+    } finally {
+      setApplying(null);
+    }
+  }
+
+  useEffect(() => { api.getConfig().then(setCfg).catch(() => {}); }, []);
+  const set = (k: string, v: any) => setCfg((c) => ({ ...c, [k]: v }));
+
+  // Live crypto kill switch (formerly on the Scenario tab). Initialised from
+  // the band profile and applied immediately — it is a scenario action, not a
+  // saved setting.
+  const [cryptoOn, setCryptoOn] = useState(true);
+  useEffect(() => {
+    api.bandProfile().then((p) => setCryptoOn(!!p.crypto_enabled)).catch(() => {});
+  }, []);
+
+  async function save() {
+    const keys = ["whisper_model", "whisper_compute_type", "transcription_confidence_threshold",
+      "transcription_skip_under_seconds", "display_timezone", "crypto_delay_ms",
+      "default_frequency_hz", "update_channel", "auto_update", "update_check_on_startup"];
+    const updates: Record<string, unknown> = {};
+    keys.forEach((k) => (updates[k] = cfg[k]));
+    const { applied } = await api.updateSettings(updates);
+    // Reflect any server-side normalisation (e.g. the start frequency snapped
+    // to the channel raster) back into the form.
+    setCfg((c) => ({ ...c, ...applied }));
+    onTimezone(String(cfg.display_timezone || "UTC"));
+    setSaved(true); setTimeout(() => setSaved(false), 1500);
+  }
+
+  async function changePassword() {
+    setPwMsg("");
+    try {
+      await api.changePassword(pw.current, pw.next);
+      setPwMsg("Password changed. Use it next time you log in.");
+      setPw({ current: "", next: "" });
+    } catch {
+      setPwMsg("Could not change password (check the current one).");
+    }
+  }
+
+  return (
+    <div className="grid2">
+      <div className="settings-col">
+      <section className="card pad">
+        <h3>Settings</h3>
+        <Field label="Update channel">
+          <select className="input" value={cfg.update_channel || "stable"}
+            onChange={(e) => set("update_channel", e.target.value)}>
+            <option value="stable">Stable only</option>
+            <option value="include_prereleases">Include prereleases (test builds)</option>
+          </select>
+        </Field>
+        <label className="row gap" style={{ marginBottom: 12 }}>
+          <input type="checkbox" checked={!!cfg.auto_update}
+            onChange={(e) => set("auto_update", e.target.checked)} />
+          Automatically update to the newest version on the chosen channel
+        </label>
+        <Field label="Whisper model">
+          <select className="input" value={cfg.whisper_model || "small"} onChange={(e) => set("whisper_model", e.target.value)}>
+            {["tiny", "base", "small", "medium", "large-v3"].map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </Field>
+        <Field label="Compute type">
+          <select className="input" value={cfg.whisper_compute_type || "auto"} onChange={(e) => set("whisper_compute_type", e.target.value)}>
+            {["auto", "int8", "int8_float16", "float16"].map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </Field>
+        <Field label="Amber confidence threshold">
+          <input className="input" type="number" step="0.05" min="0" max="1"
+            value={cfg.transcription_confidence_threshold ?? 0.8}
+            onChange={(e) => set("transcription_confidence_threshold", parseFloat(e.target.value))} />
+        </Field>
+        <label className="row gap" style={{ marginBottom: 12 }}>
+          <input type="checkbox" checked={cryptoOn}
+            onChange={(e) => {
+              setCryptoOn(e.target.checked);
+              api.scenario({ crypto_enabled: e.target.checked }).catch(() => {});
+            }} />
+          Crypto available to all radios (applies immediately)
+        </label>
+        <Field label="Crypto sync delay (ms)">
+          <input className="input" type="number" step="100" min="0"
+            value={cfg.crypto_delay_ms ?? 1500} onChange={(e) => set("crypto_delay_ms", parseInt(e.target.value))} />
+        </Field>
+        <Field label="Default start frequency (MHz)">
+          <input className="input mono" type="number" step="0.001" min="0"
+            value={((cfg.default_frequency_hz ?? 7_000_000) as number) / 1e6}
+            onChange={(e) => {
+              const mhz = parseFloat(e.target.value);
+              set("default_frequency_hz", isNaN(mhz) ? cfg.default_frequency_hz : mhz * 1e6);
+            }}
+            // Radios tune on the 100 Hz grid, so snap on blur to show the value
+            // that will actually be applied.
+            onBlur={() => {
+              const hz = (cfg.default_frequency_hz ?? 7_000_000) as number;
+              set("default_frequency_hz", snapToGrid(hz));
+            }} />
+        </Field>
+        <Field label="Display timezone">
+          <select className="input mono" value={cfg.display_timezone || "UTC"} onChange={(e) => set("display_timezone", e.target.value)}>
+            {timezoneOptions.includes(cfg.display_timezone || "UTC") ? null : (
+              <option value={cfg.display_timezone || "UTC"}>{cfg.display_timezone || "UTC"}</option>
+            )}
+            {timezoneOptions.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
+          </select>
+        </Field>
+        <button className="btn btn--primary" onClick={save}>{saved ? "Saved ✓" : "Save Settings"}</button>
+      </section>
+
+      <section className="card pad">
+        <h3>Instructor Password</h3>
+        {mustChangePassword && <p className="login__hint">You are using the default password. Please change it.</p>}
+        <Field label="Current password">
+          <input className="input" type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+        </Field>
+        <Field label="New password">
+          <input className="input" type="password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
+        </Field>
+        <button className="btn btn--primary" disabled={pw.next.length < 4} onClick={changePassword}>Change Password</button>
+        {pwMsg && <p className="muted mt">{pwMsg}</p>}
+      </section>
+      </div>
+
+      <div className="settings-col">
+      <RecordingsCard />
+
+      <section className="card pad">
+        <div className="row between" style={{ alignItems: "center" }}>
+          <h3 style={{ margin: 0 }}>Updates</h3>
+          <button className="btn" onClick={checkUpdates}
+            disabled={checking || upd?.checking || applying !== null}>
+            {checking || upd?.checking ? "Checking…" : "Check now"}
+          </button>
+        </div>
+
+        {/* Always-visible facts: what's running, on which channel, last check. */}
+        <div className="muted mono mt">
+          {upd ? `v${upd.current_version}` : "—"}
+          {" · "}{upd?.channel === "include_prereleases" ? "prereleases" : "stable channel"}
+          {" · auto-update "}{upd?.auto_update ? "on" : "off"}
+        </div>
+        <div className="muted mt" style={{ fontSize: "0.85em" }}>
+          {checking || upd?.checking
+            ? "Checking GitHub…"
+            : upd?.last_checked
+              ? `Last checked ${relTime(upd.last_checked)}`
+              : "Not checked yet"}
+        </div>
+
+        {/* One primary status line — single source of truth for the headline. */}
+        {upd && (() => {
+          // A manual "install" is downloading right now: show its live progress,
+          // not the previously-staged version's "ready" line (that pick isn't
+          // the one awaiting restart until this download finishes staging).
+          if (applyingTag)
+            return <DownloadBar tag={applyingTag} progress={dlProgress} />;
+          if (stagedTag)
+            // Confirm the instructor's deliberate pick distinctly from a version
+            // auto-update chose, so choosing a different one gives clear feedback.
+            return stagedTag === chosen
+              ? <p className="mt" style={{ fontWeight: 600 }}>
+                  ✓ Version {stagedTag} selected and staged — restart PIVOT to run it.
+                </p>
+              : <p className="mt" style={{ fontWeight: 600 }}>{stagedTag} ready — restart PIVOT to apply ✓</p>;
+          if (upd.auto_state === "downloading")
+            return upd.download_progress
+              ? <DownloadBar tag={upd.download_progress.tag} progress={upd.download_progress} />
+              : <p className="muted mt">⟳ {upd.auto_message || "Downloading update…"}</p>;
+          if (upd.auto_state === "deferred_session_active")
+            return <p className="mt" style={{ fontWeight: 600 }}>{upd.auto_message || "Update deferred until the session ends."}</p>;
+          if (upd.auto_state === "error")
+            return <p className="login__hint mt">Auto-update failed: {upd.auto_message}</p>;
+          if (!upd.reachable && !upd.checking)
+            return <p className="login__hint mt">
+              GitHub unreachable{upd.error ? <> — <code>{upd.error}</code></> : ""}.{" "}
+              If your browser can reach the internet but this fails, the cause is
+              usually a proxy, firewall or TLS-inspecting certificate that this
+              server process doesn't see (browsers use the OS's settings; this
+              check doesn't) — check the server's console/log for the same
+              message, or use offline import.
+            </p>;
+          if (upd.reachable && upd.available.length === 0)
+            return <p className="mt" style={{ fontWeight: 600 }}>You’re up to date.</p>;
+          if (upd.reachable && upd.available.length > 0)
+            return <p className="mt" style={{ fontWeight: 600 }}>
+              {upd.available.length} newer release{upd.available.length > 1 ? "s" : ""} available
+              {upd.auto_update ? " — will install automatically when no session is running." : ":"}
+            </p>;
+          return null;
+        })()}
+
+        {/* Something is staged: the choice isn't locked in until the restart, so
+            offer to pick a different version — staging the new pick replaces the
+            pending one (the server never auto-overwrites it the other way). */}
+        {upd && stagedTag && (
+          <button className="btn btn--ghost mt" onClick={() => setShowChoose((s) => !s)}>
+            {showChoose ? "Keep the staged version" : "Choose a different version…"}
+          </button>
+        )}
+
+        {/* Per-release rows: shown when nothing is staged yet, or when the
+            instructor wants to replace the staged version with another one. */}
+        {upd && (!stagedTag || showChoose) && upd.reachable && upd.available.map((a) => (
+          <div className="row between mt" key={a.tag}>
+            <span className="mono">
+              {a.tag}{a.prerelease ? " · prerelease" : ""}{a.tag === stagedTag ? " · staged" : ""}
+            </span>
+            {applying === a.tag ? (
+              <span className="muted">Downloading…</span>
+            ) : a.tag === stagedTag ? (
+              <span className="muted">Staged — restart to apply</span>
+            ) : a.has_asset ? (
+              <button className="btn btn--primary" onClick={() => applyUpdate(a)}
+                disabled={applying !== null}>
+                Download &amp; install
+              </button>
+            ) : (
+              <span className="muted">No build for this platform</span>
+            )}
+          </div>
+        ))}
+        {applyErr && <p className="login__hint mt">{applyErr}</p>}
+
+        {/* Downgrade / recovery: instant rollback to the retained previous build
+            (no re-download), plus the full version list so a bad update never
+            blocks training. */}
+        {upd && (!stagedTag || showChoose) && (
+          <div className="mt">
+            <button className="btn btn--ghost" onClick={() => setShowDowngrade((s) => !s)}>
+              {showDowngrade ? "Hide downgrade options" : "Downgrade / recovery…"}
+            </button>
+            {showDowngrade && (
+              <div className="mt">
+                {/* Stored on disk: instant rollback, no download — and deletable
+                    to free space. These are the versions actually present in the
+                    install's versions folder (unlike the re-download list below). */}
+                <p className="muted" style={{ fontSize: "0.85em" }}>
+                  Stored on disk (instant rollback, no download):
+                </p>
+                {retained === null ? (
+                  <p className="muted mt" style={{ fontSize: "0.85em" }}>Loading…</p>
+                ) : retained.length === 0 ? (
+                  <p className="muted mt" style={{ fontSize: "0.85em" }}>
+                    No versions stored on disk yet. One is kept each time you update.
+                  </p>
+                ) : (
+                  retained.map((v) => (
+                    <div className="row between mt" key={v.tag} style={{ alignItems: "center" }}>
+                      <span className="mono">{v.tag} · {fmtBytes(v.bytes)}</span>
+                      <span className="row gap" style={{ alignItems: "center" }}>
+                        {applying === `rollback:${v.tag}` ? (
+                          <span className="muted">Staging…</span>
+                        ) : (
+                          <button className="btn btn--danger" onClick={() => rollback(v.tag)}
+                            disabled={applying !== null}>
+                            Roll back
+                          </button>
+                        )}
+                        {applying === `delete:${v.tag}` ? (
+                          <span className="muted">Deleting…</span>
+                        ) : (
+                          <button className="btn btn--ghost" onClick={() => deleteRetained(v.tag)}
+                            disabled={applying !== null} title="Delete from disk to free space">
+                            Delete
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                  ))
+                )}
+                <p className="muted mt" style={{ fontSize: "0.85em" }}>
+                  Or install any earlier version (re-downloads &amp; verifies it):
+                </p>
+                {(upd.releases || []).filter((r) => r.standing === "older").map((a) => (
+                  <div className="row between mt" key={a.tag}>
+                    <span className="mono">
+                      {a.tag}{a.prerelease ? " · prerelease" : ""}{a.tag === stagedTag ? " · staged" : ""}
+                    </span>
+                    {applying === a.tag ? (
+                      <span className="muted">Downloading…</span>
+                    ) : a.tag === stagedTag ? (
+                      <span className="muted">Staged — restart to apply</span>
+                    ) : a.has_asset ? (
+                      <button className="btn" onClick={() => applyUpdate(a)} disabled={applying !== null}>
+                        Install this version
+                      </button>
+                    ) : (
+                      <span className="muted">No build for this platform</span>
+                    )}
+                  </div>
+                ))}
+                {(upd.releases || []).filter((r) => r.standing === "older").length === 0 && (
+                  <p className="muted mt" style={{ fontSize: "0.85em" }}>
+                    No earlier versions available to download.
+                  </p>
+                )}
+                <p className="muted mt" style={{ fontSize: "0.8em" }}>
+                  Tip: if a bad update won’t even start, run
+                  <span className="mono"> PIVOT-Tactical --rollback </span>
+                  from the install folder to recover.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Restart from the browser: applies a staged update on the way back up,
+            and is useful on its own. */}
+        {(() => {
+          const hasStaged = !!stagedTag;
+          return (
+            <div className="row gap mt" style={{ alignItems: "center" }}>
+              <button
+                className={`btn ${hasStaged ? "btn--primary" : ""}`}
+                onClick={() => restart(false)}
+              >
+                {hasStaged ? "Restart now to apply" : "Restart server"}
+              </button>
+              {restartErr && (
+                <button className="btn btn--danger" onClick={() => restart(true)}>
+                  Restart anyway
+                </button>
+              )}
+            </div>
+          );
+        })()}
+        {restartErr && <p className="login__hint mt">{restartErr}</p>}
+        {sessionActive && !restartErr && (
+          <p className="muted mt" style={{ fontSize: "0.85em" }}>
+            A session is running — restarting will disconnect trainees, so it’s guarded.
+          </p>
+        )}
+
+        {/* One concise mechanism note (not repeated above). */}
+        <p className="muted mt" style={{ fontSize: "0.85em" }}>
+          Updates are verified (checksum + signature), staged, and applied on the
+          next restart — out-of-band, never mid-session. Air-gapped sites can use
+          offline import.
+        </p>
+      </section>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label className="field"><span>{label}</span>{children}</label>;
+}
+
+let _relFmt: Intl.DateTimeFormat | null = null;
+
+// Compact "x ago" for the last-checked timestamp; falls back to a local date.
+function relTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "just now";
+  const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (secs < 45) return "just now";
+  if (secs < 90) return "a minute ago";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs > 1 ? "s" : ""} ago`;
+
+  try {
+    if (!_relFmt) {
+      _relFmt = new Intl.DateTimeFormat([], {
+        year: "numeric", month: "numeric", day: "numeric",
+        hour: "numeric", minute: "numeric", second: "numeric"
+      });
+    }
+    return _relFmt.format(new Date(iso));
+  } catch {
+    return new Date(iso).toLocaleString();
+  }
+}
+
+function updateRadio(radios: RadioState[], r: RadioState): RadioState[] {
+  return radios.map((x) => (x.radio_id === r.radio_id ? r : x));
+}
+function phaseLabel(p: TxPhase) {
+  return p === "CRYPTO_SYNC" ? "CRYPTO SYNC…" : p === "SECURE_TX" ? "SECURE TX" : p === "TX" ? "TX" : "PUSH TO TALK";
+}
+function typing(e: KeyboardEvent) {
+  const el = e.target as HTMLElement;
+  return el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
 }
