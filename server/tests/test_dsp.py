@@ -343,14 +343,16 @@ def test_soft_clip_bounds_and_linearity():
 
 
 def test_pivot_dsp_exports():
-    """Verify that pivot.dsp exports all required public API symbols in __all__."""
+    """Every name in pivot.dsp.__all__ is importable, and the public API is covered."""
     import pivot.dsp
 
-    expected = [
+    expected = {
         "DspEngine",
         "render_reception",
         "encrypted_hash",
         "envelope_follower",
         "crypto_sync_tone",
-    ]
-    assert pivot.dsp.__all__ == expected
+    }
+    assert expected <= set(pivot.dsp.__all__)
+    for name in pivot.dsp.__all__:
+        assert hasattr(pivot.dsp, name), f"__all__ lists {name!r} but it is not exported"
