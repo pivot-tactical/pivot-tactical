@@ -10,6 +10,7 @@ See the top-level repository ``README.md`` and ``ROADMAP.md`` for how the
 modules map onto the software specification (PIVOT Spec v1.6).
 """
 
-from pivot.version import __version__, version_info
+from pivot.version import __version__ as __version__
+from pivot.version import version_info as version_info
 
 __all__ = ["__version__", "version_info"]

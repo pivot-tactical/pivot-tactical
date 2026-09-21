@@ -141,3 +141,11 @@ def test_get_version_info_with_buildinfo_override(monkeypatch):
     assert info.version == "1.0.0-dev.42"
     assert info.git_sha == "1234567"
     assert info.build_date == "2026-01-01"
+
+
+def test_pivot_package_root_version_exports():
+    import pivot
+
+    assert hasattr(pivot, "__version__")
+    assert hasattr(pivot, "version_info")
+    assert pivot.__version__ == pivot.version_info.version
