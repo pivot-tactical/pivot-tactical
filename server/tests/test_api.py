@@ -697,6 +697,30 @@ def test_rx_noise_toggle_over_rest_and_ws(client):
         assert update["payload"][0]["rx_noise"] is True
 
 
+def test_admin_mode_instructor_radio(client):
+    """Setting mode on an instructor radio over REST, handling 404 for unknown radios and 409 when busy."""
+    radio = client.post("/api/admin/instructor-radios", json={"frequency": "40.000 MHz"}).json()
+    rid = radio["radio_id"]
+    assert radio["mode"] == "Plain"
+
+    r = client.post(f"/api/admin/instructor-radios/{rid}/mode", json={"mode": "Cypher"})
+    assert r.status_code == 200
+    assert r.json()["mode"] == "Cypher"
+    assert client.get("/api/admin/instructor-radios").json()[0]["mode"] == "Cypher"
+
+    # Unknown radio -> 404
+    r_404 = client.post("/api/admin/instructor-radios/instr-999/mode", json={"mode": "Plain"})
+    assert r_404.status_code == 404
+    assert r_404.json()["detail"] == "unknown radio"
+
+    # Busy radio -> 409
+    manager = client.app.state.manager
+    with patch.object(manager, "set_mode", side_effect=RadioBusyError("radio is busy")):
+        r_409 = client.post(f"/api/admin/instructor-radios/{rid}/mode", json={"mode": "Plain"})
+        assert r_409.status_code == 409
+        assert "radio is busy" in r_409.json()["detail"]
+
+
 def test_websocket_audio_frame_is_recorded(client):
     # A binary PCM frame sent while keyed is tapped for the recording, so the
     # event ends with non-zero duration and a WAV on disk.
