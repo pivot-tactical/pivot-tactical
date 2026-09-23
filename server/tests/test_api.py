@@ -1334,3 +1334,57 @@ def test_trainee_hears_both_of_its_radios_at_once(client):
             if {"two-nets", second} <= tags:
                 break
         assert {"two-nets", second} <= tags, f"only heard {tags}"
+
+
+def test_apply_update_already_staged(client, monkeypatch):
+    monkeypatch.setattr("pivot.updates.manager.UpdateManager.staged_tag", lambda self: "v2.0.0")
+    payload = {
+        "tag": "v2.0.0",
+        "asset_url": "https://github.com/test/repo/releases/download/v2.0.0/app.zip",
+        "sha256_url": "https://github.com/test/repo/releases/download/v2.0.0/app.zip.sha256",
+        "sig_url": "https://github.com/test/repo/releases/download/v2.0.0/app.zip.sig",
+        "asset_name": "app.zip",
+    }
+    r = client.post("/api/admin/updates/apply", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["staged"] is True
+    assert body["tag"] == "v2.0.0"
+    assert body["already_staged"] is True
+    assert body["restart_required"] is True
+
+
+def test_apply_update_success(client, monkeypatch):
+    monkeypatch.setattr("pivot.updates.manager.UpdateManager.staged_tag", lambda self: None)
+    monkeypatch.setattr("pivot.updates.manager.UpdateManager.download_and_stage", lambda self, release, token=None, progress_cb=None: "/tmp/staged_v2.0.0")
+    payload = {
+        "tag": "v2.0.0",
+        "asset_url": "https://github.com/test/repo/releases/download/v2.0.0/app.zip",
+        "sha256_url": "https://github.com/test/repo/releases/download/v2.0.0/app.zip.sha256",
+        "sig_url": "https://github.com/test/repo/releases/download/v2.0.0/app.zip.sig",
+        "asset_name": "app.zip",
+    }
+    r = client.post("/api/admin/updates/apply", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["staged"] is True
+    assert body["tag"] == "v2.0.0"
+    assert body["staging"] == "/tmp/staged_v2.0.0"
+    assert body["restart_required"] is True
+
+
+def test_apply_update_download_failure(client, monkeypatch):
+    monkeypatch.setattr("pivot.updates.manager.UpdateManager.staged_tag", lambda self: None)
+    def _raise_error(*args, **kwargs):
+        raise RuntimeError("Download or verification failed")
+    monkeypatch.setattr("pivot.updates.manager.UpdateManager.download_and_stage", _raise_error)
+    payload = {
+        "tag": "v2.0.0",
+        "asset_url": "https://github.com/test/repo/releases/download/v2.0.0/app.zip",
+        "sha256_url": "https://github.com/test/repo/releases/download/v2.0.0/app.zip.sha256",
+        "sig_url": "https://github.com/test/repo/releases/download/v2.0.0/app.zip.sig",
+        "asset_name": "app.zip",
+    }
+    r = client.post("/api/admin/updates/apply", json=payload)
+    assert r.status_code == 500
+    assert "Download or verification failed" in r.json()["detail"]
