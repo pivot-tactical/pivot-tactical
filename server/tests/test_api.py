@@ -186,6 +186,7 @@ def test_admin_scenario_per_net_rejects_bad_level(client):
 def test_admin_requires_instructor_token(raw_client):
     # Without a valid instructor token, admin endpoints reject the caller.
     assert raw_client.get("/api/admin/terminals").status_code == 401
+    assert raw_client.get("/api/admin/instructor-radios").status_code == 401
 
 
 def test_instructor_login_and_authenticated_admin(raw_client):
@@ -1334,3 +1335,38 @@ def test_trainee_hears_both_of_its_radios_at_once(client):
             if {"two-nets", second} <= tags:
                 break
         assert {"two-nets", second} <= tags, f"only heard {tags}"
+
+
+def test_admin_list_instructor_radios(client):
+    # Initial listing returns a list of instructor radios.
+    initial_resp = client.get("/api/admin/instructor-radios")
+    assert initial_resp.status_code == 200
+    initial_radios = initial_resp.json()
+    assert isinstance(initial_radios, list)
+
+    # Add an instructor radio.
+    created = client.post(
+        "/api/admin/instructor-radios",
+        json={"label": "Command", "frequency": "30.000 MHz"},
+    ).json()
+    rid = created["radio_id"]
+
+    # Listing instructor radios should now include the new radio.
+    updated_resp = client.get("/api/admin/instructor-radios")
+    assert updated_resp.status_code == 200
+    updated_radios = updated_resp.json()
+    assert len(updated_radios) == len(initial_radios) + 1
+    found = next((r for r in updated_radios if r["radio_id"] == rid), None)
+    assert found is not None
+    assert "Command" in found["name"]
+
+    # Remove the radio.
+    del_resp = client.delete(f"/api/admin/instructor-radios/{rid}")
+    assert del_resp.status_code == 200
+
+    # Listing again should no longer include the removed radio.
+    final_resp = client.get("/api/admin/instructor-radios")
+    assert final_resp.status_code == 200
+    final_radios = final_resp.json()
+    assert len(final_radios) == len(initial_radios)
+    assert not any(r["radio_id"] == rid for r in final_radios)
