@@ -153,6 +153,70 @@ def test_remove_link_rmdir_success(tmp_path, monkeypatch):
 
     assert len(rmdir_called) == 1
     assert rmdir_called[0] == link
+
+
+def test_is_link_oserror_returns_false(tmp_path, monkeypatch):
+    import os
+
+    from pivot.updates.layout import _is_link
+
+    target = tmp_path / "nonexistent"
+
+    def mock_lstat(path):
+        raise OSError("Permission denied")
+
+    monkeypatch.setattr(os, "lstat", mock_lstat)
+    assert _is_link(target) is False
+
+
+def test_is_link_symlink_and_junction(tmp_path, monkeypatch):
+    import os
+    import stat
+
+    from pivot.updates.layout import _is_link
+
+    p = tmp_path / "file.txt"
+    p.touch()
+
+    assert _is_link(p) is False
+
+    class FakeStat:
+        st_mode = 0
+        st_file_attributes = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+    monkeypatch.setattr(os, "lstat", lambda path: FakeStat())
+    assert _is_link(p) is True
+
+
+def test_remove_link_was_link_raises_oserror(tmp_path, monkeypatch):
+    import os
+    import shutil
+
+    from pivot.updates.layout import _remove_link
+
+    link = tmp_path / "fake_link"
+    link.touch()
+
+    monkeypatch.setattr("pivot.updates.layout._is_link", lambda path: True)
+
+    def mock_unlink(path):
+        raise OSError("unlink failed")
+
+    def mock_rmdir(path):
+        raise OSError("rmdir failed")
+
+    monkeypatch.setattr(os, "unlink", mock_unlink)
+    monkeypatch.setattr(os, "rmdir", mock_rmdir)
+
+    rmtree_called = []
+
+    def mock_rmtree(path, ignore_errors=False):
+        rmtree_called.append((path, ignore_errors))
+
+    monkeypatch.setattr(shutil, "rmtree", mock_rmtree)
+
+    with pytest.raises(OSError, match="Refusing to delete it recursively"):
+        _remove_link(link)
     assert len(rmtree_called) == 0
 
 
