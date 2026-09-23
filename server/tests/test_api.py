@@ -1334,3 +1334,21 @@ def test_trainee_hears_both_of_its_radios_at_once(client):
             if {"two-nets", second} <= tags:
                 break
         assert {"two-nets", second} <= tags, f"only heard {tags}"
+
+
+def test_admin_remove_instructor_radio_success(client):
+    radio = client.post("/api/admin/instructor-radios", json={"frequency": "40.000 MHz"}).json()
+    radio_id = radio["radio_id"]
+
+    resp = client.delete(f"/api/admin/instructor-radios/{radio_id}")
+    assert resp.status_code == 200
+    assert resp.json() == {"removed": radio_id}
+
+    radios = client.get("/api/admin/instructor-radios").json()
+    assert not any(r["radio_id"] == radio_id for r in radios)
+
+
+def test_admin_remove_instructor_radio_not_found(client):
+    resp = client.delete("/api/admin/instructor-radios/non-existent-id")
+    assert resp.status_code == 404
+    assert resp.json() == {"detail": "instructor radio not found"}
