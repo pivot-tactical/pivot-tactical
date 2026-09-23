@@ -302,6 +302,30 @@ def test_rollback_syncs_update_service_cache(client, settings):
     assert service.snapshot()["staged_tag"] == "1.1.0"
 
 
+def test_rollback_with_explicit_tag(client, settings):
+    v1 = settings.versions_dir / "app-1.0.0"
+    (v1 / "_internal").mkdir(parents=True)
+    (v1 / "PIVOT-Tactical").write_text("retained 1.0.0")
+
+    v2 = settings.versions_dir / "app-1.1.0"
+    (v2 / "_internal").mkdir(parents=True)
+    (v2 / "PIVOT-Tactical").write_text("retained 1.1.0")
+
+    r = client.post("/api/admin/updates/rollback", json={"tag": "1.0.0"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["rollback"] is True
+    assert body["tag"] == "1.0.0"
+
+
+def test_rollback_invalid_tag_404(client, settings):
+    v1 = settings.versions_dir / "app-1.0.0"
+    (v1 / "_internal").mkdir(parents=True)
+
+    r = client.post("/api/admin/updates/rollback", json={"tag": "9.9.9"})
+    assert r.status_code == 404
+
+
 def test_retained_versions_list_and_delete(client, settings):
     # Two versions kept on disk; the pane lists them with sizes and can delete.
     v1 = settings.versions_dir / "app-1.1.0"
