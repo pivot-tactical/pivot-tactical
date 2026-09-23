@@ -1334,3 +1334,68 @@ def test_trainee_hears_both_of_its_radios_at_once(client):
             if {"two-nets", second} <= tags:
                 break
         assert {"two-nets", second} <= tags, f"only heard {tags}"
+
+
+def test_admin_apply_update_success(client, monkeypatch):
+    from pivot.updates.manager import UpdateManager
+
+    monkeypatch.setattr(UpdateManager, "staged_tag", lambda self: None)
+    monkeypatch.setattr(
+        UpdateManager,
+        "download_and_stage",
+        lambda self, release, token, progress_cb=None: "/tmp/staging/v1.2.0",
+    )
+
+    payload = {
+        "tag": "1.2.0",
+        "asset_url": "https://github.com/owner/repo/releases/download/v1.2.0/asset.zip",
+        "asset_name": "asset.zip",
+    }
+    res = client.post("/api/admin/updates/apply", json=payload)
+    assert res.status_code == 200
+    assert res.json() == {
+        "staged": True,
+        "tag": "1.2.0",
+        "staging": "/tmp/staging/v1.2.0",
+        "restart_required": True,
+    }
+
+
+def test_admin_apply_update_already_staged(client, monkeypatch):
+    from pivot.updates.manager import UpdateManager
+
+    monkeypatch.setattr(UpdateManager, "staged_tag", lambda self: "1.2.0")
+
+    payload = {
+        "tag": "1.2.0",
+        "asset_url": "https://github.com/owner/repo/releases/download/v1.2.0/asset.zip",
+        "asset_name": "asset.zip",
+    }
+    res = client.post("/api/admin/updates/apply", json=payload)
+    assert res.status_code == 200
+    assert res.json() == {
+        "staged": True,
+        "tag": "1.2.0",
+        "already_staged": True,
+        "restart_required": True,
+    }
+
+
+def test_admin_apply_update_error(client, monkeypatch):
+    from pivot.updates.manager import UpdateManager
+
+    monkeypatch.setattr(UpdateManager, "staged_tag", lambda self: None)
+
+    def _boom(self, release, token, progress_cb=None):
+        raise ValueError("Download failed")
+
+    monkeypatch.setattr(UpdateManager, "download_and_stage", _boom)
+
+    payload = {
+        "tag": "1.2.0",
+        "asset_url": "https://github.com/owner/repo/releases/download/v1.2.0/asset.zip",
+        "asset_name": "asset.zip",
+    }
+    res = client.post("/api/admin/updates/apply", json=payload)
+    assert res.status_code == 500
+    assert "Download failed" in res.json()["detail"]
