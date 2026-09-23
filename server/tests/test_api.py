@@ -1334,3 +1334,26 @@ def test_trainee_hears_both_of_its_radios_at_once(client):
             if {"two-nets", second} <= tags:
                 break
         assert {"two-nets", second} <= tags, f"only heard {tags}"
+
+
+def test_admin_config_endpoint(client):
+    r = client.get("/api/admin/config")
+    assert r.status_code == 200
+    cfg = r.json()
+    assert isinstance(cfg, dict)
+    expected_cfg = client.app.state.manager.get_config()
+    assert cfg == expected_cfg
+
+
+def test_admin_config_mocked(client, monkeypatch):
+    mock_config = {"whisper_model": "tiny", "crypto_enabled": True}
+    monkeypatch.setattr(client.app.state.manager, "get_config", lambda: mock_config)
+
+    r = client.get("/api/admin/config")
+    assert r.status_code == 200
+    assert r.json() == mock_config
+
+
+def test_admin_config_requires_instructor(raw_client):
+    r = raw_client.get("/api/admin/config")
+    assert r.status_code == 401
