@@ -642,6 +642,8 @@ def test_admin_refresh_updates_with_service(client, monkeypatch):
 def test_admin_refresh_updates_fallback(client, monkeypatch):
     """POST /admin/updates/refresh falls back to live check when no update_service exists."""
     manager = client.app.state.manager
+    if getattr(manager, "update_service", None) is not None:
+        manager.update_service.stop()
     monkeypatch.setattr(manager, "update_service", None, raising=False)
 
     mock_fetch = MagicMock(return_value=_FAKE_RELEASES)
@@ -651,7 +653,7 @@ def test_admin_refresh_updates_fallback(client, monkeypatch):
     res = client.post("/api/admin/updates/refresh")
     assert res.status_code == 200
     mock_fetch.cache_clear.assert_called_once()
-    mock_fetch.assert_called_once()
+    mock_fetch.assert_called_with("pivot-tactical/pivot-tactical", None)
     data = res.json()
     assert data["reachable"] is True
     assert len(data["releases"]) > 0
