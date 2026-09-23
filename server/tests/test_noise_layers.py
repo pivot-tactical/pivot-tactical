@@ -61,6 +61,19 @@ def test_man_made_peaks_in_mid_band():
     assert w.man_made > w.atmospheric and w.man_made > w.galactic
 
 
+def test_mains_buzz_and_ignition_ticks_helpers():
+    texture = NoiseTexture(SR, np.random.default_rng(10))
+    buzz = texture._mains_buzz(FRAME)
+    assert buzz.shape == (FRAME,)
+    assert buzz.dtype == np.float32
+    assert np.isfinite(buzz).all()
+
+    ticks = texture._ignition_ticks(FRAME)
+    assert ticks.shape == (FRAME,)
+    assert ticks.dtype == np.float32
+    assert np.isfinite(ticks).all()
+
+
 # --- texture: continuity and time variation ---------------------------------- #
 
 
