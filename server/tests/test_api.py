@@ -326,6 +326,93 @@ def test_retained_versions_list_and_delete(client, settings):
     assert client.delete("/api/admin/updates/retained/9.9.9").status_code == 404
 
 
+def test_admin_apply_update_success(client, monkeypatch):
+    """Applying an update downloads, stages, and notifies update service."""
+    from pivot.api import rest
+
+    monkeypatch.setattr(rest.UpdateManager, "staged_tag", lambda self: None)
+    monkeypatch.setattr(
+        rest.UpdateManager,
+        "download_and_stage",
+        lambda self, release, token=None, progress_cb=None: "/tmp/versions/app-1.2.0",
+    )
+
+    payload = {
+        "tag": "1.2.0",
+        "asset_url": "https://github.com/pivot-tactical/pivot-tactical/releases/download/v1.2.0/pivot.zip",
+        "sha256_url": "https://github.com/pivot-tactical/pivot-tactical/releases/download/v1.2.0/pivot.zip.sha256",
+        "sig_url": "https://github.com/pivot-tactical/pivot-tactical/releases/download/v1.2.0/pivot.zip.sig",
+        "asset_name": "pivot.zip",
+    }
+    r = client.post("/api/admin/updates/apply", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["staged"] is True
+    assert body["tag"] == "1.2.0"
+    assert body["staging"] == "/tmp/versions/app-1.2.0"
+    assert body["restart_required"] is True
+
+    service = client.app.state.update_service
+    assert service is not None
+    assert service.snapshot()["staged_tag"] == "1.2.0"
+
+
+def test_admin_apply_update_already_staged(client, monkeypatch):
+    """Applying an already-staged release skips download and returns early."""
+    from pivot.api import rest
+
+    monkeypatch.setattr(rest.UpdateManager, "staged_tag", lambda self: "1.2.0")
+
+    payload = {
+        "tag": "1.2.0",
+        "asset_url": "https://github.com/pivot-tactical/pivot-tactical/releases/download/v1.2.0/pivot.zip",
+        "asset_name": "pivot.zip",
+    }
+    r = client.post("/api/admin/updates/apply", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["staged"] is True
+    assert body["tag"] == "1.2.0"
+    assert body["already_staged"] is True
+    assert body["restart_required"] is True
+
+    service = client.app.state.update_service
+    assert service is not None
+    assert service.snapshot()["staged_tag"] == "1.2.0"
+
+
+def test_admin_apply_update_download_error(client, monkeypatch):
+    """Download failures in admin_apply_update raise 500 status."""
+    from pivot.api import rest
+
+    monkeypatch.setattr(rest.UpdateManager, "staged_tag", lambda self: None)
+
+    def mock_download_fail(self, release, token=None, progress_cb=None):
+        raise RuntimeError("Download failed: Network error")
+
+    monkeypatch.setattr(rest.UpdateManager, "download_and_stage", mock_download_fail)
+
+    payload = {
+        "tag": "1.2.0",
+        "asset_url": "https://github.com/pivot-tactical/pivot-tactical/releases/download/v1.2.0/pivot.zip",
+        "asset_name": "pivot.zip",
+    }
+    r = client.post("/api/admin/updates/apply", json=payload)
+    assert r.status_code == 500
+    assert "Download failed: Network error" in r.json()["detail"]
+
+
+def test_admin_apply_update_invalid_url(client):
+    """Non-GitHub/non-HTTPS asset URLs are rejected with 422 validation error."""
+    payload = {
+        "tag": "1.2.0",
+        "asset_url": "http://malicious.com/pivot.zip",
+        "asset_name": "pivot.zip",
+    }
+    r = client.post("/api/admin/updates/apply", json=payload)
+    assert r.status_code == 422
+
+
 def test_instructor_login_rate_limiting(raw_client):
     for _ in range(5):
         r = raw_client.post("/api/login", json={"role": "instructor", "password": "wrong"})
