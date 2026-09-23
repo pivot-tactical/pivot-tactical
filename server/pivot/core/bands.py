@@ -141,8 +141,9 @@ def snap_frequency(freq_hz: float, step_hz: float = TUNING_STEP_HZ) -> float:
 # --------------------------------------------------------------------------- #
 
 
-# SNR for a noise-toggled-off receive: high enough that the mixed-in texture is
-# inaudible under the voice, without disturbing the rest of the chain.
+# Default Signal-to-Noise Ratio (SNR in dB) when receive noise is toggled off:
+# high enough that the mixed-in texture is inaudible under voice audio,
+# without disturbing downstream signal processing.
 _NOISE_OFF_SNR_DB = 60.0
 
 
