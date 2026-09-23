@@ -73,6 +73,8 @@ export function Login({
     setBusy(true);
     try {
       await onTrainee(name.trim());
+    } catch {
+      // Ignore error as consumer handles/notifies or state resets
     } finally {
       setBusy(false);
     }
