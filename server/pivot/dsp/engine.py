@@ -96,6 +96,12 @@ class DspEngine:
 
     # -- band chain shared by clear & hash --------------------------------- #
 
+    def _effective_snr_db(self, conditions: BandConditions) -> float:
+        """Calculate effective SNR (dB) clamped to jamming floor if jammed."""
+        if conditions.jammed:
+            return min(conditions.snr_db, _JAM_RENDER_SNR_FLOOR_DB)
+        return conditions.snr_db
+
     def _band_chain(
         self,
         carrier: np.ndarray,
@@ -105,20 +111,14 @@ class DspEngine:
     ) -> np.ndarray:
         """Bandpass → fading → layered P.372 noise (to the band SNR)."""
         sr = self.sample_rate
-        x = bandpass(carrier, conditions.bandpass_low_hz, conditions.bandpass_high_hz, sr)
-        x = apply_fading(
-            x,
-            sr,
-            conditions,
-            rng,
-        )
-        texture = texture if texture is not None else self._texture(conditions, rng)
-        noise = texture.render(x.size, conditions)
-        snr_db = conditions.snr_db
-        if conditions.jammed:
-            snr_db = min(snr_db, _JAM_RENDER_SNR_FLOOR_DB)
-        out = add_noise_for_snr(x, noise, snr_db)
-        return out
+        bandpassed = bandpass(carrier, conditions.bandpass_low_hz, conditions.bandpass_high_hz, sr)
+        faded = apply_fading(bandpassed, sr, conditions, rng)
+
+        active_texture = texture if texture is not None else self._texture(conditions, rng)
+        noise = active_texture.render(faded.size, conditions)
+        snr_db = self._effective_snr_db(conditions)
+
+        return add_noise_for_snr(faded, noise, snr_db)
 
     def render_idle_noise(self, n_samples, conditions, rng=None):
         """The continuous ambient noise floor of an idle (un-keyed) channel.
