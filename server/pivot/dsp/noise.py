@@ -209,20 +209,18 @@ class NoiseTexture:
         crashes = env.astype(np.float32) * white_noise(n, self.rng)
         return (rumble + crashes) * storm
 
-    def _man_made(self, n: int) -> np.ndarray:
-        """Local hash: broadband pinkish noise, mains buzz, ignition ticks."""
+    def _mains_buzz(self, n: int) -> np.ndarray:
+        """Power-line buzz: odd-ish harmonics of 100 Hz through the voice band."""
         sr = self.sample_rate
-        activity = np.clip(self._man.step(n, sr, self.rng), 0.4, 1.8)
-        hash_ = 0.7 * pink_noise(n, self.rng) + 0.3 * white_noise(n, self.rng)
-
-        # Power-line buzz: odd-ish harmonics of 100 Hz through the voice band.
         t = (self._t + np.arange(n)) / sr
         k = np.arange(3, 29, 2)[:, np.newaxis]  # 300 Hz .. 2.8 kHz
         phases_k = self._buzz_phases[3:29:2, np.newaxis]
         buzz = np.sum((1.0 / k) * np.sin(2.0 * np.pi * 100.0 * k * t + phases_k), axis=0)
-        buzz = 0.25 * buzz / max(1e-6, float(np.max(np.abs(buzz))))
+        return 0.25 * buzz / max(1e-6, float(np.max(np.abs(buzz))))
 
-        # Sparse ignition-style ticks.
+    def _ignition_ticks(self, n: int) -> np.ndarray:
+        """Sparse ignition-style ticks."""
+        sr = self.sample_rate
         ticks = np.zeros(n, dtype=np.float32)
         n_ticks = self.rng.poisson(4.0 * n / sr)
         if n_ticks:
@@ -230,6 +228,15 @@ class NoiseTexture:
             for i in at:
                 ticks[i : i + 8] += np.float32(self.rng.uniform(1.5, 3.0))
             ticks = lowpass(ticks * white_noise(n, self.rng), 3000.0, sr)
+        return ticks
+
+    def _man_made(self, n: int) -> np.ndarray:
+        """Local hash: broadband pinkish noise, mains buzz, ignition ticks."""
+        sr = self.sample_rate
+        activity = np.clip(self._man.step(n, sr, self.rng), 0.4, 1.8)
+        hash_ = 0.7 * pink_noise(n, self.rng) + 0.3 * white_noise(n, self.rng)
+        buzz = self._mains_buzz(n)
+        ticks = self._ignition_ticks(n)
         return (hash_ + buzz.astype(np.float32) + ticks) * activity
 
     def _qrm(self, n: int) -> np.ndarray:
