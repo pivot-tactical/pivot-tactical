@@ -615,6 +615,55 @@ def test_update_check_graceful_when_unreachable(client, monkeypatch):
     assert r["reachable"] is False and r["available"] == []
 
 
+def test_admin_check_updates_with_service_applied(client, settings):
+    from pivot.updates.manager import UpdateManager
+
+    mock_service = MagicMock()
+    mock_service.snapshot.return_value = {
+        "reachable": True,
+        "available": [],
+        "auto_state": "applied",
+        "auto_message": "Update applied",
+    }
+    mgr = client.app.state.manager
+    mgr.update_service = mock_service
+
+    update_mgr = UpdateManager(version_info.version, versions_dir=settings.versions_dir)
+    pending_dir = settings.versions_dir / "app-2.0.0"
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    update_mgr.write_pending_marker(update_mgr.pending_marker_path, "2.0.0", pending_dir)
+
+    resp = client.get("/api/admin/updates/check")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["staged_tag"] == "2.0.0"
+    assert data["auto_staged"] == "2.0.0"
+    assert data["reachable"] is True
+
+
+def test_admin_check_updates_with_service_error(client):
+    mock_service = MagicMock()
+    mock_service.snapshot.return_value = {
+        "reachable": False,
+        "available": [],
+        "auto_state": "error",
+        "auto_message": "Network timeout",
+    }
+    mgr = client.app.state.manager
+    mgr.update_service = mock_service
+
+    resp = client.get("/api/admin/updates/check")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["auto_update_error"] == "Network timeout"
+    assert data["reachable"] is False
+
+
+def test_admin_check_updates_unauthenticated(raw_client):
+    resp = raw_client.get("/api/admin/updates/check")
+    assert resp.status_code == 401
+
+
 def test_default_frequency_setting_snaps_to_tuning_grid(client):
     """An off-grid default start frequency is snapped to a tunable one when
     saved, so operators can't persist a value the radios can't use."""
