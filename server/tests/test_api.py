@@ -615,6 +615,48 @@ def test_update_check_graceful_when_unreachable(client, monkeypatch):
     assert r["reachable"] is False and r["available"] == []
 
 
+def test_admin_refresh_updates_with_service(client, monkeypatch):
+    """POST /admin/updates/refresh clears cache and delegates to update_service when present."""
+    mock_service = MagicMock()
+    mock_service.refresh.return_value = {
+        "status": "ok",
+        "auto_state": "applied",
+        "reachable": True,
+    }
+    manager = client.app.state.manager
+    monkeypatch.setattr(manager, "update_service", mock_service)
+
+    mock_fetch = MagicMock()
+    mock_fetch.cache_clear = MagicMock()
+    monkeypatch.setattr("pivot.updates.github.fetch_releases", mock_fetch)
+
+    res = client.post("/api/admin/updates/refresh")
+    assert res.status_code == 200
+    mock_fetch.cache_clear.assert_called_once()
+    mock_service.refresh.assert_called_once()
+    data = res.json()
+    assert data["status"] == "ok"
+    assert "staged_tag" in data
+
+
+def test_admin_refresh_updates_fallback(client, monkeypatch):
+    """POST /admin/updates/refresh falls back to live check when no update_service exists."""
+    manager = client.app.state.manager
+    monkeypatch.setattr(manager, "update_service", None, raising=False)
+
+    mock_fetch = MagicMock(return_value=_FAKE_RELEASES)
+    mock_fetch.cache_clear = MagicMock()
+    monkeypatch.setattr("pivot.updates.github.fetch_releases", mock_fetch)
+
+    res = client.post("/api/admin/updates/refresh")
+    assert res.status_code == 200
+    mock_fetch.cache_clear.assert_called_once()
+    mock_fetch.assert_called_once()
+    data = res.json()
+    assert data["reachable"] is True
+    assert len(data["releases"]) > 0
+
+
 def test_default_frequency_setting_snaps_to_tuning_grid(client):
     """An off-grid default start frequency is snapped to a tunable one when
     saved, so operators can't persist a value the radios can't use."""
