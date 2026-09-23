@@ -697,6 +697,33 @@ def test_rx_noise_toggle_over_rest_and_ws(client):
         assert update["payload"][0]["rx_noise"] is True
 
 
+def test_admin_tune_instructor_radio_rest(client):
+    """Test POST /api/admin/instructor-radios/{radio_id}/tune REST endpoint happy path, 404, and 409."""
+    from unittest.mock import patch
+    from pivot.core.radios import RadioBusyError
+
+    radio = client.post("/api/admin/instructor-radios", json={"frequency": "40.000 MHz"}).json()
+    rid = radio["radio_id"]
+
+    # Happy path
+    resp = client.post(f"/api/admin/instructor-radios/{rid}/tune", json={"frequency": "50.000 MHz"})
+    assert resp.status_code == 200
+    assert "50.000" in resp.json()["frequency"]
+
+    # 404 Unknown radio
+    resp = client.post(
+        "/api/admin/instructor-radios/non-existent-id/tune", json={"frequency": "50.000 MHz"}
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "unknown radio"
+
+    # 409 RadioBusyError
+    with patch.object(client.app.state.manager, "tune", side_effect=RadioBusyError("radio is busy")):
+        resp = client.post(f"/api/admin/instructor-radios/{rid}/tune", json={"frequency": "50.000 MHz"})
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "radio is busy"
+
+
 def test_websocket_audio_frame_is_recorded(client):
     # A binary PCM frame sent while keyed is tapped for the recording, so the
     # event ends with non-zero duration and a WAV on disk.
