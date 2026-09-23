@@ -19,6 +19,11 @@ export function setToken(t: string | null) {
   if (t) sessionStorage.setItem("pivot_instructor", "1");
   else sessionStorage.removeItem("pivot_instructor");
 }
+
+/**
+ * Returns "cookie" if instructor session is active, or null otherwise.
+ * The actual auth token is managed via an HttpOnly cookie.
+ */
 export function getToken() {
   return instructorSessionActive ? "cookie" : null;
 }
