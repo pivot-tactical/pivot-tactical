@@ -55,11 +55,13 @@ describe("SevenSegmentClock", () => {
     const date = new Date("2024-01-01T12:34:56Z");
     vi.setSystemTime(date);
 
-    const spy = vi
-      .spyOn(Intl.DateTimeFormat.prototype, "format", "get")
-      .mockReturnValue(() => {
-        throw new Error("Format error");
-      });
+    const spy = vi.spyOn(Intl, "DateTimeFormat").mockImplementation(() => {
+      return {
+        format: () => {
+          throw new Error("Format error");
+        },
+      } as unknown as Intl.DateTimeFormat;
+    });
 
     render(<SevenSegmentClock timezone="UTC" />);
 
