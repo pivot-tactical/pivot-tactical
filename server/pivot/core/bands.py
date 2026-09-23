@@ -340,6 +340,24 @@ class NetScenario:
         )
 
 
+def _lerp(a: float, b: float, t: float) -> float:
+    """Linear interpolation between ``a`` and ``b`` with factor ``t``."""
+    return a + (b - a) * t
+
+
+def _interpolate_anchors(lo: CurveAnchor, hi: CurveAnchor, freq_hz: float) -> CurveAnchor:
+    """Interpolate attributes between two anchors in log-frequency space."""
+    t = (math.log10(freq_hz) - math.log10(lo.freq_hz)) / (
+        math.log10(hi.freq_hz) - math.log10(lo.freq_hz)
+    )
+    return CurveAnchor(
+        freq_hz=freq_hz,
+        snr_db=_lerp(lo.snr_db, hi.snr_db, t),
+        fading_depth_db=_lerp(lo.fading_depth_db, hi.fading_depth_db, t),
+        fading_rate_hz=_lerp(lo.fading_rate_hz, hi.fading_rate_hz, t),
+    )
+
+
 @dataclass
 class BandProfile:
     """The single active band profile (spec §5.1 ``band_profile`` row).
@@ -375,21 +393,7 @@ class BandProfile:
             return self.anchors[0]
         if i >= len(self.anchors):
             return self.anchors[-1]
-        lo, hi = self.anchors[i - 1], self.anchors[i]
-        # Position in log space between the two surrounding anchors.
-        t = (math.log10(freq_hz) - math.log10(lo.freq_hz)) / (
-            math.log10(hi.freq_hz) - math.log10(lo.freq_hz)
-        )
-
-        def lerp(a: float, b: float) -> float:
-            return a + (b - a) * t
-
-        return CurveAnchor(
-            freq_hz=freq_hz,
-            snr_db=lerp(lo.snr_db, hi.snr_db),
-            fading_depth_db=lerp(lo.fading_depth_db, hi.fading_depth_db),
-            fading_rate_hz=lerp(lo.fading_rate_hz, hi.fading_rate_hz),
-        )
+        return _interpolate_anchors(self.anchors[i - 1], self.anchors[i], freq_hz)
 
     # -- resolution -------------------------------------------------------- #
 
