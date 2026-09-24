@@ -1610,3 +1610,25 @@ def test_trainee_hears_both_of_its_radios_at_once(client):
             if {"two-nets", second} <= tags:
                 break
         assert {"two-nets", second} <= tags, f"only heard {tags}"
+
+
+def test_admin_add_instructor_radio(client, raw_client):
+    # Test unauthorized access
+    unauth_resp = raw_client.post("/api/admin/instructor-radios", json={"label": "Test Radio"})
+    assert unauth_resp.status_code == 401
+
+    # Test adding an instructor radio with custom label and frequency
+    resp = client.post(
+        "/api/admin/instructor-radios",
+        json={"label": "Command Net", "frequency": "50.000 MHz"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "INSTRUCTOR (Command Net)"
+    assert data["frequency_hz"] == 50000000.0
+
+    # Test adding an instructor radio with default / empty payload
+    default_resp = client.post("/api/admin/instructor-radios", json={})
+    assert default_resp.status_code == 200
+    default_data = default_resp.json()
+    assert "radio_id" in default_data
