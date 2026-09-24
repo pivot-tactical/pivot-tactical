@@ -266,6 +266,40 @@ def test_restart_ok_when_wired(client):
     assert "mode" in body
 
 
+def test_admin_restart_staged_version_and_background_task(client, settings):
+    import json
+
+    staged_dir = settings.versions_dir / "app-2.0.0"
+    (staged_dir / "_internal").mkdir(parents=True)
+    pending_file = settings.versions_dir / "pending_update.json"
+    pending_file.write_text(json.dumps({"target": "2.0.0", "staging": str(staged_dir)}))
+
+    called: list[bool] = []
+    client.app.state.request_restart = lambda: called.append(True)
+
+    r = client.post("/api/admin/restart", json={})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["restarting"] is True
+    assert body["staged"] == "2.0.0"
+    assert "mode" in body
+
+    assert called == [True]
+
+
+def test_admin_restart_unauthenticated(raw_client):
+    r = raw_client.post("/api/admin/restart")
+    assert r.status_code == 401
+
+
+def test_admin_restart_omitted_request_body(client):
+    client.app.state.request_restart = lambda: None
+    r = client.post("/api/admin/restart")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["restarting"] is True
+
+
 def test_rollback_without_retained_version_is_409(client):
     r = client.post("/api/admin/updates/rollback", json={})
     assert r.status_code == 409
