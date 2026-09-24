@@ -762,6 +762,31 @@ def test_default_frequency_setting_snaps_to_tuning_grid(client):
     assert cfg["default_frequency_hz"] == 7_003_000.0
 
 
+def test_admin_update_settings_live_updates_and_filtering(client):
+    """POST /api/admin/settings applies whitelisted settings, filters unknown keys,
+    and updates live manager timezone, crypto enable, and crypto delay."""
+    payload = {
+        "whisper_language": "fr",
+        "display_timezone": "UTC",
+        "crypto_enabled": True,
+        "crypto_delay_ms": 250,
+        "invalid_unknown_key": "should_be_ignored",
+    }
+    r = client.post("/api/admin/settings", json=payload)
+    assert r.status_code == 200
+    res = r.json()
+    assert "invalid_unknown_key" not in res["applied"]
+    assert res["applied"]["whisper_language"] == "fr"
+    assert res["applied"]["display_timezone"] == "UTC"
+    assert res["applied"]["crypto_enabled"] is True
+    assert res["applied"]["crypto_delay_ms"] == 250
+
+    manager = client.app.state.manager
+    assert manager.get_config()["display_timezone"] == "UTC"
+    assert manager.band_profile.crypto_enabled is True
+    assert manager.band_profile.crypto_delay_ms == 250
+
+
 def test_event_audio_404_when_no_recording(client):
     # An event logged without captured audio (no voice transport) has no WAV on
     # disk; playback must 404 gracefully, not 500.
