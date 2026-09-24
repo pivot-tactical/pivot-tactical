@@ -88,6 +88,23 @@ describe("Login", () => {
     });
   });
 
+  it("resets busy state when trainee submission fails", async () => {
+    const user = userEvent.setup();
+    mockOnTrainee.mockRejectedValueOnce(new Error("Connection error"));
+
+    render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
+
+    const input = screen.getByPlaceholderText("e.g. ALPHA-1");
+    await user.type(input, "ALPHA-1");
+
+    const joinBtn = screen.getByRole("button", { name: /Join Net/i });
+    await user.click(joinBtn).catch(() => {});
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Join Net/i })).not.toBeDisabled();
+    });
+  });
+
   it("shows Signing in... busy state during asynchronous instructor submission", async () => {
     const user = userEvent.setup();
     let resolveInstructor: () => void = () => {};
