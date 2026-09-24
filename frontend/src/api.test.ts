@@ -42,6 +42,18 @@ describe('api token management', () => {
       expect(sessionStorage.getItem('pivot_instructor')).toBeNull();
     });
 
+    it('should clear the token flag and remove from sessionStorage when passing empty string', async () => {
+      const api = await import('./api');
+      const testToken = 'test-token-789';
+      api.setToken(testToken);
+
+      // Clear token with empty string
+      api.setToken('');
+
+      expect(api.getToken()).toBeNull();
+      expect(sessionStorage.getItem('pivot_instructor')).toBeNull();
+    });
+
     it('should return null when token is not set', async () => {
       const api = await import('./api');
       expect(api.getToken()).toBeNull();

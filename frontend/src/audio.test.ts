@@ -207,6 +207,36 @@ describe("playSyncTone", () => {
     expect(mockOscillators[0].stop).toHaveBeenCalledWith(100 + 0.5);
     expect(mockOscillators[1].stop).toHaveBeenCalledWith(100 + 0.5);
   });
+
+  it("returns early if AudioContext and webkitAudioContext are unavailable", async () => {
+    vi.stubGlobal("AudioContext", undefined);
+    vi.stubGlobal("webkitAudioContext", undefined);
+
+    const { playSyncTone } = await import("./audio");
+    playSyncTone();
+
+    expect(mockAudioContext).not.toHaveBeenCalled();
+    expect(mockGain.gain.setValueAtTime).not.toHaveBeenCalled();
+  });
+
+  it("falls back to webkitAudioContext if AudioContext is undefined", async () => {
+    vi.stubGlobal("AudioContext", undefined);
+    vi.stubGlobal("webkitAudioContext", mockAudioContext);
+
+    const { playSyncTone } = await import("./audio");
+    playSyncTone();
+
+    expect(mockAudioContext).toHaveBeenCalledTimes(1);
+    expect(mockGain.gain.setValueAtTime).toHaveBeenCalledWith(0.0001, 100);
+  });
+
+  it("reuses cached toneCtx on subsequent playSyncTone calls", async () => {
+    const { playSyncTone } = await import("./audio");
+    playSyncTone();
+    playSyncTone();
+
+    expect(mockAudioContext).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("playClick", () => {
