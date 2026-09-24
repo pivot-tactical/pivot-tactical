@@ -302,6 +302,30 @@ def test_rollback_syncs_update_service_cache(client, settings):
     assert service.snapshot()["staged_tag"] == "1.1.0"
 
 
+def test_rollback_with_explicit_tag(client, settings):
+    v1 = settings.versions_dir / "app-1.0.0"
+    (v1 / "_internal").mkdir(parents=True)
+    (v1 / "PIVOT-Tactical").write_text("retained 1.0.0")
+
+    v2 = settings.versions_dir / "app-1.1.0"
+    (v2 / "_internal").mkdir(parents=True)
+    (v2 / "PIVOT-Tactical").write_text("retained 1.1.0")
+
+    r = client.post("/api/admin/updates/rollback", json={"tag": "1.0.0"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["rollback"] is True
+    assert body["tag"] == "1.0.0"
+
+
+def test_rollback_invalid_tag_404(client, settings):
+    v1 = settings.versions_dir / "app-1.0.0"
+    (v1 / "_internal").mkdir(parents=True)
+
+    r = client.post("/api/admin/updates/rollback", json={"tag": "9.9.9"})
+    assert r.status_code == 404
+
+
 def test_retained_versions_list_and_delete(client, settings):
     # Two versions kept on disk; the pane lists them with sizes and can delete.
     v1 = settings.versions_dir / "app-1.1.0"
@@ -324,6 +348,93 @@ def test_retained_versions_list_and_delete(client, settings):
 
     # Deleting something that isn't there is a 404, not a silent success.
     assert client.delete("/api/admin/updates/retained/9.9.9").status_code == 404
+
+
+def test_admin_apply_update_success(client, monkeypatch):
+    """Applying an update downloads, stages, and notifies update service."""
+    from pivot.api import rest
+
+    monkeypatch.setattr(rest.UpdateManager, "staged_tag", lambda self: None)
+    monkeypatch.setattr(
+        rest.UpdateManager,
+        "download_and_stage",
+        lambda self, release, token=None, progress_cb=None: "/tmp/versions/app-1.2.0",
+    )
+
+    payload = {
+        "tag": "1.2.0",
+        "asset_url": "https://github.com/pivot-tactical/pivot-tactical/releases/download/v1.2.0/pivot.zip",
+        "sha256_url": "https://github.com/pivot-tactical/pivot-tactical/releases/download/v1.2.0/pivot.zip.sha256",
+        "sig_url": "https://github.com/pivot-tactical/pivot-tactical/releases/download/v1.2.0/pivot.zip.sig",
+        "asset_name": "pivot.zip",
+    }
+    r = client.post("/api/admin/updates/apply", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["staged"] is True
+    assert body["tag"] == "1.2.0"
+    assert body["staging"] == "/tmp/versions/app-1.2.0"
+    assert body["restart_required"] is True
+
+    service = client.app.state.update_service
+    assert service is not None
+    assert service.snapshot()["staged_tag"] == "1.2.0"
+
+
+def test_admin_apply_update_already_staged(client, monkeypatch):
+    """Applying an already-staged release skips download and returns early."""
+    from pivot.api import rest
+
+    monkeypatch.setattr(rest.UpdateManager, "staged_tag", lambda self: "1.2.0")
+
+    payload = {
+        "tag": "1.2.0",
+        "asset_url": "https://github.com/pivot-tactical/pivot-tactical/releases/download/v1.2.0/pivot.zip",
+        "asset_name": "pivot.zip",
+    }
+    r = client.post("/api/admin/updates/apply", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["staged"] is True
+    assert body["tag"] == "1.2.0"
+    assert body["already_staged"] is True
+    assert body["restart_required"] is True
+
+    service = client.app.state.update_service
+    assert service is not None
+    assert service.snapshot()["staged_tag"] == "1.2.0"
+
+
+def test_admin_apply_update_download_error(client, monkeypatch):
+    """Download failures in admin_apply_update raise 500 status."""
+    from pivot.api import rest
+
+    monkeypatch.setattr(rest.UpdateManager, "staged_tag", lambda self: None)
+
+    def mock_download_fail(self, release, token=None, progress_cb=None):
+        raise RuntimeError("Download failed: Network error")
+
+    monkeypatch.setattr(rest.UpdateManager, "download_and_stage", mock_download_fail)
+
+    payload = {
+        "tag": "1.2.0",
+        "asset_url": "https://github.com/pivot-tactical/pivot-tactical/releases/download/v1.2.0/pivot.zip",
+        "asset_name": "pivot.zip",
+    }
+    r = client.post("/api/admin/updates/apply", json=payload)
+    assert r.status_code == 500
+    assert "Download failed: Network error" in r.json()["detail"]
+
+
+def test_admin_apply_update_invalid_url(client):
+    """Non-GitHub/non-HTTPS asset URLs are rejected with 422 validation error."""
+    payload = {
+        "tag": "1.2.0",
+        "asset_url": "http://malicious.com/pivot.zip",
+        "asset_name": "pivot.zip",
+    }
+    r = client.post("/api/admin/updates/apply", json=payload)
+    assert r.status_code == 422
 
 
 def test_instructor_login_rate_limiting(raw_client):
@@ -615,6 +726,97 @@ def test_update_check_graceful_when_unreachable(client, monkeypatch):
     assert r["reachable"] is False and r["available"] == []
 
 
+def test_admin_refresh_updates_with_service(client, monkeypatch):
+    """POST /admin/updates/refresh clears cache and delegates to update_service when present."""
+    mock_service = MagicMock()
+    mock_service.refresh.return_value = {
+        "status": "ok",
+        "auto_state": "applied",
+        "reachable": True,
+    }
+    manager = client.app.state.manager
+    monkeypatch.setattr(manager, "update_service", mock_service)
+
+    mock_fetch = MagicMock()
+    mock_fetch.cache_clear = MagicMock()
+    monkeypatch.setattr("pivot.updates.github.fetch_releases", mock_fetch)
+
+    res = client.post("/api/admin/updates/refresh")
+    assert res.status_code == 200
+    mock_fetch.cache_clear.assert_called_once()
+    mock_service.refresh.assert_called_once()
+    data = res.json()
+    assert data["status"] == "ok"
+    assert "staged_tag" in data
+
+
+def test_admin_refresh_updates_fallback(client, monkeypatch):
+    """POST /admin/updates/refresh falls back to live check when no update_service exists."""
+    manager = client.app.state.manager
+    if getattr(manager, "update_service", None) is not None:
+        manager.update_service.stop()
+    monkeypatch.setattr(manager, "update_service", None, raising=False)
+
+    mock_fetch = MagicMock(return_value=_FAKE_RELEASES)
+    mock_fetch.cache_clear = MagicMock()
+    monkeypatch.setattr("pivot.updates.github.fetch_releases", mock_fetch)
+
+    res = client.post("/api/admin/updates/refresh")
+    assert res.status_code == 200
+    mock_fetch.cache_clear.assert_called_once()
+    mock_fetch.assert_called_with("pivot-tactical/pivot-tactical", None)
+    data = res.json()
+    assert data["reachable"] is True
+    assert len(data["releases"]) > 0
+def test_admin_check_updates_with_service_applied(client, settings):
+    from pivot.updates.manager import UpdateManager
+
+    mock_service = MagicMock()
+    mock_service.snapshot.return_value = {
+        "reachable": True,
+        "available": [],
+        "auto_state": "applied",
+        "auto_message": "Update applied",
+    }
+    mgr = client.app.state.manager
+    mgr.update_service = mock_service
+
+    update_mgr = UpdateManager(version_info.version, versions_dir=settings.versions_dir)
+    pending_dir = settings.versions_dir / "app-2.0.0"
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    update_mgr.write_pending_marker(update_mgr.pending_marker_path, "2.0.0", pending_dir)
+
+    resp = client.get("/api/admin/updates/check")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["staged_tag"] == "2.0.0"
+    assert data["auto_staged"] == "2.0.0"
+    assert data["reachable"] is True
+
+
+def test_admin_check_updates_with_service_error(client):
+    mock_service = MagicMock()
+    mock_service.snapshot.return_value = {
+        "reachable": False,
+        "available": [],
+        "auto_state": "error",
+        "auto_message": "Network timeout",
+    }
+    mgr = client.app.state.manager
+    mgr.update_service = mock_service
+
+    resp = client.get("/api/admin/updates/check")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["auto_update_error"] == "Network timeout"
+    assert data["reachable"] is False
+
+
+def test_admin_check_updates_unauthenticated(raw_client):
+    resp = raw_client.get("/api/admin/updates/check")
+    assert resp.status_code == 401
+
+
 def test_default_frequency_setting_snaps_to_tuning_grid(client):
     """An off-grid default start frequency is snapped to a tunable one when
     saved, so operators can't persist a value the radios can't use."""
@@ -624,6 +826,31 @@ def test_default_frequency_setting_snaps_to_tuning_grid(client):
 
     cfg = client.get("/api/admin/config").json()
     assert cfg["default_frequency_hz"] == 7_003_000.0
+
+
+def test_admin_update_settings_live_updates_and_filtering(client):
+    """POST /api/admin/settings applies whitelisted settings, filters unknown keys,
+    and updates live manager timezone, crypto enable, and crypto delay."""
+    payload = {
+        "whisper_language": "fr",
+        "display_timezone": "UTC",
+        "crypto_enabled": True,
+        "crypto_delay_ms": 250,
+        "invalid_unknown_key": "should_be_ignored",
+    }
+    r = client.post("/api/admin/settings", json=payload)
+    assert r.status_code == 200
+    res = r.json()
+    assert "invalid_unknown_key" not in res["applied"]
+    assert res["applied"]["whisper_language"] == "fr"
+    assert res["applied"]["display_timezone"] == "UTC"
+    assert res["applied"]["crypto_enabled"] is True
+    assert res["applied"]["crypto_delay_ms"] == 250
+
+    manager = client.app.state.manager
+    assert manager.get_config()["display_timezone"] == "UTC"
+    assert manager.band_profile.crypto_enabled is True
+    assert manager.band_profile.crypto_delay_ms == 250
 
 
 def test_event_audio_404_when_no_recording(client):
@@ -695,6 +922,55 @@ def test_rx_noise_toggle_over_rest_and_ws(client):
         wsconn.send_json({"type": "instr_rx_noise", "payload": {"radio_id": rid, "enabled": True}})
         update = _recv_until(wsconn, "instructor_radios")
         assert update["payload"][0]["rx_noise"] is True
+
+
+def test_admin_mode_instructor_radio(client):
+    """Setting mode on an instructor radio over REST, handling 404 for unknown radios and 409 when busy."""
+    radio = client.post("/api/admin/instructor-radios", json={"frequency": "40.000 MHz"}).json()
+    rid = radio["radio_id"]
+    assert radio["mode"] == "Plain"
+
+    r = client.post(f"/api/admin/instructor-radios/{rid}/mode", json={"mode": "Cypher"})
+    assert r.status_code == 200
+    assert r.json()["mode"] == "Cypher"
+    assert client.get("/api/admin/instructor-radios").json()[0]["mode"] == "Cypher"
+
+    # Unknown radio -> 404
+    r_404 = client.post("/api/admin/instructor-radios/instr-999/mode", json={"mode": "Plain"})
+    assert r_404.status_code == 404
+    assert r_404.json()["detail"] == "unknown radio"
+
+    # Busy radio -> 409
+    manager = client.app.state.manager
+    with patch.object(manager, "set_mode", side_effect=RadioBusyError("radio is busy")):
+        r_409 = client.post(f"/api/admin/instructor-radios/{rid}/mode", json={"mode": "Plain"})
+        assert r_409.status_code == 409
+        assert "radio is busy" in r_409.json()["detail"]
+def test_admin_tune_instructor_radio_rest(client):
+    """Test POST /api/admin/instructor-radios/{radio_id}/tune REST endpoint happy path, 404, and 409."""
+    from unittest.mock import patch
+    from pivot.core.radios import RadioBusyError
+
+    radio = client.post("/api/admin/instructor-radios", json={"frequency": "40.000 MHz"}).json()
+    rid = radio["radio_id"]
+
+    # Happy path
+    resp = client.post(f"/api/admin/instructor-radios/{rid}/tune", json={"frequency": "50.000 MHz"})
+    assert resp.status_code == 200
+    assert "50.000" in resp.json()["frequency"]
+
+    # 404 Unknown radio
+    resp = client.post(
+        "/api/admin/instructor-radios/non-existent-id/tune", json={"frequency": "50.000 MHz"}
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "unknown radio"
+
+    # 409 RadioBusyError
+    with patch.object(client.app.state.manager, "tune", side_effect=RadioBusyError("radio is busy")):
+        resp = client.post(f"/api/admin/instructor-radios/{rid}/tune", json={"frequency": "50.000 MHz"})
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "radio is busy"
 
 
 def test_websocket_audio_frame_is_recorded(client):
