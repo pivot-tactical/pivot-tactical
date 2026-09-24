@@ -1647,6 +1647,29 @@ def test_trainee_hears_both_of_its_radios_at_once(client):
         assert {"two-nets", second} <= tags, f"only heard {tags}"
 
 
+def test_admin_remove_instructor_radio_success_and_404(client):
+    # Create an instructor radio via POST
+    radio = client.post("/api/admin/instructor-radios", json={"frequency": "30.000 MHz"}).json()
+    rid = radio["radio_id"]
+
+    # Delete the instructor radio via DELETE
+    r = client.delete(f"/api/admin/instructor-radios/{rid}")
+    assert r.status_code == 200
+    assert r.json() == {"removed": rid}
+
+    # Verify it is no longer in the list
+    radios = client.get("/api/admin/instructor-radios").json()
+    assert not any(item["radio_id"] == rid for item in radios)
+
+    # Deleting a non-existent instructor radio returns 404
+    r404 = client.delete("/api/admin/instructor-radios/non-existent-radio-id")
+    assert r404.status_code == 404
+    assert r404.json() == {"detail": "instructor radio not found"}
+
+
+def test_admin_remove_instructor_radio_unauthenticated(raw_client):
+    r = raw_client.delete("/api/admin/instructor-radios/some-id")
+    assert r.status_code == 401
 def test_admin_list_instructor_radios(client):
     # Initial listing returns a list of instructor radios.
     initial_resp = client.get("/api/admin/instructor-radios")
