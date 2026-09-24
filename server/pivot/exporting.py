@@ -13,7 +13,7 @@ import io
 import zipfile
 from pathlib import Path
 
-from pivot.audio.recording import session_dir_name
+from pivot.audio.recording import UnsafeRecordingPath, recording_path, session_dir_name
 from pivot.core.timebase import format_clock, parse_iso_utc
 from pivot.db.config_store import ConfigStore
 from pivot.db.database import Database
@@ -107,10 +107,10 @@ def export_zip(db: Database, settings, session_id: str) -> bytes:
         for e in events:
             if not e.get("audio_path"):
                 continue
-            audio_p = Path(e["audio_path"])
-            if audio_p.is_absolute() or ".." in audio_p.parts:
+            try:
+                wav_path = recording_path(base_dir, e["audio_path"])
+            except UnsafeRecordingPath:
                 continue
-            wav_path = (base_dir / e["audio_path"]).resolve()
-            if wav_path.is_relative_to(base_dir) and wav_path.is_file():
-                zf.write(wav_path, arcname=f"{root}/recordings/{audio_p.name}")
+            if wav_path.is_file():
+                zf.write(wav_path, arcname=f"{root}/recordings/{wav_path.name}")
     return buf.getvalue()
