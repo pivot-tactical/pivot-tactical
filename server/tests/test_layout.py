@@ -156,6 +156,43 @@ def test_remove_link_rmdir_success(tmp_path, monkeypatch):
     assert len(rmtree_called) == 0
 
 
+def test_is_link_oserror(tmp_path, monkeypatch):
+    import os
+
+    from pivot.updates.layout import _is_link
+
+    path = tmp_path / "some_file"
+
+    def mock_lstat(p):
+        raise OSError("lstat error")
+
+    monkeypatch.setattr(os, "lstat", mock_lstat)
+    assert _is_link(path) is False
+
+
+def test_remove_link_was_link_raises_oserror(tmp_path, monkeypatch):
+    import os
+
+    from pivot.updates.layout import _remove_link
+
+    link = tmp_path / "fake_link"
+    link.touch()
+
+    monkeypatch.setattr("pivot.updates.layout._is_link", lambda p: True)
+
+    def mock_unlink(path):
+        raise OSError("unlink failed")
+
+    def mock_rmdir(path):
+        raise OSError("rmdir failed")
+
+    monkeypatch.setattr(os, "unlink", mock_unlink)
+    monkeypatch.setattr(os, "rmdir", mock_rmdir)
+
+    with pytest.raises(OSError, match="Refusing to delete it recursively"):
+        _remove_link(link)
+
+
 def test_layout_properties(tmp_path):
     layout = Layout(tmp_path / "versions")
     assert layout.staging == tmp_path / "versions" / "_staging"

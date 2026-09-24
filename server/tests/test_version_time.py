@@ -7,6 +7,7 @@ from pivot.core.timebase import (
     parse_iso_utc,
     resolve_timezone,
     to_iso_utc,
+    utc_now,
 )
 from pivot.version import SemVer
 
@@ -149,3 +150,33 @@ def test_pivot_package_root_version_exports():
     assert hasattr(pivot, "__version__")
     assert hasattr(pivot, "version_info")
     assert pivot.__version__ == pivot.version_info.version
+
+
+def test_resolve_timezone_utc_fallback_exceptions():
+    from unittest.mock import patch
+    from zoneinfo import ZoneInfoNotFoundError
+
+    with patch("pivot.core.timebase.ZoneInfo", side_effect=ZoneInfoNotFoundError("Missing")):
+        assert resolve_timezone("Invalid/Zone") is UTC
+
+    with patch("pivot.core.timebase.ZoneInfo", side_effect=ValueError("Invalid")):
+        assert resolve_timezone("Invalid/Zone") is UTC
+
+    with patch("pivot.core.timebase.ZoneInfo", side_effect=KeyError("Missing")):
+        assert resolve_timezone("Invalid/Zone") is UTC
+
+
+def test_utc_now():
+    now = utc_now()
+    assert now.tzinfo == UTC
+
+
+def test_parse_iso_utc_naive_string():
+    dt = parse_iso_utc("2026-06-05T12:00:00")
+    assert dt.tzinfo == UTC
+    assert dt == datetime(2026, 6, 5, 12, 0, 0, tzinfo=UTC)
+
+
+def test_format_clock_naive_datetime():
+    dt = datetime(2026, 6, 5, 12, 0, 0)
+    assert format_clock(dt, "UTC") == "12:00:00"
