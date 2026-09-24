@@ -1647,6 +1647,30 @@ def test_trainee_hears_both_of_its_radios_at_once(client):
         assert {"two-nets", second} <= tags, f"only heard {tags}"
 
 
+def test_admin_rx_noise_instructor_radio_success(client):
+    radio = client.post("/api/admin/instructor-radios", json={"frequency": "40.000 MHz"}).json()
+    rid = radio["radio_id"]
+
+    r = client.post(f"/api/admin/instructor-radios/{rid}/rx-noise", json={"enabled": False})
+    assert r.status_code == 200
+    assert r.json()["rx_noise"] is False
+
+    r = client.post(f"/api/admin/instructor-radios/{rid}/rx-noise", json={"enabled": True})
+    assert r.status_code == 200
+    assert r.json()["rx_noise"] is True
+
+
+def test_admin_rx_noise_instructor_radio_404(client):
+    r = client.post("/api/admin/instructor-radios/non-existent-id/rx-noise", json={"enabled": False})
+    assert r.status_code == 404
+    assert r.json() == {"detail": "unknown radio"}
+
+
+def test_admin_rx_noise_instructor_radio_unauthorized(raw_client):
+    r = raw_client.post(
+        "/api/admin/instructor-radios/some-id/rx-noise", json={"enabled": False}
+    )
+    assert r.status_code == 401
 def test_admin_config_endpoint(client):
     r = client.get("/api/admin/config")
     assert r.status_code == 200
