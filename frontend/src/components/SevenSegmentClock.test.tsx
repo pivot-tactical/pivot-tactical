@@ -41,6 +41,35 @@ describe("SevenSegmentClock", () => {
     spy.mockRestore();
   });
 
+  it("handles invalid timezone string gracefully and falls back to ISO time", () => {
+    const date = new Date("2024-01-01T12:34:56Z");
+    vi.setSystemTime(date);
+
+    render(<SevenSegmentClock timezone="Invalid/Timezone" />);
+
+    expect(screen.getByText("12:34:56")).toBeInTheDocument();
+    expect(screen.getByText("Invalid/Timezone")).toBeInTheDocument();
+  });
+
+  it("handles error during formatter.format and falls back to ISO time", () => {
+    const date = new Date("2024-01-01T12:34:56Z");
+    vi.setSystemTime(date);
+
+    const spy = vi.spyOn(Intl, "DateTimeFormat").mockImplementation(() => {
+      return {
+        format: () => {
+          throw new Error("Format error");
+        },
+      } as unknown as Intl.DateTimeFormat;
+    });
+
+    render(<SevenSegmentClock timezone="UTC" />);
+
+    expect(screen.getByText("12:34:56")).toBeInTheDocument();
+
+    spy.mockRestore();
+  });
+
   it("updates time on interval", () => {
     const date = new Date("2024-01-01T12:34:56Z");
     vi.setSystemTime(date);
