@@ -195,6 +195,7 @@ def create_app(
 
     from pivot.api.ws import _ALLOW_ORIGIN_REGEX_STR, _ALLOW_ORIGINS
 
+    # Restrict CORS origins strictly to local development addresses and RFC1918 private LAN ranges
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_ALLOW_ORIGINS,
