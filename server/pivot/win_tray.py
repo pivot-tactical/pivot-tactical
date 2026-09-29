@@ -45,13 +45,11 @@ shell32 = ctypes.WinDLL("shell32", use_last_error=True)
 # blank white rectangle). Declaring prototypes makes ctypes pass/return the full
 # 64-bit values. We only need this for calls that take or return handles.
 LRESULT = ctypes.c_ssize_t
-HMENU = ctypes.c_uint64
+HMENU = wintypes.HMENU
 HWND = wintypes.HWND
 
 # CreateWindowExW's parameter list, kept as a module constant so the call site
-# can be checked against it in tests. Note that HMENU is an *integer* type:
-# ctypes rejects ``None`` for those ("argument 10: TypeError: wrong type"), so
-# the hMenu slot must be passed as 0, not None.
+# can be checked against it in tests.
 CREATE_WINDOW_EX_ARGTYPES = [
     wintypes.DWORD,  # dwExStyle
     wintypes.LPCWSTR,  # lpClassName
