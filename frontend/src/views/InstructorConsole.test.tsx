@@ -241,6 +241,9 @@ describe('InstructorConsole', () => {
     // Character-level: the changed digit is marked, but not the whole number.
     expect(highlighted).toContain('5');
     expect(marks).not.toContain('123556');
+    const digitMark = Array.from(container!.querySelectorAll('.transcript__edit')).find((m) => m.textContent === '5')!;
+    expect(digitMark.previousSibling?.textContent).toBe('123');
+    expect(digitMark.nextSibling?.textContent).toBe('56');
     // Whole-word: the reworded token is marked in full.
     expect(marks).toContain('dog');
     // Unchanged words are never highlighted.
