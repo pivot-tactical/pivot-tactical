@@ -182,6 +182,9 @@ export class AudioIO {
     const epoch = this.micEpoch;
     const p: Promise<void> = (async () => {
       await this.init();
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Microphone access requires a secure context (HTTPS or localhost)");
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: true },
       });
