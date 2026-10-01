@@ -17,8 +17,6 @@ unit-testable:
 encode.
 """
 
-from __future__ import annotations
-
 import numpy as np
 
 from pivot.core.bands import BandConditions
