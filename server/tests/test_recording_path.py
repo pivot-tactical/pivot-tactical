@@ -99,3 +99,10 @@ def test_orphan_reconcile_skips_a_row_whose_path_escapes(database, tmp_path):
         assert changed == 1
         rows = repo.list_recent_events(s)
         assert rows[0].transcription_status is TranscriptionStatus.SKIPPED
+
+def test_windows_root_relative_path(tmp_path):
+    with pytest.raises(UnsafeRecordingPath):
+        recording_path(tmp_path, "/etc/passwd")
+
+    with pytest.raises(UnsafeRecordingPath):
+        recording_path(tmp_path, "\\etc\\passwd")

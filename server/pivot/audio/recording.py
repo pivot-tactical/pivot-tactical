@@ -93,9 +93,19 @@ def recording_path(recordings_dir: Path | str, audio_path: str) -> Path:
     left-hand side entirely when the right-hand side is absolute, so a stored
     ``/etc/passwd`` would silently become that file.
     """
+    from pathlib import PurePosixPath, PureWindowsPath
+
     base = Path(recordings_dir).resolve()
     candidate = Path(audio_path)
-    if candidate.is_absolute() or ".." in candidate.parts:
+
+    posix_path = PurePosixPath(audio_path)
+    win_path = PureWindowsPath(audio_path)
+
+    if (
+        posix_path.is_absolute() or win_path.is_absolute() or
+        bool(posix_path.anchor) or bool(win_path.anchor) or
+        ".." in posix_path.parts or ".." in win_path.parts
+    ):
         raise UnsafeRecordingPath(
             f"audio_path is not a relative path inside the recordings tree: {audio_path!r}"
         )
