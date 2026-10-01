@@ -20,11 +20,14 @@ dead state expecting a relaunch that will not come.
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+log = logging.getLogger("pivot.runtime.lifecycle")
 
 
 def install_root() -> Path:
@@ -230,8 +233,8 @@ def app_exe(settings=None) -> str:
             # Say so rather than recovering silently. The relaunch helper points
             # stdout at relaunch.log, and a degraded start that leaves no trace
             # is the hardest kind of failure to chase later.
-            print(f"[relaunch] cannot read {candidate}: {exc}")
-            print("[relaunch] falling back to this helper's own executable")
+            log.warning("[relaunch] cannot read %s: %s", candidate, exc)
+            log.warning("[relaunch] falling back to this helper's own executable")
     return sys.executable
 
 
