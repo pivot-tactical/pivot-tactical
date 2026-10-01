@@ -10,8 +10,6 @@ but the server is the source of truth for the configured zone and the canonical
 "now", broadcast via the ``timezone_update`` WebSocket message (§6.2).
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
