@@ -23,8 +23,6 @@ The WAV is the single source of audio truth; AAR Dirty playback re-renders it
 through the stored DSP profile rather than storing a second file (§3.6.3, §4.5).
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 
