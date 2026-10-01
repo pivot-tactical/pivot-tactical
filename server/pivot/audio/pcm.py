@@ -5,8 +5,6 @@ recording sample rate (16 kHz mono). These helpers convert to/from the float32
 ``[-1, 1]`` arrays the DSP engine and recording layer use.
 """
 
-from __future__ import annotations
-
 import numpy as np
 
 
