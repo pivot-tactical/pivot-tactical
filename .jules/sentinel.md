@@ -16,3 +16,7 @@
 **Vulnerability:** The API endpoint returning audio playback dynamically joined a user-controlled path string from the database with a base directory without path sanitization, allowing arbitrary file retrieval.
 **Learning:** Always sanitize `Path` constructs generated from dynamic or database-stored values using `.is_absolute()` and verifying traversal (`..`) attempts before trusting the `Path.resolve()` boundary check.
 **Prevention:** Use defensive input validation enforcing `.is_relative_to(base_dir)` alongside absolute path and traversal character rejections.
+## 2025-02-18 - Cross-Platform Path Traversal via Windows Root-Relative Paths
+**Vulnerability:** A path traversal vulnerability existed in `recording_path` when handling Windows root-relative paths (e.g., `\etc\passwd` or `/etc/passwd`).
+**Learning:** Python's `Path(input_path).is_absolute()` only checks against the host OS running the code. On a Linux host, a Windows root-relative path (starting with `/` or `\`) is not considered absolute by `pathlib` because it lacks a drive letter. However, when joined with a base path (`base / input_path`), `pathlib` still discards the base path, allowing traversal outside the intended directory.
+**Prevention:** Always validate untrusted input paths across platforms using both `PurePosixPath` and `PureWindowsPath`. Reject the path if either is absolute (`is_absolute()`), has an anchor (`bool(anchor)`), or contains upward traversal segments (`".." in parts`).
