@@ -12,8 +12,6 @@ independent, non-destructive playback toggles:
 The crypto sync tone is never re-rendered (it was never broadcast, §4.5).
 """
 
-from __future__ import annotations
-
 import io
 import json
 from enum import StrEnum
