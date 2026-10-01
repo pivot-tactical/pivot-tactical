@@ -388,7 +388,7 @@ def test_relaunch_apply_does_not_elevate_a_writable_install(tmp_path, monkeypatc
     assert len(applied) == 1, "the flip should be applied in-process instead"
 
 
-def test_app_exe_survives_an_untraversable_current_link(monkeypatch):
+def test_app_exe_survives_an_untraversable_current_link(monkeypatch, caplog):
     """WinError 448 on `current` must not stop the relaunch.
 
     Reported from a real relaunch.log: an elevated apply created the junction as
@@ -396,6 +396,7 @@ def test_app_exe_survives_an_untraversable_current_link(monkeypatch):
     ERROR_UNTRUSTED_MOUNT_POINT. The raise escaped app_exe and killed the
     helper — PIVOT closed on "restart to update" and never came back.
     """
+    import logging
     import sys
 
     from pivot.runtime import lifecycle
@@ -422,5 +423,9 @@ def test_app_exe_survives_an_untraversable_current_link(monkeypatch):
     monkeypatch.setattr(lifecycle, "Path", FakePath)
 
     settings = SimpleNamespace(versions_dir="/anywhere")
+    with caplog.at_level(logging.WARNING):
+        res = lifecycle.app_exe(settings)
     # Must return something runnable rather than propagate.
-    assert lifecycle.app_exe(settings) == sys.executable
+    assert res == sys.executable
+    assert "[relaunch] cannot read" in caplog.text
+    assert "[relaunch] falling back to this helper's own executable" in caplog.text
