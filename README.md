@@ -70,8 +70,9 @@ Linux Mint 21+, Pop!\_OS and similar.
   enters the password (default `instructor` on first run — change it in Settings).
 
 Your database, recordings and settings live in a data folder **next to** the
-program (or in `/var/lib/pivot-tactical` for the Linux service) and survive every update and rollback. To uninstall the portable version, just delete the
-folder. (If you used the Windows installer or the Linux `install.sh` script, use their provided uninstallers).
+program (or in `/var/lib/pivot-tactical` for the Linux service) and survive every update and rollback.
+
+To uninstall the portable version, just delete the folder — it leaves no system services behind. If you used the Windows installer or the Linux `install.sh` script, you must use their provided uninstallers to properly clean up the systemd services and shortcuts.
 
 ## Using PIVOT
 
