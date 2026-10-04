@@ -18,16 +18,11 @@ when we can prove it (systemd sets ``INVOCATION_ID``), so we never exit into a
 dead state expecting a relaunch that will not come.
 """
 
-from __future__ import annotations
-
-import logging
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
-
-logger = logging.getLogger(__name__)
 
 
 def install_root() -> Path:
@@ -233,8 +228,11 @@ def app_exe(settings=None) -> str:
             # Say so rather than recovering silently. The relaunch helper points
             # stdout at relaunch.log, and a degraded start that leaves no trace
             # is the hardest kind of failure to chase later.
-            logger.warning("[relaunch] cannot read %s: %s", candidate, exc)
-            logger.warning("[relaunch] falling back to this helper's own executable")
+            # Intentionally kept as print(), not logger.warning(): no logging handler is
+            # configured in the helper, and print goes to the redirected stdout that is
+            # relaunch.log. Do not replace with logging.
+            print(f"[relaunch] cannot read {candidate}: {exc}")
+            print("[relaunch] falling back to this helper's own executable")
     return sys.executable
 
 

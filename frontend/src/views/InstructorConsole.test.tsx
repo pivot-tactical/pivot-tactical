@@ -241,11 +241,38 @@ describe('InstructorConsole', () => {
     // Character-level: the changed digit is marked, but not the whole number.
     expect(highlighted).toContain('5');
     expect(marks).not.toContain('123556');
+    const digitMark = Array.from(container!.querySelectorAll('.transcript__edit')).find((m) => m.textContent === '5')!;
+    expect(digitMark.previousSibling?.textContent).toBe('123');
+    expect(digitMark.nextSibling?.textContent).toBe('56');
     // Whole-word: the reworded token is marked in full.
     expect(marks).toContain('dog');
     // Unchanged words are never highlighted.
     expect(highlighted).not.toContain('grid');
     expect(marks).not.toContain('to');
+  });
+
+  it('refines single-character suffix fixes down to character level while marking wholesale rewords as full words', async () => {
+    (api.recentEvents as any).mockResolvedValueOnce([
+      makeEvent({
+        transcription: 'walking fast to store',
+        transcription_original: 'walked slow to store',
+        transcription_edited: true,
+      }),
+    ]);
+
+    let container: HTMLElement;
+    await act(async () => {
+      const r = render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+      container = r.container;
+    });
+
+    await screen.findByText(/edited/);
+    const marks = Array.from(container!.querySelectorAll('.transcript__edit')).map((m) => m.textContent);
+    // Suffix fix 'walked' -> 'walking': 'ing' is highlighted as character-level edit
+    expect(marks).toContain('ing');
+    expect(marks).not.toContain('walking');
+    // Wholesale reword 'slow' -> 'fast': whole word 'fast' is highlighted
+    expect(marks).toContain('fast');
   });
 
   it('positively confirms a deliberately chosen version, distinct from the auto-staged one', async () => {

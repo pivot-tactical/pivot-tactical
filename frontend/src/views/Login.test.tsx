@@ -268,7 +268,17 @@ describe("Login", () => {
       Object.defineProperty(navigator, "mediaDevices", { value: originalMediaDevices, configurable: true });
     });
 
-    it("displays blocked message for insecure contexts", async () => {
+    it("displays blocked message for insecure contexts on mount", async () => {
+      // Mock insecure context
+      Object.defineProperty(window, "isSecureContext", { value: false, configurable: true });
+
+      render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
+
+      expect(screen.getByText(/Microphone blocked/i)).toBeInTheDocument();
+      expect(screen.getByText(/This connection isn't secure/i)).toBeInTheDocument();
+    });
+
+    it("displays blocked message for insecure contexts on button click", async () => {
       const user = userEvent.setup();
 
       // Mock insecure context
@@ -276,7 +286,7 @@ describe("Login", () => {
 
       render(<Login onTrainee={mockOnTrainee} onInstructor={mockOnInstructor} />);
 
-      const checkMicBtn = screen.getByRole("button", { name: /Check microphone/i });
+      const checkMicBtn = screen.getByRole("button", { name: /Microphone blocked/i });
       await user.click(checkMicBtn);
 
       expect(screen.getByText(/Microphone blocked/i)).toBeInTheDocument();

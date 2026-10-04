@@ -7,8 +7,6 @@ and is approximated by fading the low and high halves of the voice band with
 decorrelated envelopes, producing a moving spectral notch.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -45,7 +43,7 @@ def flat_fading_gain(
 def apply_fading(
     signal_in: np.ndarray,
     sample_rate: int,
-    conditions: BandConditions,
+    conditions: "BandConditions",
     rng: np.random.Generator,
     crossover_hz: float = 1200.0,
 ) -> np.ndarray:
