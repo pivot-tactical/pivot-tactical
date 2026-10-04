@@ -16,8 +16,6 @@ helpers convert to and from the human-readable strings stored on events and
 radios (the DB stores frequency as TEXT, spec §5.1).
 """
 
-from __future__ import annotations
-
 import bisect
 import math
 import re
@@ -177,7 +175,7 @@ class BandConditions:
     # its baseline).
     interference: float = 0.0
 
-    def without_noise(self) -> BandConditions:
+    def without_noise(self) -> "BandConditions":
         """These conditions with every channel degradation lifted (§3.1.5).
 
         Used to render the receive stream of an instructor radio whose noise
@@ -215,7 +213,7 @@ class BandConditions:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> BandConditions:
+    def from_dict(cls, d: dict) -> "BandConditions":
         """Reconstruct stored conditions for AAR Dirty re-render (spec §4.5)."""
         return cls(
             freq_hz=float(d["freq_hz"]),
@@ -332,7 +330,7 @@ class NetScenario:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> NetScenario:
+    def from_dict(cls, d: dict) -> "NetScenario":
         return cls(
             freq_hz=float(d["freq_hz"]),
             interference=float(d.get("interference", 0.0)),
@@ -508,7 +506,7 @@ class BandProfile:
         return out
 
     @classmethod
-    def from_curve_json(cls, data: list[dict], **kwargs) -> BandProfile:
+    def from_curve_json(cls, data: list[dict], **kwargs) -> "BandProfile":
         anchors = [
             CurveAnchor(
                 freq_hz=float(d["freq_hz"]),
