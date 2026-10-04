@@ -10,8 +10,6 @@ workers, or tests equally. Audio *media* (mic capture / Opus encode) is the audi
 router's job (§6.3); this class owns the control decisions and the recording tap.
 """
 
-from __future__ import annotations
-
 import asyncio
 import re
 from collections.abc import Callable
