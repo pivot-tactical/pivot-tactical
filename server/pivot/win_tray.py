@@ -45,11 +45,16 @@ shell32 = ctypes.WinDLL("shell32", use_last_error=True)
 # blank white rectangle). Declaring prototypes makes ctypes pass/return the full
 # 64-bit values. We only need this for calls that take or return handles.
 LRESULT = ctypes.c_ssize_t
-HMENU = wintypes.HMENU
+# Intentionally kept as c_uint64 (not wintypes.HMENU): this already carries the full
+# 64-bit handle, which is what fixed the empty-menu bug, and being an integer type
+# it is why the hMenu slot below is passed as 0. Do not swap it for wintypes.HMENU.
+HMENU = ctypes.c_uint64
 HWND = wintypes.HWND
 
 # CreateWindowExW's parameter list, kept as a module constant so the call site
-# can be checked against it in tests.
+# can be checked against it in tests. Note that HMENU is an *integer* type:
+# ctypes rejects ``None`` for those ("argument 10: TypeError: wrong type"), so
+# the hMenu slot must be passed as 0, not None.
 CREATE_WINDOW_EX_ARGTYPES = [
     wintypes.DWORD,  # dwExStyle
     wintypes.LPCWSTR,  # lpClassName

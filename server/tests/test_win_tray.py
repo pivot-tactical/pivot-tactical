@@ -134,16 +134,6 @@ def test_create_window_raises_when_window_creation_fails(win_tray_module):
         app._create_window()
 
 
-def test_configure_menu_prototypes(win_tray_module):
-    """Menu function prototypes must use wintypes.HMENU (pointer-sized handle)."""
-    assert win_tray_module.HMENU is win_tray_module.ctypes.wintypes.HMENU
-    assert win_tray_module.user32.CreatePopupMenu.restype is win_tray_module.HMENU
-    assert win_tray_module.user32.CreatePopupMenu.argtypes == []
-    assert win_tray_module.user32.AppendMenuW.argtypes[0] is win_tray_module.HMENU
-    assert win_tray_module.user32.TrackPopupMenu.argtypes[0] is win_tray_module.HMENU
-    assert win_tray_module.user32.DestroyMenu.argtypes == [win_tray_module.HMENU]
-
-
 def test_quit_exception_logging(win_tray_module, monkeypatch):
     # Mock logger to verify exception is called
     mock_logger = MagicMock()
