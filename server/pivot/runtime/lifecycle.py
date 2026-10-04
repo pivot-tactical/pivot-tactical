@@ -228,6 +228,9 @@ def app_exe(settings=None) -> str:
             # Say so rather than recovering silently. The relaunch helper points
             # stdout at relaunch.log, and a degraded start that leaves no trace
             # is the hardest kind of failure to chase later.
+            # Intentionally kept as print(), not logger.warning(): no logging handler is
+            # configured in the helper, and print goes to the redirected stdout that is
+            # relaunch.log. Do not replace with logging.
             print(f"[relaunch] cannot read {candidate}: {exc}")
             print("[relaunch] falling back to this helper's own executable")
     return sys.executable
