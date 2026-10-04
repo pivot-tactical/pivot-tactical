@@ -770,7 +770,7 @@ function lcsOps<T extends string>(a: T[], b: T[]): { t: "eq" | "del" | "ins"; v:
   let i = 0, j = 0;
   while (i < n && j < m) {
     if (a[i] === b[j]) { out.push({ t: "eq", v: b[j] }); i++; j++; }
-    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: "del", v: a[i] }); i++; }
+    else if (dp[i + 1][j] > dp[i][j + 1]) { out.push({ t: "del", v: a[i] }); i++; }
     else { out.push({ t: "ins", v: b[j] }); j++; }
   }
   while (i < n) { out.push({ t: "del", v: a[i] }); i++; }
