@@ -27,6 +27,11 @@ export function Login({
       .status()
       .then(() => setOnline(true))
       .catch(() => setOnline(false));
+
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      setMicInsecure(true);
+      setMicOk(false);
+    }
   }, []);
 
   const valid = NAME_RE.test(name.trim());
