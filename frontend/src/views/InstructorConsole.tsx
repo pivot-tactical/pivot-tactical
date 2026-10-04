@@ -754,10 +754,10 @@ function TranscriptCell({ ev, onEventUpdate }: {
 // character (§3.5.3). Words are aligned first (a word is the meaningful unit of
 // a transcript, and aligning on words keeps a reworded phrase from fragmenting).
 // A word the instructor *replaced* is then refined to the character level so a
-// one-digit or suffix fix highlights only the characters that changed — but only
-// when the two words are similar enough; a wholesale reword highlights the whole
-// word instead of scattering marks across it. A null original means the line was
-// typed from scratch, so all of it is a change.
+// single-digit or suffix typo fix highlights only the characters that changed —
+// but only when the two words are similar enough; a wholesale reword highlights
+// the whole word instead of scattering marks across it. A null original means
+// the line was typed from scratch, so all of it is a change.
 
 // Longest-common-subsequence alignment of two token arrays into ordered ops.
 function lcsOps<T extends string>(a: T[], b: T[]): { t: "eq" | "del" | "ins"; v: T }[] {
