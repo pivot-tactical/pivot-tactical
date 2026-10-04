@@ -26,7 +26,7 @@ through the stored DSP profile rather than storing a second file (§3.6.3, §4.5
 from __future__ import annotations
 
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import numpy as np
 import soundfile as sf
@@ -94,11 +94,20 @@ def recording_path(recordings_dir: Path | str, audio_path: str) -> Path:
     ``/etc/passwd`` would silently become that file.
     """
     base = Path(recordings_dir).resolve()
-    candidate = Path(audio_path)
-    if candidate.is_absolute() or ".." in candidate.parts:
+    p_posix = PurePosixPath(audio_path)
+    p_win = PureWindowsPath(audio_path)
+    if (
+        p_posix.is_absolute()
+        or p_win.is_absolute()
+        or bool(p_posix.anchor)
+        or bool(p_win.anchor)
+        or ".." in p_posix.parts
+        or ".." in p_win.parts
+    ):
         raise UnsafeRecordingPath(
             f"audio_path is not a relative path inside the recordings tree: {audio_path!r}"
         )
+    candidate = Path(audio_path)
     resolved = (base / candidate).resolve()
     if not resolved.is_relative_to(base):
         raise UnsafeRecordingPath(
