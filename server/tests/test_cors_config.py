@@ -29,3 +29,11 @@ def test_cors_methods_and_headers():
     headers["Access-Control-Request-Headers"] = "X-Custom-Admin"
     response = client.options("/api/status", headers=headers)
     assert response.status_code == 400
+
+    # 4. Test disallowed origin (untrusted external domain)
+    headers = {
+        "Origin": "http://malicious.com",
+        "Access-Control-Request-Method": "GET",
+    }
+    response = client.options("/api/status", headers=headers)
+    assert response.headers.get("access-control-allow-origin") is None
