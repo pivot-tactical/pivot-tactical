@@ -346,5 +346,12 @@ describe("AudioIO", () => {
       // Should not throw
       await expect(io.prewarm()).resolves.toBeUndefined();
     });
+
+    it("rejects when navigator.mediaDevices is undefined", async () => {
+      vi.stubGlobal("navigator", {});
+      const { AudioIO } = await import("./audio");
+      const io = new AudioIO();
+      await expect(io.startCapture(vi.fn())).rejects.toThrow("Microphone access requires a secure context");
+    });
   });
 });

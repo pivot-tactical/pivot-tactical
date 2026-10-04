@@ -30,8 +30,6 @@ seeded instance renders a whole AAR buffer deterministically (mirroring
 :class:`pivot.dsp.noise.NoiseTexture`).
 """
 
-from __future__ import annotations
-
 import math
 
 import numpy as np

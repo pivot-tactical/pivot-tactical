@@ -25,6 +25,10 @@ def test_a_missing_but_well_formed_path_still_resolves(tmp_path):
     "audio_path",
     [
         "/etc/passwd",  # absolute: pathlib would discard the base
+        "\\etc\\passwd",  # root-relative / anchored path
+        "C:/etc/passwd",  # Windows absolute with drive letter
+        "C:\\etc\\passwd",  # Windows absolute backslashes
+        "C:etc/passwd",  # Windows drive-relative path
         "../../etc/passwd",  # walks up out of the tree
         "sess/../../../etc/passwd",  # walks up after a valid-looking first part
         "..",

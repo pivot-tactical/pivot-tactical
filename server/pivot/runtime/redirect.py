@@ -17,8 +17,6 @@ else is treated as plain HTTP: we read the request line and ``Host`` header
 and reply with a redirect to the same host/path on ``https://``.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 

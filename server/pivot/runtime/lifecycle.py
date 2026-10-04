@@ -18,8 +18,6 @@ when we can prove it (systemd sets ``INVOCATION_ID``), so we never exit into a
 dead state expecting a relaunch that will not come.
 """
 
-from __future__ import annotations
-
 import os
 import subprocess
 import sys

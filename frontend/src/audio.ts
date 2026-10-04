@@ -67,9 +67,12 @@ export function floatToPcm16(f32: Float32Array): ArrayBuffer {
   return i16.buffer;
 }
 
-function pcm16ToFloat(buf: ArrayBuffer): Float32Array {
-  const f32 = new Float32Array(new Int16Array(buf));
-  for (let i = 0; i < f32.length; i++) f32[i] *= 0.000030517578125;
+function pcm16ToFloat(buf: ArrayBuffer, gain = 1): Float32Array {
+  const i16 = new Int16Array(buf);
+  const len = i16.length;
+  const f32 = new Float32Array(len);
+  const factor = 0.000030517578125 * gain;
+  for (let i = 0; i < len; i++) f32[i] = i16[i] * factor;
   return f32;
 }
 
@@ -182,6 +185,9 @@ export class AudioIO {
     const epoch = this.micEpoch;
     const p: Promise<void> = (async () => {
       await this.init();
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Microphone access requires a secure context (HTTPS or localhost)");
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: true },
       });
@@ -243,8 +249,7 @@ export class AudioIO {
     // it so hash and voice frames don't vanish when the user alt-tabs back.
     if (this.ctx?.state === "suspended") this.ctx.resume();
     const gain = radioId ? this.volumes.get(radioId) ?? this.defaultVolume : this.defaultVolume;
-    const f32 = pcm16ToFloat(pcm);
-    if (gain !== 1) for (let i = 0; i < f32.length; i++) f32[i] *= gain;
+    const f32 = pcm16ToFloat(pcm, gain);
     this.player.port.postMessage(f32, [f32.buffer]);
   }
 
