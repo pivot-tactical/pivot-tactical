@@ -96,14 +96,16 @@ export function parseTaggedAudio(buf: ArrayBuffer): { radioId: string; pcm: Arra
 // keyed voice drives the bar toward full scale.
 export function pcmLevel(pcm: ArrayBuffer): number {
   const i16 = new Int16Array(pcm);
-  if (i16.length === 0) return 0;
+  const len = i16.length;
+  if (len === 0) return 0;
   let sum = 0;
-  for (let i = 0; i < i16.length; i++) {
-    const s = i16[i] / 0x8000;
+  for (let i = 0; i < len; i++) {
+    const s = i16[i];
     sum += s * s;
   }
-  const rms = Math.sqrt(sum / i16.length);
-  return Math.min(1, Math.sqrt(rms) * 1.25);
+  const rms = Math.sqrt(sum / len) / 0x8000;
+  const level = Math.sqrt(rms) * 1.25;
+  return level > 1 ? 1 : level;
 }
 
 // Persisted per-radio headset volume (0–1). Keyed so a trainee keeps one
