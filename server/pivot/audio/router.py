@@ -25,8 +25,6 @@ Signal flow (Appendix A.3), for station A keyed on frequency F::
 Transmitting stations are half-duplex: they receive nothing while keyed.
 """
 
-from __future__ import annotations
-
 import logging
 
 import numpy as np
