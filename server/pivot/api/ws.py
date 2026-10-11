@@ -15,8 +15,6 @@ carry a ``radio_id`` and outbound audio frames are tagged with theirs — and th
 server owns crypto-sync timing for both (§3.2.3).
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import json
