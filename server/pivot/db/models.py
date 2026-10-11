@@ -7,7 +7,9 @@ SQLite gets a portable VARCHAR + CHECK). ``RadioMode``, ``Audibility`` and
 purely persisted concept.
 """
 
-from __future__ import annotations
+from __future__ import (
+    annotations,  # Defer type annotation evaluation for forward references (e.g. EventRow)
+)
 
 import enum
 import json
