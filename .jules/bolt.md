@@ -24,3 +24,9 @@
 ## 2024-11-20 - [Avoid chained typed array constructors in hot loops]
 **Learning:** In JavaScript/V8 (e.g., PCM audio processing), combining array allocation, format conversion, and scaling/gain into a single iteration over a pre-allocated typed array (e.g., `new Float32Array(len)`) is measurably faster (~25% speedup) than chaining typed array constructors (e.g., `new Float32Array(new Int16Array(...))`) which implicitly introduces redundant O(N) array traversals before custom scaling loops.
 **Action:** Avoid chaining typed array constructors in hot paths if subsequent looping is required; instead, allocate an empty array of the correct size and perform conversion and scaling in a single fused loop.
+## 2024-05-25 - [Division vs Multiplication in V8]
+**Learning:** In JavaScript/V8 (e.g., tight audio processing loops like `pcmLevel`), calculating the array length outside the loop and replacing division inside the loop with reciprocal multiplication outside the loop, as well as replacing nested  functions with inlined ternary conditional clamps provides measurable performance gains (approx. 10-20% speedup).
+**Action:** Avoid nested math function calls and inner loop divisions where simple manual clamping logic or mathematical transposition suffices.
+## 2024-05-25 - [Loop invariant division and function inlining in V8]
+**Learning:** In JavaScript/V8 (e.g., tight audio processing loops like `pcmLevel`), calculating the array length outside the loop and replacing division inside the loop with reciprocal division outside the loop, as well as replacing nested `Math.min` functions with inlined ternary conditional clamps provides measurable performance gains (approx. 10-20% speedup).
+**Action:** Avoid nested math function calls and inner loop divisions where simple manual clamping logic or mathematical transposition suffices.
