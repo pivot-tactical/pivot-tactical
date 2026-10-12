@@ -104,6 +104,31 @@ def test_mixed_collision_with_cypher_suppresses_later():
     assert classify_audibility(out) is Audibility.CYPHER_SUPPRESSED
 
 
+def test_clean_cypher_transmission_is_heard():
+    out = TxOutcome(self_mode=C, had_listener=True)
+    assert classify_audibility(out) is Audibility.HEARD
+
+
+def test_mixed_collision_plain_first_keyer_heard():
+    out = TxOutcome(self_mode=P, had_listener=True, overlapped_modes=[C], keyed_first=True)
+    assert classify_audibility(out) is Audibility.HEARD
+
+
+def test_mixed_collision_cypher_first_keyer_heard():
+    out = TxOutcome(self_mode=C, had_listener=True, overlapped_modes=[P], keyed_first=True)
+    assert classify_audibility(out) is Audibility.HEARD
+
+
+def test_mixed_collision_cypher_later_keyer_suppressed():
+    out = TxOutcome(self_mode=C, had_listener=True, overlapped_modes=[P], keyed_first=False)
+    assert classify_audibility(out) is Audibility.CYPHER_SUPPRESSED
+
+
+def test_plain_collision_later_keyer_is_still_plain_collision():
+    out = TxOutcome(self_mode=P, had_listener=True, overlapped_modes=[P], keyed_first=False)
+    assert classify_audibility(out) is Audibility.PLAIN_COLLISION
+
+
 def test_mode_toggle():
     assert P.toggled() is C
     assert C.toggled() is P
