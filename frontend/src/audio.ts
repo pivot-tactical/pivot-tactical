@@ -76,6 +76,9 @@ function pcm16ToFloat(buf: ArrayBuffer, gain = 1): Float32Array {
   return f32;
 }
 
+// Reusable decoder for parsing tagged audio frames to avoid allocation in hot loop
+const decoder = new TextDecoder();
+
 // Instructor audio frames are tagged with their source radio so one mixed
 // playback stream can carry several radios at independent headset volumes:
 // [1-byte id length][radio_id ascii][PCM16LE…]. Trainee frames are untagged
@@ -83,7 +86,7 @@ function pcm16ToFloat(buf: ArrayBuffer, gain = 1): Float32Array {
 export function parseTaggedAudio(buf: ArrayBuffer): { radioId: string; pcm: ArrayBuffer } {
   const bytes = new Uint8Array(buf);
   const len = bytes[0];
-  const radioId = new TextDecoder().decode(bytes.subarray(1, 1 + len));
+  const radioId = decoder.decode(bytes.subarray(1, 1 + len));
   // Slice (copy) so the PCM starts at offset 0 — an odd header length would
   // otherwise break Int16Array's alignment requirement on a shared buffer.
   return { radioId, pcm: buf.slice(1 + len) };
