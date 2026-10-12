@@ -91,6 +91,7 @@ def recording_path(recordings_dir: Path | str, audio_path: str) -> Path:
     left-hand side entirely when the right-hand side is absolute, so a stored
     ``/etc/passwd`` would silently become that file.
     """
+    # Validate against cross-platform path traversal and anchor escaping before resolving against base.
     base = Path(recordings_dir).resolve()
     p_posix = PurePosixPath(audio_path)
     p_win = PureWindowsPath(audio_path)
