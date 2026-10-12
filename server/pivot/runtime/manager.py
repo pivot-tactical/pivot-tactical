@@ -117,6 +117,7 @@ class SessionManager:
             self.registry = RadioRegistry(tuning_step_hz=cfg.tuning_step_hz())
             self.band_profile = repo.load_band_profile(s)
             self._load_instructor_radios(s)
+            self.display_timezone: str = cfg.display_timezone()
             # Resume a scenario that was running when the server went down (e.g.
             # an update restart). The session lives in the DB as an un-ended row;
             # without this a restart silently ends it — trainees stay connected
@@ -774,6 +775,7 @@ class SessionManager:
         self.broadcast("band_profile_update", {"curve": self.band_profile.curve_to_json()})
 
     def set_display_timezone(self, tz_name: str) -> None:
+        self.display_timezone = tz_name
         with self.db.session() as s:
             ConfigStore(s).set("display_timezone", tz_name)
         self.broadcast("timezone_update", {"timezone": tz_name})

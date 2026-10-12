@@ -30,3 +30,7 @@
 ## 2024-05-25 - [Loop invariant division and function inlining in V8]
 **Learning:** In JavaScript/V8 (e.g., tight audio processing loops like `pcmLevel`), calculating the array length outside the loop and replacing division inside the loop with reciprocal division outside the loop, as well as replacing nested `Math.min` functions with inlined ternary conditional clamps provides measurable performance gains (approx. 10-20% speedup).
 **Action:** Avoid nested math function calls and inner loop divisions where simple manual clamping logic or mathematical transposition suffices.
+
+## 2026-11-15 - [Cache DB Configuration on Control Plane Manager]
+**Learning:** High-frequency public health and status endpoints (like `/api/status`) should not query the database for static or infrequently updated configuration settings (e.g., `display_timezone`) on every HTTP request. Fetching from SQLite via DB session open/close incurs significant session management, transaction, and lock overhead (~1.8k ops/s). Caching the property directly on the `SessionManager` in memory during startup and updating it when changed via setter methods boosts handler execution speed by over 900x (~1.59M ops/s).
+**Action:** Always cache global application settings on live control plane managers/singletons when initialized from DB, and invalidate/update the in-memory cache whenever settings are updated.
