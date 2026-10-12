@@ -55,6 +55,25 @@ def test_parse_frequency(text, expected_hz):
     assert parse_frequency(text) == pytest.approx(expected_hz)
 
 
+@pytest.mark.parametrize(
+    "freq_hz,expected_str",
+    [
+        (2_400_000_000, "2.4000 GHz"),
+        (1_000_000_000, "1.0000 GHz"),
+        (14_250_000, "14.250 MHz"),
+        (145_512_500, "145.5125 MHz"),
+        (145_500_000, "145.500 MHz"),
+        (7_100_000, "7.100 MHz"),
+        (145_500, "145.500 kHz"),
+        (1_000, "1.000 kHz"),
+        (500, "500 Hz"),
+        (0, "0 Hz"),
+    ],
+)
+def test_format_frequency(freq_hz, expected_str):
+    assert format_frequency(freq_hz) == expected_str
+
+
 def test_parse_frequency_roundtrip():
     f = parse_frequency("14.250 MHz")
     assert format_frequency(f) == "14.250 MHz"
