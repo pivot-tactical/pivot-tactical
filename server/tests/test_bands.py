@@ -60,6 +60,22 @@ def test_parse_frequency_roundtrip():
     assert format_frequency(f) == "14.250 MHz"
 
 
+@pytest.mark.parametrize(
+    "freq_hz,expected",
+    [
+        (2_400_000_000, "2.4000 GHz"),
+        (1_234_500_000, "1.2345 GHz"),
+        (2_000_000_000, "2.0000 GHz"),
+        (14_250_000, "14.250 MHz"),
+        (145_512_500, "145.5125 MHz"),
+        (450_000, "450.000 kHz"),
+        (800, "800 Hz"),
+    ],
+)
+def test_format_frequency(freq_hz, expected):
+    assert format_frequency(freq_hz) == expected
+
+
 def test_parse_frequency_rejects_garbage():
     with pytest.raises(ValueError):
         parse_frequency("not a frequency")
