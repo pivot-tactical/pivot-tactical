@@ -16,6 +16,12 @@ from pivot.core.bands import (
 )
 
 
+def test_band_region_label():
+    assert BandRegion.HF.label == "HF"
+    assert BandRegion.VHF.label == "VHF"
+    assert BandRegion.UHF.label == "UHF"
+
+
 @pytest.mark.parametrize(
     "freq_hz,expected",
     [
