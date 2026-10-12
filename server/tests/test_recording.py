@@ -1,11 +1,14 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 from pivot.audio.recording import (
+    UnsafeRecordingPath,
     duration_ms,
     read_recording,
+    recording_path,
     relative_audio_path,
     session_dir_name,
     write_recording,
@@ -111,3 +114,24 @@ def test_read_recording_stereo(tmp_path: Path):
     assert data.dtype == np.float32
     expected_mono = np.array([0.5, 0.5, 0.0], dtype=np.float32)
     np.testing.assert_allclose(data, expected_mono, atol=1e-4)
+
+
+def test_recording_path_valid(tmp_path: Path):
+    rel_path = relative_audio_path("Night Nav Ex", SESSION_START, EVENT_START, "John Smith", EVENT_ID)
+    expected = (tmp_path / rel_path).resolve()
+
+    resolved_path_obj = recording_path(tmp_path, rel_path)
+    assert resolved_path_obj == expected
+
+    resolved_str_obj = recording_path(str(tmp_path), rel_path)
+    assert resolved_str_obj == expected
+
+
+def test_recording_path_unsafe_raises(tmp_path: Path):
+    assert issubclass(UnsafeRecordingPath, ValueError)
+
+    with pytest.raises(UnsafeRecordingPath):
+        recording_path(tmp_path, "../outside.wav")
+
+    with pytest.raises(UnsafeRecordingPath):
+        recording_path(tmp_path, "/etc/passwd")
