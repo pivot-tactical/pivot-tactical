@@ -30,3 +30,7 @@
 ## 2024-05-25 - [Loop invariant division and function inlining in V8]
 **Learning:** In JavaScript/V8 (e.g., tight audio processing loops like `pcmLevel`), calculating the array length outside the loop and replacing division inside the loop with reciprocal division outside the loop, as well as replacing nested `Math.min` functions with inlined ternary conditional clamps provides measurable performance gains (approx. 10-20% speedup).
 **Action:** Avoid nested math function calls and inner loop divisions where simple manual clamping logic or mathematical transposition suffices.
+
+## 2026-03-31 - [DB Config Caching in High-Frequency API Endpoints]
+**Learning:** Querying database-backed configurations (e.g. `ConfigStore(s).display_timezone()`) on every request in high-frequency public status/health endpoints (like `/api/status`) introduces significant overhead per request due to session creation and SQLite transactions.
+**Action:** Cache static or low-churn config values in memory on `SessionManager` during startup and update the cached variable when settings change, avoiding DB session overhead in health/status endpoints.

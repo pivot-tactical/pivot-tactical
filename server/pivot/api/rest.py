@@ -798,15 +798,13 @@ def admin_restart(
 def status(request: Request, manager=Depends(get_manager)) -> dict:
     """Public health/info endpoint for the login screen and trainee connect."""
 
-    with manager.db.session() as s:
-        tz = ConfigStore(s).display_timezone()
     return {
         "name": "PIVOT",
         "version": version_info.version,
         "git_sha": version_info.git_sha,
         "session_active": manager.session_active,
         "terminals": len(manager.terminals),
-        "display_timezone": tz,
+        "display_timezone": manager.display_timezone,
     }
 
 

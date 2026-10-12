@@ -126,6 +126,7 @@ class SessionManager:
             self.current_session_id: str | None = resumed.id if resumed else None
             self.current_session_name: str | None = resumed.name if resumed else None
             self.current_session_started_at: str | None = resumed.started_at if resumed else None
+            self._display_timezone: str = cfg.display_timezone()
         self.terminals: dict[str, TerminalInfo] = {}
         self._active_tx: dict[str, _TxAccumulator] = {}
         self._subscribers: set[asyncio.Queue] = set()
@@ -773,7 +774,12 @@ class SessionManager:
         self._save_band_profile()
         self.broadcast("band_profile_update", {"curve": self.band_profile.curve_to_json()})
 
+    @property
+    def display_timezone(self) -> str:
+        return self._display_timezone
+
     def set_display_timezone(self, tz_name: str) -> None:
+        self._display_timezone = tz_name
         with self.db.session() as s:
             ConfigStore(s).set("display_timezone", tz_name)
         self.broadcast("timezone_update", {"timezone": tz_name})
