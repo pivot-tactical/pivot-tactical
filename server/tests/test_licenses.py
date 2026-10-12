@@ -45,6 +45,17 @@ def test_scan_environment_runs():
     assert all(isinstance(f, Finding) for f in findings)
 
 
+def test_violations():
+    f1 = Finding(name="allowed-lib", version="1.0", license="MIT", denied=False)
+    f2 = Finding(name="denied-lib", version="2.0", license="GPL-3.0", denied=True)
+    f3 = Finding(name="another-denied", version="0.1", license="AGPL", denied=True)
+
+    assert violations([]) == []
+    assert violations([f1]) == []
+    assert violations([f2]) == [f2]
+    assert violations([f1, f2, f3]) == [f2, f3]
+
+
 def test_core_runtime_deps_have_no_violations():
     """The core install (numpy/scipy/fastapi/sqlalchemy/pydantic/...) must pass
     the policy — acceptance criteria #25/#26."""
