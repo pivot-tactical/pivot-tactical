@@ -22,6 +22,37 @@ def clear_filter_cache():
     cached_butter.cache_clear()
 
 
+def test_rms_empty_array():
+    empty = np.array([], dtype=np.float32)
+    assert rms(empty) == 0.0
+
+
+def test_rms_zeros():
+    zeros = np.zeros(100, dtype=np.float32)
+    assert rms(zeros) == 0.0
+
+
+def test_rms_constant_signal():
+    val = 3.5
+    constant = np.full(100, val, dtype=np.float32)
+    assert np.isclose(rms(constant), val)
+
+
+def test_rms_alternating_signal():
+    # Signal alternating between +2 and -2 has square = 4, mean square = 4, RMS = 2
+    alternating = np.array([2.0, -2.0, 2.0, -2.0], dtype=np.float32)
+    assert np.isclose(rms(alternating), 2.0)
+
+
+def test_rms_sine_wave():
+    # Sine wave with amplitude A has RMS = A / sqrt(2)
+    amplitude = 2.5
+    t = np.linspace(0, 1, 44100, endpoint=False)
+    sine = amplitude * np.sin(2 * np.pi * 440 * t)
+    expected_rms = amplitude / np.sqrt(2)
+    assert np.isclose(rms(sine), expected_rms, rtol=1e-4)
+
+
 def test_normalise_rms_zeros():
     x = np.zeros(100, dtype=np.float32)
     out = normalise_rms(x)
