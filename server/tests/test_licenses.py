@@ -177,3 +177,21 @@ def test_normalize_license():
 
     dist = MockDist({})
     assert normalize_license(dist) == "UNKNOWN"
+
+
+def test_violations():
+    f_ok = Finding(name="ok-lib", version="1.0", license="MIT", denied=False)
+    f_bad1 = Finding(name="bad-lib-1", version="1.0", license="GPL-3.0", denied=True)
+    f_bad2 = Finding(name="bad-lib-2", version="2.0", license="AGPL-3.0", denied=True)
+
+    # Empty findings list
+    assert violations([]) == []
+
+    # All allowed
+    assert violations([f_ok]) == []
+
+    # All denied
+    assert violations([f_bad1, f_bad2]) == [f_bad1, f_bad2]
+
+    # Mixed findings
+    assert violations([f_ok, f_bad1, f_bad2]) == [f_bad1, f_bad2]
