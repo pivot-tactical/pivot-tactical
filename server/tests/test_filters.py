@@ -22,6 +22,35 @@ def clear_filter_cache():
     cached_butter.cache_clear()
 
 
+def test_rms_empty():
+    empty = np.array([], dtype=np.float32)
+    assert rms(empty) == 0.0
+
+
+def test_rms_zeros():
+    zeros = np.zeros(100, dtype=np.float32)
+    assert rms(zeros) == 0.0
+
+
+def test_rms_constant():
+    pos = np.full(100, 3.0, dtype=np.float32)
+    neg = np.full(100, -4.0, dtype=np.float32)
+    assert np.isclose(rms(pos), 3.0)
+    assert np.isclose(rms(neg), 4.0)
+
+
+def test_rms_square_wave():
+    square = np.array([2.0, -2.0, 2.0, -2.0], dtype=np.float32)
+    assert np.isclose(rms(square), 2.0)
+
+
+def test_rms_sine_wave():
+    t = np.linspace(0, 1, 44100, endpoint=False)
+    x = 2.0 * np.sin(2 * np.pi * 440 * t)
+    expected_rms = 2.0 / np.sqrt(2)
+    assert np.isclose(rms(x), expected_rms, rtol=1e-5)
+
+
 def test_normalise_rms_zeros():
     x = np.zeros(100, dtype=np.float32)
     out = normalise_rms(x)
