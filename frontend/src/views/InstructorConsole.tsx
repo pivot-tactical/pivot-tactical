@@ -237,6 +237,7 @@ export function InstructorConsole({
           <input
             className="input mono"
             placeholder="Session name"
+            aria-label="Session name"
             value={sessionName}
             disabled={sessionActive}
             onChange={(e) => setSessionName(e.target.value)}
@@ -249,15 +250,23 @@ export function InstructorConsole({
         <button className="btn btn--ghost" onClick={onLogout}>Log out</button>
       </header>
 
-      <nav className="console__tabs" role="tablist">
+      <nav className="console__tabs" role="tablist" aria-label="Console views">
         {(["radios", "monitor", "aar", "settings"] as Tab[]).map((t) => (
-          <button key={t} className={`tabbtn ${tab === t ? "tabbtn--on" : ""}`} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
+          <button
+            key={t}
+            id={`tab-${t}`}
+            aria-controls="tabpanel"
+            className={`tabbtn ${tab === t ? "tabbtn--on" : ""}`}
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+          >
             {t === "aar" ? "AAR" : t[0].toUpperCase() + t.slice(1)}
           </button>
         ))}
       </nav>
 
-      <main className="console__body">
+      <main className="console__body" role="tabpanel" id="tabpanel" aria-labelledby={`tab-${tab}`}>
         {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} entries={entries} timezone={timezone} netScenarios={netScenarios} rxLevels={rxLevels} onEventUpdate={updateEvent} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
         {tab === "aar" && <AarTab timezone={timezone} />}
