@@ -280,11 +280,24 @@ function scenarioFor(netScenarios: NetScenario[], hz: number): NetScenario | und
 // handler; the meters poll and decay it at animation rate without re-renders.
 type RxLevels = { current: Record<string, number> };
 
-function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScenarios, rxLevels, onEventUpdate }: {
-  radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
-  entries: LogEntry[]; timezone: string; netScenarios: NetScenario[]; rxLevels: RxLevels;
+interface RadiosTabProps {
+  radios: RadioState[];
+  socket: PivotSocket | null;
+  audio: AudioIO;
+  onChange: (r: RadioState[]) => void;
+  entries: LogEntry[];
+  timezone: string;
+  netScenarios: NetScenario[];
+  rxLevels: RxLevels;
   onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
-}) {
+}
+
+function useInstructorPtt(
+  socket: PivotSocket | null,
+  audio: AudioIO,
+  radios: RadioState[],
+  onChange: (r: RadioState[]) => void,
+) {
   // TX phase per keyed radio (absent = IDLE). Several radios can be keyed at
   // once — the one mic feeds them all, and each runs its own PTT/crypto-sync
   // lifecycle on the server (ptt_* messages carry the radio_id).
@@ -361,6 +374,12 @@ function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScen
     window.addEventListener("keydown", down); window.addEventListener("keyup", up);
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, [radios, startTx, endTx]);
+
+  return { phases, startTx, endTx };
+}
+
+function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScenarios, rxLevels, onEventUpdate }: RadiosTabProps) {
+  const { phases, startTx, endTx } = useInstructorPtt(socket, audio, radios, onChange);
 
   async function addRadio() {
     // Omit the frequency so the server applies the operator-configured
