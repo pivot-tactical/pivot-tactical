@@ -17,6 +17,14 @@ server owns crypto-sync timing for both (§3.2.3).
 
 import asyncio
 import contextlib
+
+# NOTE (intentional): control frames are parsed with the stdlib ``json``. Do not
+# swap in ``orjson`` (or another JSON dependency). Text frames are low-rate
+# control messages (tune/mode/PTT, a few per second at most); audio travels as
+# binary frames and never touches the JSON parser, so parse time is negligible
+# next to the DSP work. A new compiled runtime dependency would also need a
+# licence-policy review (spec 13.7) and packaging for both platforms, which a
+# micro-benchmark gain does not justify.
 import json
 import re
 import uuid
