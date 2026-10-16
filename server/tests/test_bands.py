@@ -11,6 +11,7 @@ from pivot.core.bands import (
     JammingSpan,
     clamp_frequency,
     format_frequency,
+    net_key_for,
     parse_frequency,
     region_for,
 )
@@ -220,3 +221,16 @@ def test_from_curve_json_missing_keys(missing):
     del anchor[missing]
     with pytest.raises(KeyError, match=f"'{missing}'"):
         BandProfile.from_curve_json([anchor])
+
+
+def test_net_key_for():
+    """`net_key_for` quantises frequency to its net index on the tuning grid (100 Hz), clamping to range."""
+    # On grid
+    assert net_key_for(14_250_000.0) == 142500
+    # Off grid rounding down/up
+    assert net_key_for(14_250_040.0) == 142500
+    assert net_key_for(14_250_060.0) == 142501
+    # Clamping below MIN_FREQ_HZ (1.6 MHz -> index 16000)
+    assert net_key_for(100.0) == net_key_for(MIN_FREQ_HZ) == 16000
+    # Clamping above MAX_FREQ_HZ (3 GHz -> index 30000000)
+    assert net_key_for(9e9) == net_key_for(MAX_FREQ_HZ) == 30_000_000

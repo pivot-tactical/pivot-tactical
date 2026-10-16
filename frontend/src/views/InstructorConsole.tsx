@@ -37,18 +37,39 @@ function getTimezoneOptions(): string[] {
   return FALLBACK_TIMEZONES;
 }
 
-export function InstructorConsole({
-  timezone,
-  mustChangePassword,
-  onTimezone,
-  onLogout,
-}: {
-  timezone: string;
-  mustChangePassword: boolean;
-  onTimezone: (tz: string) => void;
-  onLogout: () => void;
-}) {
-  const [tab, setTab] = useState<Tab>(mustChangePassword ? "settings" : "radios");
+function mergeHistoryAndSessions(
+  history: EventRow[],
+  sessions: SessionSummary[],
+  prevEntries: LogEntry[]
+): LogEntry[] {
+  const historyEntries: LogEntry[] = history.map((event) => ({ kind: "event", event }));
+  const markers: LogEntry[] = [];
+  for (const s of sessions) {
+    markers.push({ kind: "session", marker: { session_id: s.id, session_name: s.name, type: "started", timestamp: s.started_at } });
+    if (s.ended_at) {
+      markers.push({ kind: "session", marker: { session_id: s.id, session_name: s.name, type: "ended", timestamp: s.ended_at } });
+    }
+  }
+  const seenEvents = new Set(prevEntries.filter((e) => e.kind === "event").map((e) => (e as { kind: "event"; event: EventRow }).event.event_id));
+  const seenMarkers = new Set(
+    prevEntries.filter((e) => e.kind === "session").map((e) => {
+      const m = (e as { kind: "session"; marker: SessionLogMarker }).marker;
+      return `${m.session_id}-${m.type}`;
+    })
+  );
+  const merged = [
+    ...prevEntries,
+    ...historyEntries.filter((e) => !seenEvents.has((e as { kind: "event"; event: EventRow }).event.event_id)),
+    ...markers.filter((e) => {
+      const m = (e as { kind: "session"; marker: SessionLogMarker }).marker;
+      return !seenMarkers.has(`${m.session_id}-${m.type}`);
+    }),
+  ];
+  merged.sort((a, b) => timestampOf(b).localeCompare(timestampOf(a)));
+  return merged.slice(0, 200);
+}
+
+function useInstructorConsoleData() {
   const [radios, setRadios] = useState<RadioState[]>([]);
   const [terminals, setTerminals] = useState<Terminal[]>([]);
   const [netScenarios, setNetScenarios] = useState<NetScenario[]>([]);
@@ -153,33 +174,7 @@ export function InstructorConsole({
     // broadcasts may land before this resolves, so merge by key with the live
     // entries kept in place.
     Promise.all([api.recentEvents(), api.sessions()]).then(([history, sessions]) => {
-      const historyEntries: LogEntry[] = history.map((event) => ({ kind: "event", event }));
-      const markers: LogEntry[] = [];
-      for (const s of sessions) {
-        markers.push({ kind: "session", marker: { session_id: s.id, session_name: s.name, type: "started", timestamp: s.started_at } });
-        if (s.ended_at) {
-          markers.push({ kind: "session", marker: { session_id: s.id, session_name: s.name, type: "ended", timestamp: s.ended_at } });
-        }
-      }
-      setEntries((prev) => {
-        const seenEvents = new Set(prev.filter((e) => e.kind === "event").map((e) => (e as { kind: "event"; event: EventRow }).event.event_id));
-        const seenMarkers = new Set(
-          prev.filter((e) => e.kind === "session").map((e) => {
-            const m = (e as { kind: "session"; marker: SessionLogMarker }).marker;
-            return `${m.session_id}-${m.type}`;
-          })
-        );
-        const merged = [
-          ...prev,
-          ...historyEntries.filter((e) => !seenEvents.has((e as { kind: "event"; event: EventRow }).event.event_id)),
-          ...markers.filter((e) => {
-            const m = (e as { kind: "session"; marker: SessionLogMarker }).marker;
-            return !seenMarkers.has(`${m.session_id}-${m.type}`);
-          }),
-        ];
-        merged.sort((a, b) => timestampOf(b).localeCompare(timestampOf(a)));
-        return merged.slice(0, 200);
-      });
+      setEntries((prev) => mergeHistoryAndSessions(history, sessions, prev));
     }).catch(() => {});
     api.terminals().then((t) => {
       setSessionActive(t.session_active);
@@ -211,13 +206,13 @@ export function InstructorConsole({
 
   // Settings → Restart server flips us into the reconnecting state; the socket
   // close handler then starts polling for the server to come back.
-  function enterRestarting() {
+  const enterRestarting = useCallback(() => {
     restartingRef.current = true;
     setConn("restarting");
     startRestartPoll();
-  }
+  }, []);
 
-  async function toggleSession() {
+  const toggleSession = useCallback(async () => {
     if (sessionActive) {
       if (!window.confirm("Are you sure you want to stop the current session?")) return;
       await api.endSession();
@@ -226,7 +221,52 @@ export function InstructorConsole({
       await api.startSession(sessionName.trim() || "Untitled Exercise");
       setSessionActive(true);
     }
-  }
+  }, [sessionActive, sessionName]);
+
+  return {
+    radios, setRadios,
+    terminals,
+    netScenarios,
+    entries,
+    sessionActive,
+    sessionName, setSessionName,
+    conn,
+    socketRef,
+    audio,
+    rxLevels,
+    updateEvent,
+    enterRestarting,
+    toggleSession,
+  };
+}
+
+export function InstructorConsole({
+  timezone,
+  mustChangePassword,
+  onTimezone,
+  onLogout,
+}: {
+  timezone: string;
+  mustChangePassword: boolean;
+  onTimezone: (tz: string) => void;
+  onLogout: () => void;
+}) {
+  const [tab, setTab] = useState<Tab>(mustChangePassword ? "settings" : "radios");
+  const {
+    radios, setRadios,
+    terminals,
+    netScenarios,
+    entries,
+    sessionActive,
+    sessionName, setSessionName,
+    conn,
+    socketRef,
+    audio,
+    rxLevels,
+    updateEvent,
+    enterRestarting,
+    toggleSession,
+  } = useInstructorConsoleData();
 
   return (
     <div className="console">
@@ -237,6 +277,7 @@ export function InstructorConsole({
           <input
             className="input mono"
             placeholder="Session name"
+            aria-label="Session name"
             value={sessionName}
             disabled={sessionActive}
             onChange={(e) => setSessionName(e.target.value)}
@@ -249,15 +290,23 @@ export function InstructorConsole({
         <button className="btn btn--ghost" onClick={onLogout}>Log out</button>
       </header>
 
-      <nav className="console__tabs" role="tablist">
+      <nav className="console__tabs" role="tablist" aria-label="Console views">
         {(["radios", "monitor", "aar", "settings"] as Tab[]).map((t) => (
-          <button key={t} className={`tabbtn ${tab === t ? "tabbtn--on" : ""}`} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
+          <button
+            key={t}
+            id={`tab-${t}`}
+            aria-controls="tabpanel"
+            className={`tabbtn ${tab === t ? "tabbtn--on" : ""}`}
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+          >
             {t === "aar" ? "AAR" : t[0].toUpperCase() + t.slice(1)}
           </button>
         ))}
       </nav>
 
-      <main className="console__body">
+      <main className="console__body" role="tabpanel" id="tabpanel" aria-labelledby={`tab-${tab}`}>
         {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} entries={entries} timezone={timezone} netScenarios={netScenarios} rxLevels={rxLevels} onEventUpdate={updateEvent} />}
         {tab === "monitor" && <MonitorTab terminals={terminals} />}
         {tab === "aar" && <AarTab timezone={timezone} />}
@@ -280,11 +329,24 @@ function scenarioFor(netScenarios: NetScenario[], hz: number): NetScenario | und
 // handler; the meters poll and decay it at animation rate without re-renders.
 type RxLevels = { current: Record<string, number> };
 
-function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScenarios, rxLevels, onEventUpdate }: {
-  radios: RadioState[]; socket: PivotSocket | null; audio: AudioIO; onChange: (r: RadioState[]) => void;
-  entries: LogEntry[]; timezone: string; netScenarios: NetScenario[]; rxLevels: RxLevels;
+interface RadiosTabProps {
+  radios: RadioState[];
+  socket: PivotSocket | null;
+  audio: AudioIO;
+  onChange: (r: RadioState[]) => void;
+  entries: LogEntry[];
+  timezone: string;
+  netScenarios: NetScenario[];
+  rxLevels: RxLevels;
   onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
-}) {
+}
+
+function useInstructorPtt(
+  socket: PivotSocket | null,
+  audio: AudioIO,
+  radios: RadioState[],
+  onChange: (r: RadioState[]) => void,
+) {
   // TX phase per keyed radio (absent = IDLE). Several radios can be keyed at
   // once — the one mic feeds them all, and each runs its own PTT/crypto-sync
   // lifecycle on the server (ptt_* messages carry the radio_id).
@@ -361,6 +423,12 @@ function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScen
     window.addEventListener("keydown", down); window.addEventListener("keyup", up);
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, [radios, startTx, endTx]);
+
+  return { phases, startTx, endTx };
+}
+
+function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScenarios, rxLevels, onEventUpdate }: RadiosTabProps) {
+  const { phases, startTx, endTx } = useInstructorPtt(socket, audio, radios, onChange);
 
   async function addRadio() {
     // Omit the frequency so the server applies the operator-configured

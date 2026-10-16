@@ -134,6 +134,66 @@ def test_create_window_raises_when_window_creation_fails(win_tray_module):
         app._create_window()
 
 
+def test_run_with_tray_success(win_tray_module, monkeypatch):
+    """Test run_with_tray when TrayApp runs successfully."""
+    mock_hide_console = MagicMock()
+    monkeypatch.setattr(win_tray_module, "hide_console", mock_hide_console)
+
+    mock_thread_cls = MagicMock()
+    mock_thread_inst = MagicMock()
+    mock_thread_cls.return_value = mock_thread_inst
+    monkeypatch.setattr(win_tray_module.threading, "Thread", mock_thread_cls)
+
+    mock_tray_app_cls = MagicMock()
+    mock_tray_app_inst = MagicMock()
+    mock_tray_app_cls.return_value = mock_tray_app_inst
+    monkeypatch.setattr(win_tray_module, "TrayApp", mock_tray_app_cls)
+
+    serve_fn = MagicMock()
+    url = "https://127.0.0.1:8080"
+    tooltip = "PIVOT — running"
+
+    win_tray_module.run_with_tray(serve_fn, url, tooltip=tooltip)
+
+    mock_hide_console.assert_called_once()
+    mock_thread_cls.assert_called_once_with(target=serve_fn, name="pivot-server", daemon=True)
+    mock_thread_inst.start.assert_called_once()
+    mock_tray_app_cls.assert_called_once()
+    assert mock_tray_app_cls.call_args.args[0] == url
+    assert mock_tray_app_cls.call_args.kwargs.get("tooltip") == tooltip
+    mock_tray_app_inst.run.assert_called_once()
+
+
+def test_run_with_tray_failure_fallback(win_tray_module, monkeypatch, capsys):
+    """Test run_with_tray falls back to console if TrayApp initialization or run fails."""
+    mock_hide_console = MagicMock()
+    monkeypatch.setattr(win_tray_module, "hide_console", mock_hide_console)
+
+    mock_show_console = MagicMock()
+    monkeypatch.setattr(win_tray_module, "_show_console", mock_show_console)
+
+    mock_thread_cls = MagicMock()
+    mock_thread_inst = MagicMock()
+    mock_thread_cls.return_value = mock_thread_inst
+    monkeypatch.setattr(win_tray_module.threading, "Thread", mock_thread_cls)
+
+    mock_tray_app_cls = MagicMock(side_effect=OSError("Tray creation failed"))
+    monkeypatch.setattr(win_tray_module, "TrayApp", mock_tray_app_cls)
+
+    serve_fn = MagicMock()
+    url = "https://127.0.0.1:8080"
+
+    win_tray_module.run_with_tray(serve_fn, url)
+
+    mock_hide_console.assert_called_once()
+    mock_thread_inst.start.assert_called_once()
+    mock_show_console.assert_called_once_with(True)
+    mock_thread_inst.join.assert_called_once()
+
+    captured = capsys.readouterr()
+    assert "NOTE: the tray icon could not be created" in captured.out
+
+
 def test_quit_exception_logging(win_tray_module, monkeypatch):
     # Mock logger to verify exception is called
     mock_logger = MagicMock()
