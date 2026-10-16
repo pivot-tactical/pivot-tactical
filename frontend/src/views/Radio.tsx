@@ -1,18 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ModeDial } from "../components/ModeDial";
+import { RadioPanel } from "../components/RadioPanel";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
-import { METER_DECAY, SignalMeter } from "../components/SignalMeter";
-import { VolumeSlider } from "../components/VolumeSlider";
 import {
   AudioIO,
-  loadVolume,
   parseTaggedAudio,
   pcmLevel,
   playClick,
   playSyncTone,
-  saveVolume,
 } from "../audio";
-import { formatMHz, regionFor, snapToGrid, steppedFrom } from "../freq";
+import { formatMHz } from "../freq";
 import type { LoginResponse, RadioMode, RadioState, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
 
@@ -35,7 +31,7 @@ const MAX_RADIOS = 9; // matches the server cap and the numpad PTT hotkeys
 // can't be removed), and each added radio takes the next free slot. The server
 // derives the radio_id from it the same way — "<trainee_id>#<slot>" — so a
 // reconnect can re-declare the radios this view is still showing.
-interface TraineeRadio {
+export interface TraineeRadio {
   radioId: string;
   slot: number;
   name: string;
@@ -106,7 +102,10 @@ export function Radio({
       // Every frame is tagged with the radio that received it, so one playback
       // stream carries all of this terminal's radios at independent volumes.
       const { radioId, pcm } = parseTaggedAudio(buf);
-      rxLevels.current[radioId] = Math.max(rxLevels.current[radioId] ?? 0, pcmLevel(pcm));
+      rxLevels.current[radioId] = Math.max(
+        rxLevels.current[radioId] ?? 0,
+        pcmLevel(pcm),
+      );
       audio.current.play(pcm, radioId);
     });
     // Warm the mic (and playback) as soon as we're logged in: the login click
@@ -126,7 +125,8 @@ export function Radio({
   useEffect(() => {
     // Messages about the terminal's own radio may omit the id.
     const at = (p: any): string => p?.radio_id ?? primaryId;
-    const setPhase = (id: string, ph: TxPhase) => setPhases((prev) => ({ ...prev, [id]: ph }));
+    const setPhase = (id: string, ph: TxPhase) =>
+      setPhases((prev) => ({ ...prev, [id]: ph }));
     const clearPhase = (id: string) =>
       setPhases((prev) => {
         const next = { ...prev };
@@ -134,7 +134,9 @@ export function Radio({
         return next;
       });
     const patch = (id: string, fields: Partial<TraineeRadio>) =>
-      setRadios((prev) => prev.map((r) => (r.radioId === id ? { ...r, ...fields } : r)));
+      setRadios((prev) =>
+        prev.map((r) => (r.radioId === id ? { ...r, ...fields } : r)),
+      );
 
     const offs = [
       // The extra radios live only for the length of the connection, so after a
@@ -142,7 +144,8 @@ export function Radio({
       // frequencies and modes — rather than silently going deaf.
       socket.on("open", () => {
         for (const r of radiosRef.current) {
-          if (r.slot > 1) socket.addRadio(r.slot, `${formatMHz(r.freqHz)} MHz`, r.mode);
+          if (r.slot > 1)
+            socket.addRadio(r.slot, `${formatMHz(r.freqHz)} MHz`, r.mode);
         }
       }),
       socket.on("tuned", (p) => patch(at(p), { freqHz: p.frequency_hz })),
@@ -154,10 +157,10 @@ export function Radio({
             ? prev.map((r) => (r.radioId === added.radioId ? added : r))
             : [...prev, added];
           return merged.sort((a, b) => a.slot - b.slot);
-        })
+        }),
       ),
       socket.on("radio_removed", (p) =>
-        setRadios((prev) => prev.filter((r) => r.radioId !== p.radio_id))
+        setRadios((prev) => prev.filter((r) => r.radioId !== p.radio_id)),
       ),
       socket.on("ptt_started", (p) => {
         setPhase(at(p), p.sync_applies ? "CRYPTO_SYNC" : "TX");
@@ -187,7 +190,7 @@ export function Radio({
       if (!keyed.current.has(r.radioId)) return;
       socket.pttStart(`${formatMHz(r.freqHz)} MHz`, r.mode, r.radioId);
     },
-    [socket]
+    [socket],
   );
 
   const endTx = useCallback(
@@ -205,7 +208,7 @@ export function Radio({
         return next;
       });
     },
-    [socket, phases]
+    [socket, phases],
   );
 
   // PTT hotkey (§3.2.2): the numpad key with a radio's number keys that radio —
@@ -263,11 +266,15 @@ export function Radio({
   }
 
   function retune(radioId: string, freqHz: number) {
-    setRadios((prev) => prev.map((r) => (r.radioId === radioId ? { ...r, freqHz } : r)));
+    setRadios((prev) =>
+      prev.map((r) => (r.radioId === radioId ? { ...r, freqHz } : r)),
+    );
   }
 
   function changeMode(radioId: string, mode: RadioMode) {
-    setRadios((prev) => prev.map((r) => (r.radioId === radioId ? { ...r, mode } : r)));
+    setRadios((prev) =>
+      prev.map((r) => (r.radioId === radioId ? { ...r, mode } : r)),
+    );
   }
 
   return (
@@ -294,7 +301,9 @@ export function Radio({
             onMode={changeMode}
             onStart={startTx}
             onEnd={endTx}
-            onFocus={() => setFocused((f) => (f === r.radioId ? null : r.radioId))}
+            onFocus={() =>
+              setFocused((f) => (f === r.radioId ? null : r.radioId))
+            }
             onRemove={removeRadio}
           />
         ))}
@@ -307,241 +316,6 @@ export function Radio({
       )}
     </div>
   );
-}
-
-// The per-radio receive levels live in a ref shared with the socket's audio
-// handler; the meters poll and decay it at animation rate without re-renders.
-type RxLevels = { current: Record<string, number> };
-
-function RadioPanel({
-  radio,
-  index,
-  multi,
-  phase,
-  focused,
-  muted,
-  socket,
-  audio,
-  rxLevels,
-  onTune,
-  onMode,
-  onStart,
-  onEnd,
-  onFocus,
-  onRemove,
-}: {
-  radio: TraineeRadio;
-  index: number;
-  multi: boolean;
-  phase: TxPhase;
-  focused: boolean;
-  muted: boolean;
-  socket: PivotSocket;
-  audio: AudioIO;
-  rxLevels: RxLevels;
-  onTune: (radioId: string, freqHz: number) => void;
-  onMode: (radioId: string, mode: RadioMode) => void;
-  onStart: (r: TraineeRadio) => void;
-  onEnd: (r: TraineeRadio) => void;
-  onFocus: () => void;
-  onRemove: (r: TraineeRadio) => void;
-}) {
-  const [entry, setEntry] = useState(formatMHz(radio.freqHz));
-  // Each radio keeps its own headset volume across refreshes; the terminal's
-  // own radio keeps the key it has always used.
-  const volKey = radio.slot === 1 ? "trainee" : `trainee.${radio.slot}`;
-  const [volume, setVolume] = useState(() => loadVolume(volKey));
-  const entryRef = useRef<HTMLInputElement>(null);
-  const transmitting = phase !== "IDLE";
-  const region = regionFor(radio.freqHz);
-
-  // This radio's live receive level (shared map, see Radio): the meter shows
-  // what this channel actually sounds like, whether or not it is muted.
-  const readRxLevel = useCallback(
-    () => (rxLevels.current[radio.radioId] = (rxLevels.current[radio.radioId] ?? 0) * METER_DECAY),
-    [rxLevels, radio.radioId]
-  );
-
-  // Apply the saved headset volume to this radio's playback — silenced outright
-  // while another radio holds focus, so only the net being read is audible.
-  useEffect(() => {
-    audio.setVolume(muted ? 0 : volume, radio.radioId);
-  }, [audio, muted, volume, radio.radioId]);
-
-  const changeVolume = useCallback(
-    (v: number) => {
-      setVolume(v);
-      saveVolume(volKey, v);
-    },
-    [volKey]
-  );
-
-  // Keep the entry box in step with server-confirmed tunes without clobbering
-  // what the operator is typing mid-edit.
-  useEffect(() => {
-    setEntry(formatMHz(radio.freqHz));
-  }, [radio.freqHz]);
-
-  function applyTune(hz: number) {
-    const snapped = snapToGrid(hz);
-    onTune(radio.radioId, snapped);
-    socket.tune(`${formatMHz(snapped)} MHz`, radio.radioId);
-  }
-
-  // Confirm the typed frequency and hand focus back to the page — otherwise it
-  // stays in the entry box and the numpad PTT (§3.4.5) just types digits into
-  // it instead of keying up.
-  function confirmEntry() {
-    const v = parseFloat(entry);
-    if (!isNaN(v)) applyTune(v * 1e6);
-    entryRef.current?.blur();
-  }
-
-  function toggleMode() {
-    if (transmitting) return; // disabled during own TX (§3.4.5)
-    const next: RadioMode = radio.mode === "Plain" ? "Cypher" : "Plain";
-    onMode(radio.radioId, next);
-    socket.modeChange(next, radio.radioId);
-  }
-
-  return (
-    <div className={`card radio__panel ${muted ? "radio__panel--muted" : ""}`}>
-      {multi && (
-        <div className="radio__panelhead">
-          <span className="radio__num mono" aria-hidden>
-            {index}
-          </span>
-          <span className="radio__name mono">{radio.name}</span>
-          {muted && <span className="radio__mutetag mono">MUTED</span>}
-          {radio.slot > 1 && (
-            <button
-              className="btn btn--ghost radio__remove"
-              aria-label={`Remove ${radio.name}`}
-              title={`Remove ${radio.name}`}
-              onClick={() => onRemove(radio)}
-              disabled={transmitting}
-            >
-              ✕
-            </button>
-          )}
-        </div>
-      )}
-
-      <div className="freq">
-        <div className="freq__display mono">
-          {formatMHz(radio.freqHz)}
-          <span className="freq__unit">MHz</span>
-        </div>
-        <div className="freq__controls">
-          <button
-            className="btn btn--step"
-            aria-label={`Decrease frequency on ${radio.name}`}
-            onClick={() => applyTune(steppedFrom(radio.freqHz, -1))}
-            disabled={transmitting}
-          >
-            ▼
-          </button>
-          <input
-            ref={entryRef}
-            className="input mono freq__entry"
-            aria-label={`Frequency in MHz on ${radio.name}`}
-            value={entry}
-            disabled={transmitting}
-            onChange={(e) => setEntry(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") confirmEntry();
-            }}
-          />
-          <button
-            className="btn btn--step"
-            aria-label={`Increase frequency on ${radio.name}`}
-            onClick={() => applyTune(steppedFrom(radio.freqHz, 1))}
-            disabled={transmitting}
-          >
-            ▲
-          </button>
-          <button
-            className="btn btn--primary"
-            aria-label={`Tune ${radio.name}`}
-            onClick={confirmEntry}
-            disabled={transmitting}
-          >
-            Tune
-          </button>
-        </div>
-      </div>
-
-      <div className="radio__row">
-        <ModeDial
-          mode={radio.mode}
-          onToggle={toggleMode}
-          disabled={transmitting}
-          title={`Plain / Cypher on ${radio.name} (persists across retuning)`}
-        />
-
-        <SignalMeter label={`SIGNAL · ${region}`} read={readRxLevel} />
-      </div>
-
-      <div className="rxctl">
-        <VolumeSlider
-          value={volume}
-          onChange={changeVolume}
-          ariaLabel={`Headset volume for ${radio.name}`}
-        />
-        <button
-          className={`btn ${focused ? "btn--focus" : ""}`}
-          aria-label={`Focus ${radio.name}`}
-          aria-pressed={focused}
-          title={
-            focused
-              ? `Listening to ${radio.name} alone — click to bring the other radios back`
-              : `Listen to ${radio.name} alone: mutes every other radio (and its noise) until you click again`
-          }
-          onClick={onFocus}
-        >
-          {focused ? "FOCUSED" : "Focus"}
-        </button>
-      </div>
-
-      <button
-        className={`ptt ptt--${phase.toLowerCase()}`}
-        aria-label={`Push to talk on ${radio.name}`}
-        onMouseDown={() => onStart(radio)}
-        onMouseUp={() => onEnd(radio)}
-        onMouseLeave={() => transmitting && onEnd(radio)}
-        onTouchStart={(e) => {
-          e.preventDefault();
-          onStart(radio);
-        }}
-        onTouchEnd={(e) => {
-          e.preventDefault();
-          onEnd(radio);
-        }}
-      >
-        <span className="ptt__state">{phaseLabel(phase)}</span>
-        <span className="ptt__hint">{hotkeyHint(index)}</span>
-      </button>
-    </div>
-  );
-}
-
-// What keys this radio: every radio within reach of the numpad shows its own
-// key, so there is no ambiguity about which one keys up.
-function hotkeyHint(index: number): string {
-  return index <= 9 ? `HOLD · NUMPAD ${index}` : "HOLD";
-}
-
-function phaseLabel(phase: TxPhase): string {
-  switch (phase) {
-    case "CRYPTO_SYNC":
-      return "CRYPTO SYNC…";
-    case "SECURE_TX":
-      return "SECURE TX";
-    case "TX":
-      return "TX";
-    default:
-      return "PUSH TO TALK";
-  }
 }
 
 function isTyping(e: KeyboardEvent): boolean {
