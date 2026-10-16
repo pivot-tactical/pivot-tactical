@@ -329,16 +329,8 @@ def install_is_writable(versions_dir: Path) -> bool:
     return True
 
 
-def run_elevated_apply(exe: str, timeout: float = 300.0) -> int:  # pragma: no cover - Windows-only
-    """Re-run ``--apply-staged`` elevated (UAC) and wait for it to finish.
-
-    Used during relaunch when a staged update or rollback is pending and we are
-    not already admin: ``ShellExecuteEx`` with the ``runas`` verb raises the UAC
-    prompt, the elevated child performs the junction flip (creating a *trusted*
-    junction Windows will let anyone traverse), then we start the app normally.
-    Returns the child's exit code (a non-zero / cancelled prompt leaves the
-    pending marker in place so the next restart can retry).
-    """
+def _create_shellexecute_info(exe: str):
+    """Build and populate the Win32 ``SHELLEXECUTEINFOW`` structure."""
     import ctypes
     from ctypes import wintypes
 
@@ -364,6 +356,43 @@ def run_elevated_apply(exe: str, timeout: float = 300.0) -> int:  # pragma: no c
     SEE_MASK_NOCLOSEPROCESS = 0x00000040
     SW_HIDE = 0
 
+    info = _SHELLEXECUTEINFOW()
+    info.cbSize = ctypes.sizeof(info)
+    info.fMask = SEE_MASK_NOCLOSEPROCESS
+    info.lpVerb = "runas"
+    info.lpFile = exe
+    info.lpParameters = "--apply-staged"
+    info.nShow = SW_HIDE
+    return info
+
+
+def _wait_and_get_exit_code(kernel32, handle, timeout: float) -> int:
+    """Wait for process handle to finish and retrieve its exit code."""
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        kernel32.WaitForSingleObject(handle, int(max(0.0, timeout) * 1000))
+        code = wintypes.DWORD()
+        kernel32.GetExitCodeProcess(handle, ctypes.pointer(code))
+        return int(code.value)
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def run_elevated_apply(exe: str, timeout: float = 300.0) -> int:  # pragma: no cover - Windows-only
+    """Re-run ``--apply-staged`` elevated (UAC) and wait for it to finish.
+
+    Used during relaunch when a staged update or rollback is pending and we are
+    not already admin: ``ShellExecuteEx`` with the ``runas`` verb raises the UAC
+    prompt, the elevated child performs the junction flip (creating a *trusted*
+    junction Windows will let anyone traverse), then we start the app normally.
+    Returns the child's exit code (a non-zero / cancelled prompt leaves the
+    pending marker in place so the next restart can retry).
+    """
+    import ctypes
+    from ctypes import wintypes
+
     shell32 = ctypes.windll.shell32
     kernel32 = ctypes.windll.kernel32
     shell32.ShellExecuteExW.argtypes = [ctypes.c_void_p]
@@ -375,23 +404,11 @@ def run_elevated_apply(exe: str, timeout: float = 300.0) -> int:  # pragma: no c
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
 
-    info = _SHELLEXECUTEINFOW()
-    info.cbSize = ctypes.sizeof(info)
-    info.fMask = SEE_MASK_NOCLOSEPROCESS
-    info.lpVerb = "runas"
-    info.lpFile = exe
-    info.lpParameters = "--apply-staged"
-    info.nShow = SW_HIDE
+    info = _create_shellexecute_info(exe)
     if not shell32.ShellExecuteExW(ctypes.byref(info)):
-        raise ctypes.WinError()
+        win_err = getattr(ctypes, "WinError", OSError)
+        raise win_err()
 
-    handle = info.hProcess
-    if not handle:
+    if not info.hProcess:
         return 0
-    try:
-        kernel32.WaitForSingleObject(handle, int(max(0.0, timeout) * 1000))
-        code = wintypes.DWORD()
-        kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
-        return int(code.value)
-    finally:
-        kernel32.CloseHandle(handle)
+    return _wait_and_get_exit_code(kernel32, info.hProcess, timeout)

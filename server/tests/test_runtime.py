@@ -661,3 +661,68 @@ def test_open_in_file_manager_file_not_dir(tmp_path):
     file_path.write_text("hello")
     with pytest.raises(NotADirectoryError):
         open_in_file_manager(file_path)
+
+
+def test_run_elevated_apply_success(monkeypatch):
+    import ctypes
+    from pivot.runtime.lifecycle import run_elevated_apply
+
+    mock_shell32 = Mock()
+
+    def handle_shell(info_ref):
+        struct = info_ref._obj if hasattr(info_ref, "_obj") else info_ref
+        struct.hProcess = 1234
+        return True
+
+    mock_shell32.ShellExecuteExW.side_effect = handle_shell
+
+    mock_kernel32 = Mock()
+
+    def handle_exit_code(handle, code_ref):
+        code_ref.contents.value = 42
+        return True
+
+    mock_kernel32.GetExitCodeProcess.side_effect = handle_exit_code
+
+    mock_windll = Mock(shell32=mock_shell32, kernel32=mock_kernel32)
+    monkeypatch.setattr(ctypes, "windll", mock_windll, raising=False)
+
+    res = run_elevated_apply("dummy.exe", timeout=10.0)
+    assert res == 42
+    mock_kernel32.WaitForSingleObject.assert_called_once_with(1234, 10000)
+    mock_kernel32.CloseHandle.assert_called_once_with(1234)
+
+
+def test_run_elevated_apply_error(monkeypatch):
+    import ctypes
+    from pivot.runtime.lifecycle import run_elevated_apply
+
+    mock_shell32 = Mock()
+    mock_shell32.ShellExecuteExW.return_value = False
+
+    mock_windll = Mock(shell32=mock_shell32, kernel32=Mock())
+    monkeypatch.setattr(ctypes, "windll", mock_windll, raising=False)
+
+    expected_err = getattr(ctypes, "WinError", OSError)
+    with pytest.raises(expected_err):
+        run_elevated_apply("dummy.exe")
+
+
+def test_run_elevated_apply_no_handle(monkeypatch):
+    import ctypes
+    from pivot.runtime.lifecycle import run_elevated_apply
+
+    mock_shell32 = Mock()
+
+    def handle_shell(info_ref):
+        struct = info_ref._obj if hasattr(info_ref, "_obj") else info_ref
+        struct.hProcess = 0
+        return True
+
+    mock_shell32.ShellExecuteExW.side_effect = handle_shell
+
+    mock_windll = Mock(shell32=mock_shell32, kernel32=Mock())
+    monkeypatch.setattr(ctypes, "windll", mock_windll, raising=False)
+
+    res = run_elevated_apply("dummy.exe")
+    assert res == 0
