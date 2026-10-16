@@ -5,46 +5,18 @@ import { PivotSocket } from "./ws";
 import { Login } from "./views/Login";
 import { Radio } from "./views/Radio";
 import { InstructorConsole } from "./views/InstructorConsole";
+import {
+  traineeId,
+  saveTrainee,
+  touchTrainee,
+  loadTrainee,
+} from "./traineeStorage";
 
 type View = "login" | "trainee" | "instructor";
 
-// Browser-stored trainee id so the same terminal keeps its identity (and its
-// server-side persistent crypto mode) across reloads (spec §3.2.1, §3.4.4).
-function traineeId(): string {
-  let id = localStorage.getItem("pivot_trainee_id");
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem("pivot_trainee_id", id);
-  }
-  return id;
-}
-
-// Trainee callsign persistence: a refresh (or a server restart) must not drop an
-// operator out of a running scenario. We remember the callsign and "touch" it
-// while the radio is open; an idle window longer than this expires it so a stale
-// callsign from a previous day doesn't silently rejoin.
-const TRAINEE_NAME_KEY = "pivot_trainee_name";
-const TRAINEE_SEEN_KEY = "pivot_trainee_seen";
-const TRAINEE_TTL_MS = 60 * 60 * 1000; // 1 hour of inactivity
 // Slide the instructor token and trainee freshness well inside their TTLs.
 const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 const TOUCH_INTERVAL_MS = 5 * 60 * 1000;
-
-function saveTrainee(name: string) {
-  localStorage.setItem(TRAINEE_NAME_KEY, name);
-  localStorage.setItem(TRAINEE_SEEN_KEY, String(Date.now()));
-}
-function touchTrainee() {
-  if (localStorage.getItem(TRAINEE_NAME_KEY)) {
-    localStorage.setItem(TRAINEE_SEEN_KEY, String(Date.now()));
-  }
-}
-function loadTrainee(): string | null {
-  const name = localStorage.getItem(TRAINEE_NAME_KEY);
-  const seen = Number(localStorage.getItem(TRAINEE_SEEN_KEY) || 0);
-  if (!name || Date.now() - seen > TRAINEE_TTL_MS) return null;
-  return name;
-}
 
 export default function App() {
   const [view, setView] = useState<View>("login");
