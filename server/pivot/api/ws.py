@@ -146,13 +146,11 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
                         manager.route_tx_frame(rid, pcm)
                 continue
             text = message.get("text")
-            if not text:
-                continue
-            data = json.loads(text)
-            mtype = data.get("type")
-            payload = data.get("payload") or {}
-
-            await _handle_trainee_message(ws, manager, mtype, payload, ctx)
+            if text:
+                data = json.loads(text)
+                await _handle_trainee_message(
+                    ws, manager, data.get("type"), data.get("payload") or {}, ctx
+                )
     except WebSocketDisconnect:
         pass
     finally:
@@ -228,12 +226,11 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
                         manager.route_tx_frame(rid, pcm)
                 continue
             text = message.get("text")
-            if not text:
-                continue
-            data = json.loads(text)
-            mtype = data.get("type")
-            payload = data.get("payload") or {}
-            await _handle_instructor_message(ws, manager, mtype, payload, ctx)
+            if text:
+                data = json.loads(text)
+                await _handle_instructor_message(
+                    ws, manager, data.get("type"), data.get("payload") or {}, ctx
+                )
     except WebSocketDisconnect:
         pass
     finally:
