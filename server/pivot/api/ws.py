@@ -145,7 +145,10 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
                     for rid in active_tx:
                         manager.route_tx_frame(rid, pcm)
                 continue
-            data = json.loads(message["text"])
+            text = message.get("text")
+            if not text:
+                continue
+            data = json.loads(text)
             mtype = data.get("type")
             payload = data.get("payload") or {}
 
@@ -224,7 +227,10 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
                     for rid in active_tx:
                         manager.route_tx_frame(rid, pcm)
                 continue
-            data = json.loads(message["text"])
+            text = message.get("text")
+            if not text:
+                continue
+            data = json.loads(text)
             mtype = data.get("type")
             payload = data.get("payload") or {}
             await _handle_instructor_message(ws, manager, mtype, payload, ctx)

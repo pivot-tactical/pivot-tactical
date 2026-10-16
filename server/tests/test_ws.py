@@ -95,3 +95,34 @@ async def test_instructor_session_disconnect():
     await _instructor_session(mock_ws, mock_manager)
 
     mock_ws.receive.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_instructor_session_empty_text_message():
+    mock_ws = AsyncMock(spec=WebSocket)
+    mock_ws.receive.side_effect = [
+        {"type": "websocket.receive", "text": "", "bytes": None},
+        WebSocketDisconnect(),
+    ]
+    mock_manager = MagicMock()
+    mock_manager.instructor_radios.return_value = [{"radio_id": "r1"}]
+
+    await _instructor_session(mock_ws, mock_manager)
+
+    assert mock_ws.receive.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_trainee_session_empty_text_message():
+    mock_ws = AsyncMock(spec=WebSocket)
+    mock_ws.query_params.get.return_value = "test"
+    mock_ws.receive.side_effect = [
+        {"type": "websocket.receive", "text": "", "bytes": None},
+        WebSocketDisconnect(),
+    ]
+    mock_manager = MagicMock()
+    mock_manager.login.return_value = {"radio_id": "r1", "epoch": 123}
+
+    await _trainee_session(mock_ws, mock_manager)
+
+    assert mock_ws.receive.call_count == 2
