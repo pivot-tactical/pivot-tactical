@@ -555,7 +555,23 @@ class SessionManager:
         """
         if not self.session_active or not self._audio_sinks:
             return
-        # Group idle, sink-bound radios by net; keep a representative frequency.
+
+        groups, freq_of = self._collect_idle_listeners(primed)
+
+        # At most one idle frame per distinct sink per tick: an instructor binds
+        # several radios to one queue, and N frames/tick would overflow it.
+        sent_sinks: set[int] = set()
+        for key, listeners in groups.items():
+            freq = freq_of[key]
+            if self.registry.active_transmitters_on_net(freq):
+                for rid in listeners:
+                    primed.discard(rid)
+                continue
+            self._emit_idle_noise_to_net(freq, listeners, frame_samples, primed, sent_sinks)
+
+    def _collect_idle_listeners(
+        self, primed: set[str]
+    ) -> tuple[dict[int, list[str]], dict[int, float]]:
         groups: dict[int, list[str]] = {}
         freq_of: dict[int, float] = {}
         for rid in list(self._audio_sinks.keys()):
@@ -568,37 +584,37 @@ class SessionManager:
             key = self.registry.net_key(radio.frequency_hz)
             groups.setdefault(key, []).append(rid)
             freq_of[key] = radio.frequency_hz
+        return groups, freq_of
 
-        # At most one idle frame per distinct sink per tick: an instructor binds
-        # several radios to one queue, and N frames/tick would overflow it.
-        sent_sinks: set[int] = set()
-        for key, listeners in groups.items():
-            freq = freq_of[key]
-            if self.registry.active_transmitters_on_net(freq):
-                for rid in listeners:
-                    primed.discard(rid)
+    def _emit_idle_noise_to_net(
+        self,
+        freq: float,
+        listeners: list[str],
+        frame_samples: int,
+        primed: set[str],
+        sent_sinks: set[int],
+    ) -> None:
+        conditions = self.band_profile.conditions_at(freq)
+        data: bytes | None = None  # generated lazily, shared across the net
+        for rid in listeners:
+            sink = self._audio_sinks.get(rid)
+            if sink is None or id(sink) in sent_sinks:
                 continue
-            conditions = self.band_profile.conditions_at(freq)
-            data: bytes | None = None  # generated lazily, shared across the net
-            for rid in listeners:
-                sink = self._audio_sinks.get(rid)
-                if sink is None or id(sink) in sent_sinks:
-                    continue
-                if data is None:
-                    data = float32_to_pcm16(
-                        self.engine.render_idle_noise(frame_samples, conditions)
+            if data is None:
+                data = float32_to_pcm16(
+                    self.engine.render_idle_noise(frame_samples, conditions)
+                )
+            if rid not in primed:
+                for _ in range(2):  # prime a ~2-frame cushion on first sight
+                    self._emit_to_sink(
+                        sink,
+                        float32_to_pcm16(
+                            self.engine.render_idle_noise(frame_samples, conditions)
+                        ),
                     )
-                if rid not in primed:
-                    for _ in range(2):  # prime a ~2-frame cushion on first sight
-                        self._emit_to_sink(
-                            sink,
-                            float32_to_pcm16(
-                                self.engine.render_idle_noise(frame_samples, conditions)
-                            ),
-                        )
-                    primed.add(rid)
-                self._emit_to_sink(sink, data)
-                sent_sinks.add(id(sink))
+                primed.add(rid)
+            self._emit_to_sink(sink, data)
+            sent_sinks.add(id(sink))
 
     @staticmethod
     def _emit_to_sink(sink, data: bytes) -> None:
