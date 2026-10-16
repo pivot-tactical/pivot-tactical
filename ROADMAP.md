@@ -20,8 +20,8 @@ Maps **PIVOT Spec v1.6** to the codebase. Legend:
 | ----------- | -------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 3.1.1       | Server status, session control, terminal count, clock                | ✅      | `api/rest.py` + instructor console (`frontend/`)                                                                                                                                |
 | 3.1.2       | Free tuning, emergent nets, band noise profile                       | ✅      | `core/bands.py`, `core/radios.py`                                                                                                                                               |
-| 3.1.2a      | Multiple instructor radios                                           | ✅      | `runtime/manager.py`, `api/rest.py`, `api/ws.py` (instr_*)                                                                                                                      |
-| 3.1.3       | Instructor transmit (select + PTT, labelled INSTRUCTOR)              | ✅ / 🟡 | `api/ws.py` instr_ptt_* (timing done; media via router)                                                                                                                         |
+| 3.1.2a      | Multiple instructor radios                                           | ✅      | `runtime/manager.py`, `api/rest.py`, `api/ws.py` (instr\_\*)                                                                                                                    |
+| 3.1.3       | Instructor transmit (select + PTT, labelled INSTRUCTOR)              | ✅ / 🟡 | `api/ws.py` instr_ptt\_\* (timing done; media via router)                                                                                                                       |
 | 3.1.4       | Live terminal monitor                                                | ✅      | `runtime/manager.py::monitor_snapshot`, broadcast over `/ws`                                                                                                                    |
 | 3.1.5       | Scenario controls (noise burst, jamming, per-net noise, curve, kick) | ✅      | `runtime/manager.py`, `api/rest.py::admin_scenario`                                                                                                                             |
 | 3.1.6       | Transcription config (model/compute/lang/threshold/skip)             | ✅      | `config.py`, `api/rest.py::admin_update_settings`, `transcription/`                                                                                                             |
@@ -40,7 +40,7 @@ Maps **PIVOT Spec v1.6** to the codebase. Legend:
 | 3.6.1–3.6.2 | AAR session list + event timeline                                    | ✅      | `frontend/src/views/AAR.tsx`, `api/rest.py`                                                                                                                                     |
 | 3.6.3       | Clean/Dirty + Plain/Cypher playback toggles                          | ✅      | `audio/render.py`, `api/rest.py::event_audio`                                                                                                                                   |
 | 3.6.4       | Export (text / CSV / ZIP)                                            | ✅      | `exporting.py`                                                                                                                                                                  |
-| 3.7         | Version management & updates                                         | ✅ / ⬜ | `updates/manager.py` + `updates/github.py` + `/api/admin/updates/check` (release check, Stable/Include-prereleases channel, auto-update flag — all ✅); platform swap helper ⬜ |
+| 3.7         | Version management & updates                                         | ✅      | `updates/manager.py` + `updates/github.py` + `/api/admin/updates/check` (release check, Stable/Include-prereleases channel, auto-update flag — all ✅); platform swap helper ✅ |
 | 3.8         | Time & clock (UTC store, configurable display zone, live)            | ✅      | `core/timebase.py`, seven-segment clock in `frontend/`                                                                                                                          |
 
 ## 4. DSP & Audio Processing
@@ -100,8 +100,6 @@ update/downgrade/rollback/offline-import (#22–#24), and the licence policy
 ## Notable follow-ups
 
 - WebRTC media end-to-end (browser ↔ aiortc) and Opus encode tuning (§6.3).
-- Platform updater helper (Windows + Linux) performing the staged swap +
-  relaunch, and downloading the verified release asset for the running OS (§3.7.5).
 - Rotating-file logging configuration and audio-router log (§8.6).
 - Streaming (block-based) DSP filters for the live path; the offline/whole-buffer
   chain is shared today (§4, §8.1).

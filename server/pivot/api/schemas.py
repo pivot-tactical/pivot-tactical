@@ -111,6 +111,15 @@ class RollbackRequest(BaseModel):
 
     tag: str | None = None
 
+    @field_validator("tag")
+    @classmethod
+    def validate_filename(cls, v: str | None) -> str | None:
+        if not v:
+            return v
+        if "/" in v or "\\" in v or ".." in v:
+            raise ValueError("must be a valid filename without path separators")
+        return v
+
 
 class RestartRequest(BaseModel):
     """Instructor-initiated server restart (§3.7.5).
