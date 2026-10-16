@@ -922,17 +922,16 @@ class SessionManager:
             )  # Bolt: apply deferred casting/reshaping
         return None
 
-    def _write_event(self, acc, sync_status, audibility, clean) -> dict | None:
-        if self.current_session_id is None:
-            return None  # events only logged within a session
+    def _save_recording(
+        self, acc: _TxAccumulator, clean: np.ndarray | None
+    ) -> tuple[str, int, bool]:
+        """Save clean audio to disk if present and return (rel_path, duration_ms, has_audio)."""
         from pivot.audio.recording import (
             duration_ms,
             relative_audio_path,
             write_recording,
         )
-        from pivot.db.models import TranscriptionStatus
 
-        conditions = self.band_profile.conditions_at(acc.frequency_hz)
         rel_path = relative_audio_path(
             self.current_session_name,
             self.current_session_started_at or acc.started_at,
@@ -946,6 +945,21 @@ class SessionManager:
             path = self.settings.recordings_dir / rel_path
             write_recording(path, clean, RECORDING_SAMPLE_RATE)
             dur = duration_ms(clean, RECORDING_SAMPLE_RATE)
+        return rel_path, dur, has_audio
+
+    def _write_event(
+        self,
+        acc: _TxAccumulator,
+        sync_status: SyncStatus,
+        audibility: Audibility,
+        clean: np.ndarray | None,
+    ) -> dict | None:
+        if self.current_session_id is None:
+            return None  # events only logged within a session
+        from pivot.db.models import TranscriptionStatus
+
+        conditions = self.band_profile.conditions_at(acc.frequency_hz)
+        rel_path, dur, has_audio = self._save_recording(acc, clean)
 
         # No audio captured → terminal "Skipped" so the UI doesn't sit on
         # "transcribing…"; otherwise Pending for the async worker.
