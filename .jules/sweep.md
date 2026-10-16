@@ -7,3 +7,7 @@
 **Action:** Never let a handle-carrying call fall back to ctypes' default `int`. Declare the prototype.
 
 **Consequence worth knowing:** the two families differ in what they accept for a NULL handle. An *integer* argtype such as `c_uint64` rejects `None` outright — `argument N: TypeError: wrong type` — so a NULL handle must be written as `0`. Pointer types accept `None`. Passing `None` for `CreateWindowExW`'s `hMenu` against the `c_uint64` argtype is exactly what killed startup in tray mode; the fix was to pass `0` (see `fix(win-tray): pass 0, not None, for CreateWindowExW's hMenu`). Match the literal to the argtype you declared.
+## 2026-10-13 - Redundant repository functions
+
+**Learning:** It is common for specific data retrieval functions (like `list_sessions`) to be obsoleted by richer variants (like `list_sessions_with_event_count`) that serve the exact same endpoint or UI component without being cleaned up in the repository layer.
+**Action:** When finding a seemingly unused repository function, grep for its exact name globally to verify it isn't dynamically called, then safely remove it. Always check if a similarly named function (e.g. `_with_count`) exists and is used in its place to confirm the logic wasn't accidentally dropped.

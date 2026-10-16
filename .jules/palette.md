@@ -25,3 +25,7 @@
 ## 2026-09-09 - Trainee Radio Deletion UX
 **Learning:** High-stress tactical interfaces require destructive action protection on both ends. While the instructor console strictly guarded deletions, the trainee interface allowed accidental one-click deletion of active radio configurations, which could disrupt a live training exercise without a straightforward undo.
 **Action:** Apply the `window.confirm` pattern to all destructive actions across both instructor and trainee views, not just administrative ones.
+
+## 2026-10-14 - Tablist WAI-ARIA Pattern
+**Learning:** When using `role="tablist"` on a container, the child elements must have `role="tab"` and be linked to their corresponding content panels via `aria-controls`. The content container itself must have `role="tabpanel"`, an `id` matching the `aria-controls`, and an `aria-labelledby` pointing back to the active tab's `id` to satisfy strict accessibility checks.
+**Action:** Ensure all dynamically rendered tabs apply the complete suite of ARIA attributes (`id`, `aria-controls` for tabs; `role="tabpanel"`, `id`, `aria-labelledby` for content areas) rather than just `role="tablist"` and `aria-selected`.
