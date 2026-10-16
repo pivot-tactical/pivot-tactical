@@ -11,7 +11,7 @@ stored values remain UTC.
 import csv
 import io
 import zipfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from pivot.audio.recording import UnsafeRecordingPath, recording_path, session_dir_name
 from pivot.core.timebase import format_clock, parse_iso_utc
@@ -112,5 +112,6 @@ def export_zip(db: Database, settings, session_id: str) -> bytes:
             except UnsafeRecordingPath:
                 continue
             if wav_path.is_file():
-                zf.write(wav_path, arcname=f"{root}/recordings/{wav_path.name}")
+                filename = PureWindowsPath(wav_path.name).name
+                zf.write(wav_path, arcname=f"{root}/recordings/{filename}")
     return buf.getvalue()

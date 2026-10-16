@@ -22,6 +22,73 @@ def clear_filter_cache():
     cached_butter.cache_clear()
 
 
+def test_rms_empty_and_zeros():
+    empty = np.array([], dtype=np.float32)
+    assert rms(empty) == 0.0
+    assert isinstance(rms(empty), float)
+
+    zeros = np.zeros(100, dtype=np.float32)
+    assert rms(zeros) == 0.0
+    assert isinstance(rms(zeros), float)
+
+
+def test_rms_constant_and_sine():
+    constant = np.full(100, -3.5, dtype=np.float32)
+    assert np.isclose(rms(constant), 3.5)
+
+    t = np.linspace(0, 1, 44100, endpoint=False)
+    amplitude = 2.0
+    sine = amplitude * np.sin(2 * np.pi * 440 * t)
+    expected_rms = amplitude / np.sqrt(2)
+    assert np.isclose(rms(sine), expected_rms, rtol=1e-5)
+
+
+def test_rms_return_type_and_dtypes():
+    for dtype in [np.float32, np.float64, np.int16, np.int32]:
+        x = np.array([5, -5], dtype=dtype)
+        res = rms(x)
+        assert res == 5.0
+        assert type(res) is float
+
+
+def test_cached_butter_output():
+    sos_low = cached_butter(4, 0.25, btype="low", output="sos")
+    assert isinstance(sos_low, np.ndarray)
+    assert sos_low.ndim == 2
+    assert sos_low.shape[1] == 6
+
+    sos_bp = cached_butter(4, (0.1, 0.4), btype="bandpass", output="sos")
+    assert isinstance(sos_bp, np.ndarray)
+    assert sos_bp.ndim == 2
+    assert sos_bp.shape[1] == 6
+
+
+def test_cached_butter_caching():
+    cached_butter.cache_clear()
+    info0 = cached_butter.cache_info()
+    assert info0.hits == 0
+    assert info0.misses == 0
+
+    # First call: cache miss
+    res1 = cached_butter(4, 0.25, btype="low", output="sos")
+    info1 = cached_butter.cache_info()
+    assert info1.hits == 0
+    assert info1.misses == 1
+
+    # Second call with same arguments: cache hit
+    res2 = cached_butter(4, 0.25, btype="low", output="sos")
+    info2 = cached_butter.cache_info()
+    assert info2.hits == 1
+    assert info2.misses == 1
+    assert np.array_equal(res1, res2)
+
+    # Call with different arguments: cache miss
+    cached_butter(2, (0.1, 0.3), btype="bandstop", output="sos")
+    info3 = cached_butter.cache_info()
+    assert info3.hits == 1
+    assert info3.misses == 2
+
+
 def test_normalise_rms_zeros():
     x = np.zeros(100, dtype=np.float32)
     out = normalise_rms(x)

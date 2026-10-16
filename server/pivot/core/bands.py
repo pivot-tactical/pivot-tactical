@@ -391,26 +391,10 @@ class BandProfile:
 
     # -- resolution -------------------------------------------------------- #
 
-    def conditions_at(self, freq_hz: float) -> BandConditions:
-        """Resolve full audio conditions at ``freq_hz`` for this instant."""
-        freq_hz = clamp_frequency(freq_hz)
-        region = region_for(freq_hz)
-        base = self._interp(freq_hz)
-
-        snr = base.snr_db
-        fading_depth = base.fading_depth_db
-
-        is_hf = region is BandRegion.HF
-        # The narrower, muddier voice bandpass at the very low end is keyed on
-        # the actual frequency, not the band label — propagation is a smooth
-        # slope, so it fades in below ~10 MHz rather than snapping at a bucket.
-        low_hf = freq_hz < 10_000_000.0
-        pink_weight = _pink_weight_for(freq_hz)
-
-        # Per-net override on this channel, if the instructor set one. Zero is
-        # the frequency's natural baseline.
-        net = self.net_scenarios.get(net_key_for(freq_hz))
-        interference = net.interference if net is not None else 0.0
+    def _apply_interference(
+        self, snr: float, fading_depth: float, interference: float
+    ) -> tuple[float, float]:
+        """Apply instructor noise offset to SNR and fading depth."""
         if interference > 0.0:
             # Induced interference buries the voice progressively and stirs the
             # channel up (deeper, quicker fading) so trainees are pushed to
@@ -424,16 +408,42 @@ class BandProfile:
             cleanup = -interference
             snr += cleanup * _CLEANUP_SNR_BOOST_DB
             fading_depth *= 1.0 - cleanup
+        return snr, fading_depth
+
+    def _apply_jamming(self, freq_hz: float, snr: float, jammed: bool) -> float:
+        """Apply instructor/span jamming override to SNR if jammed."""
+        if not jammed:
+            return snr
+        jam_intensity = max(
+            (j.intensity for j in self.jamming if j.covers(freq_hz)), default=1.0
+        )
+        # Jamming overrides the baseline with heavy competing noise on this
+        # frequency, driving the SNR deeply negative so the (full-strength)
+        # voice is buried rather than merely quietened.
+        return min(snr, _JAM_SNR_CEIL_DB) - _JAM_SNR_SPAN_DB * jam_intensity
+
+    def conditions_at(self, freq_hz: float) -> BandConditions:
+        """Resolve full audio conditions at ``freq_hz`` for this instant."""
+        freq_hz = clamp_frequency(freq_hz)
+        region = region_for(freq_hz)
+        base = self._interp(freq_hz)
+
+        is_hf = region is BandRegion.HF
+        pink_weight = _pink_weight_for(freq_hz)
+
+        # Per-net override on this channel, if the instructor set one. Zero is
+        # the frequency's natural baseline.
+        net = self.net_scenarios.get(net_key_for(freq_hz))
+        interference = net.interference if net is not None else 0.0
+
+        snr, fading_depth = self._apply_interference(
+            base.snr_db, base.fading_depth_db, interference
+        )
 
         jammed = any(j.covers(freq_hz) for j in self.jamming) or (net is not None and net.jammed)
-        if jammed:
-            jam_intensity = max(
-                (j.intensity for j in self.jamming if j.covers(freq_hz)), default=1.0
-            )
-            # Jamming overrides the baseline with heavy competing noise on this
-            # frequency, driving the SNR deeply negative so the (full-strength)
-            # voice is buried rather than merely quietened.
-            snr = min(snr, _JAM_SNR_CEIL_DB) - _JAM_SNR_SPAN_DB * jam_intensity
+        snr = self._apply_jamming(freq_hz, snr, jammed)
+
+        low_hz, high_hz = _passband_for(freq_hz)
 
         return BandConditions(
             freq_hz=freq_hz,
@@ -444,8 +454,8 @@ class BandProfile:
             fading_rate_hz=base.fading_rate_hz,
             selective_fading=is_hf,
             qrm=is_hf,
-            bandpass_low_hz=300.0 + (60.0 if low_hf else 0.0),
-            bandpass_high_hz=3000.0 - (300.0 if low_hf else 0.0),
+            bandpass_low_hz=low_hz,
+            bandpass_high_hz=high_hz,
             squelch_tail_ms=_squelch_tail_for(freq_hz),
             jammed=jammed,
             interference=interference,
@@ -517,6 +527,19 @@ class BandProfile:
             for d in data
         ]
         return cls(anchors=anchors, **kwargs)
+
+
+def _passband_for(freq_hz: float) -> tuple[float, float]:
+    """Voice bandpass: low and high cutoff frequencies (Hz).
+
+    The narrower, muddier voice bandpass at the very low end is keyed on the
+    actual frequency, not the band label — propagation is a smooth slope, so it
+    fades in below ~10 MHz rather than snapping at a bucket.
+    """
+    low_hf = freq_hz < 10_000_000.0
+    low_hz = 300.0 + (60.0 if low_hf else 0.0)
+    high_hz = 3000.0 - (300.0 if low_hf else 0.0)
+    return low_hz, high_hz
 
 
 def _pink_weight_for(freq_hz: float) -> float:
