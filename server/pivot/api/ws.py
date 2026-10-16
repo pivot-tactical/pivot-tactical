@@ -71,6 +71,38 @@ def _is_origin_allowed(origin: str | None) -> bool:
     return bool(_ALLOW_ORIGIN_REGEX.match(origin))
 
 
+@contextlib.asynccontextmanager
+async def _ws_session_pumps(ws: WebSocket, manager):
+    queue = manager.subscribe()
+    audio_out: asyncio.Queue = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
+    outbound = asyncio.create_task(_pump_outbound(ws, queue))
+    audio_pump = asyncio.create_task(_pump_audio(ws, audio_out))
+    try:
+        yield audio_out
+    finally:
+        await _shutdown([outbound, audio_pump], manager, queue)
+
+
+async def _process_ws_messages(
+    ws: WebSocket, manager, active_tx: set[str], handler: Callable[[str, dict], None]
+) -> None:
+    while True:
+        message = await ws.receive()
+        if message.get("type") == "websocket.disconnect":
+            break
+        if message.get("bytes") is not None:
+            if active_tx:
+                pcm = pcm16_to_float32(message["bytes"])
+                for rid in active_tx:
+                    manager.route_tx_frame(rid, pcm)
+            continue
+        data = json.loads(message["text"])
+        mtype = data.get("type")
+        payload = data.get("payload") or {}
+
+        await handler(mtype, payload)
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
     if not _is_origin_allowed(ws.headers.get("origin")):
@@ -100,69 +132,45 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
     primary_id = info["radio_id"]
     login_epoch = info.get("epoch")
 
-    queue = manager.subscribe()
-    audio_out: asyncio.Queue = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
-    outbound = asyncio.create_task(_pump_outbound(ws, queue))
-    audio_pump = asyncio.create_task(_pump_audio(ws, audio_out))
-    # A terminal may run several radios (§3.2.2), each on its own frequency and
-    # each with its own PTT/crypto-sync lifecycle, so the keyed set and the sync
-    # timers are tracked per radio — as they are for the instructor.
     sync_tasks: dict[str, asyncio.Task] = {}
     active_tx: set[str] = set()
-    # One tagged sink per radio, so the browser can mix the terminal's radios
-    # into one playback stream at independent headset volumes (and mute all but
-    # one with the radio view's Focus control).
     sinks: dict[str, object] = {}
 
-    def sync_radio_sinks() -> None:
-        live = {r["radio_id"] for r in manager.trainee_radios(trainee_id)}
-        for rid in list(sinks):
-            if rid not in live:
-                manager.unregister_audio_sink(rid, sinks.pop(rid))
-        for rid in live:
-            if rid not in sinks:
-                sink = _tagged_sink(audio_out, rid)
-                sinks[rid] = sink
-                manager.register_audio_sink(rid, sink)
+    async with _ws_session_pumps(ws, manager) as audio_out:
+        def sync_radio_sinks() -> None:
+            live = {r["radio_id"] for r in manager.trainee_radios(trainee_id)}
+            for rid in list(sinks):
+                if rid not in live:
+                    manager.unregister_audio_sink(rid, sinks.pop(rid))
+            for rid in live:
+                if rid not in sinks:
+                    sink = _tagged_sink(audio_out, rid)
+                    sinks[rid] = sink
+                    manager.register_audio_sink(rid, sink)
 
-    sync_radio_sinks()
-    # Fixed for the life of the socket: the ids never change, and the set/dict
-    # are mutated in place by the handlers.
-    ctx = TraineeContext(trainee_id, primary_id, active_tx, sync_tasks, sync_radio_sinks)
-    await ws.send_json({"type": "welcome", "payload": {"role": "trainee", **info}})
-    await ws.send_json({"type": "band_profile_update", "payload": manager.band_profile_snapshot()})
+        sync_radio_sinks()
+        ctx = TraineeContext(trainee_id, primary_id, active_tx, sync_tasks, sync_radio_sinks)
+        await ws.send_json({"type": "welcome", "payload": {"role": "trainee", **info}})
+        await ws.send_json(
+            {"type": "band_profile_update", "payload": manager.band_profile_snapshot()}
+        )
 
-    try:
-        while True:
-            message = await ws.receive()
-            if message.get("type") == "websocket.disconnect":
-                break
-            if message.get("bytes") is not None:
-                if active_tx:
-                    # One mic frame fans out to every radio this terminal has
-                    # keyed; each net renders it under its own conditions.
-                    pcm = pcm16_to_float32(message["bytes"])
-                    for rid in active_tx:
-                        manager.route_tx_frame(rid, pcm)
-                continue
-            data = json.loads(message["text"])
-            mtype = data.get("type")
-            payload = data.get("payload") or {}
+        try:
+            async def handler(mtype: str, payload: dict) -> None:
+                await _handle_trainee_message(ws, manager, mtype, payload, ctx)
 
-            await _handle_trainee_message(ws, manager, mtype, payload, ctx)
-    except WebSocketDisconnect:
-        pass
-    finally:
-        for task in sync_tasks.values():
-            _cancel(task)
-        # A disconnect mid-keying must not leave radios stuck on the air.
-        for rid in active_tx:
-            with contextlib.suppress(Exception):
-                manager.ptt_end(rid)
-        for rid, sink in sinks.items():
-            manager.unregister_audio_sink(rid, sink)
-        await _shutdown([outbound, audio_pump], manager, queue)
-        manager.disconnect(trainee_id, epoch=login_epoch)
+            await _process_ws_messages(ws, manager, active_tx, handler)
+        except WebSocketDisconnect:
+            pass
+        finally:
+            for task in sync_tasks.values():
+                _cancel(task)
+            for rid in active_tx:
+                with contextlib.suppress(Exception):
+                    manager.ptt_end(rid)
+            for rid, sink in sinks.items():
+                manager.unregister_audio_sink(rid, sink)
+            manager.disconnect(trainee_id, epoch=login_epoch)
 
 
 # --------------------------------------------------------------------------- #
@@ -171,78 +179,50 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
 
 
 async def _instructor_session(ws: WebSocket, manager) -> None:
-    queue = manager.subscribe()
-    audio_out: asyncio.Queue = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
-    outbound = asyncio.create_task(_pump_outbound(ws, queue))
-    audio_pump = asyncio.create_task(_pump_audio(ws, audio_out))
-    # The instructor may key several radios at once (one voice on many nets).
-    # Each keyed radio runs its own PTT/crypto-sync lifecycle, so the set of
-    # keyed radios and the per-radio sync timers are tracked independently.
     sync_tasks: dict[str, asyncio.Task] = {}
-    active_tx: set[str] = set()  # the instructor radios currently keyed
-
-    # The instructor hears on every one of their radios. Each radio gets its own
-    # sink that tags every PCM frame with the source radio_id, so the browser can
-    # mix them into one playback stream at independent headset volumes (§3.2.2).
-    # Radios are added/removed over REST as well as over this socket, so the
-    # sink set is kept in step via the manager's change watcher rather than
-    # only from this loop's own messages.
+    active_tx: set[str] = set()
     sinks: dict[str, object] = {}
 
-    def sync_radio_sinks() -> None:
-        live = {r["radio_id"] for r in manager.instructor_radios()}
-        for rid in list(sinks):
-            if rid not in live:
-                manager.unregister_audio_sink(rid, sinks.pop(rid))
-        for rid in live:
-            if rid not in sinks:
-                sink = _tagged_sink(audio_out, rid)
-                sinks[rid] = sink
-                manager.register_audio_sink(rid, sink)
+    async with _ws_session_pumps(ws, manager) as audio_out:
+        def sync_radio_sinks() -> None:
+            live = {r["radio_id"] for r in manager.instructor_radios()}
+            for rid in list(sinks):
+                if rid not in live:
+                    manager.unregister_audio_sink(rid, sinks.pop(rid))
+            for rid in live:
+                if rid not in sinks:
+                    sink = _tagged_sink(audio_out, rid)
+                    sinks[rid] = sink
+                    manager.register_audio_sink(rid, sink)
 
-    sync_radio_sinks()
-    ctx = InstructorContext(active_tx, sync_tasks)
-    unwatch = manager.watch_instructor_radios(sync_radio_sinks)
-    await ws.send_json({"type": "welcome", "payload": {"role": "instructor"}})
-    await ws.send_json({"type": "band_profile_update", "payload": manager.band_profile_snapshot()})
-    await ws.send_json({"type": "instructor_radios", "payload": manager.instructor_radios()})
-    await ws.send_json(
-        {"type": "terminal_update", "payload": {"terminals": manager.monitor_snapshot()}}
-    )
+        sync_radio_sinks()
+        ctx = InstructorContext(active_tx, sync_tasks)
+        unwatch = manager.watch_instructor_radios(sync_radio_sinks)
+        await ws.send_json({"type": "welcome", "payload": {"role": "instructor"}})
+        await ws.send_json(
+            {"type": "band_profile_update", "payload": manager.band_profile_snapshot()}
+        )
+        await ws.send_json({"type": "instructor_radios", "payload": manager.instructor_radios()})
+        await ws.send_json(
+            {"type": "terminal_update", "payload": {"terminals": manager.monitor_snapshot()}}
+        )
 
-    try:
-        while True:
-            message = await ws.receive()
-            if message.get("type") == "websocket.disconnect":
-                break
-            if message.get("bytes") is not None:
-                if active_tx:
-                    # One mic frame fans out to every keyed radio: the source is
-                    # decoded once, and each radio's net renders it under its own
-                    # channel conditions (frequency-dependent noise, §3.2.2).
-                    pcm = pcm16_to_float32(message["bytes"])
-                    for rid in active_tx:
-                        manager.route_tx_frame(rid, pcm)
-                continue
-            data = json.loads(message["text"])
-            mtype = data.get("type")
-            payload = data.get("payload") or {}
-            await _handle_instructor_message(ws, manager, mtype, payload, ctx)
-    except WebSocketDisconnect:
-        pass
-    finally:
-        for task in sync_tasks.values():
-            _cancel(task)
-        # A disconnect mid-keying must not leave radios stuck on the air.
-        for rid in active_tx:
-            with contextlib.suppress(Exception):
-                manager.ptt_end(rid)
-        unwatch()
-        # Only drop sinks still owned by *this* connection — a reconnected
-        # instructor may already have re-bound these radios to a new sink.
-        for rid, sink in sinks.items():
-            manager.unregister_audio_sink(rid, sink)
-        await _shutdown([outbound, audio_pump], manager, queue)
+        try:
+            async def handler(mtype: str, payload: dict) -> None:
+                await _handle_instructor_message(ws, manager, mtype, payload, ctx)
+
+            await _process_ws_messages(ws, manager, active_tx, handler)
+        except WebSocketDisconnect:
+            pass
+        finally:
+            for task in sync_tasks.values():
+                _cancel(task)
+            for rid in active_tx:
+                with contextlib.suppress(Exception):
+                    manager.ptt_end(rid)
+            unwatch()
+            for rid, sink in sinks.items():
+                manager.unregister_audio_sink(rid, sink)
 
 
 # --------------------------------------------------------------------------- #
