@@ -224,7 +224,7 @@ class UpdateService:
 
         # Apply the auto-update policy (modifies `update` dict in place).
         self._apply_auto_update_policy(
-            update, auto=auto, available=available, staged=staged, cfg=cfg, mgr=mgr
+            update, auto=auto, available=available, staged=staged, mgr=mgr
         )
 
         self._merge(update)
@@ -285,6 +285,25 @@ class UpdateService:
 
     # -- auto update policy ----------------------------------------------- #
 
+    def _get_auto_update_gate(
+        self, auto: bool, available: list[Release], staged: str | None
+    ) -> tuple[str, str] | None:
+        """Check gating conditions for auto-update before executing a download."""
+        if not auto or not available:
+            return "idle", ""
+
+        if staged is not None:
+            # Something is staged awaiting restart — possibly a *specific*
+            # version the instructor chose deliberately (§3.7.4). Auto-update
+            # must not replace that choice with the newest release; it waits
+            # until a restart applies (or clears) the pending update.
+            return "idle", f"{staged} staged — restart to apply."
+
+        if self._session_active():
+            return "deferred_session_active", "Update deferred — a session is running."
+
+        return None
+
     def _apply_auto_update_policy(
         self,
         update: dict,
@@ -292,27 +311,12 @@ class UpdateService:
         auto: bool,
         available: list[Release],
         staged: str | None,
-        cfg: dict,
         mgr: UpdateManager,
     ) -> None:
         """Apply auto-update policy: newest available, out-of-band, and never over a staged update."""
-        if not auto or not available:
-            update["auto_state"] = "idle"
-            update["auto_message"] = ""
-            return
-
-        if staged is not None:
-            # Something is staged awaiting restart — possibly a *specific*
-            # version the instructor chose deliberately (§3.7.4). Auto-update
-            # must not replace that choice with the newest release; it waits
-            # until a restart applies (or clears) the pending update.
-            update["auto_state"] = "idle"
-            update["auto_message"] = f"{staged} staged — restart to apply."
-            return
-
-        if self._session_active():
-            update["auto_state"] = "deferred_session_active"
-            update["auto_message"] = "Update deferred — a session is running."
+        gate = self._get_auto_update_gate(auto, available, staged)
+        if gate is not None:
+            update["auto_state"], update["auto_message"] = gate
             return
 
         target = available[0]
@@ -322,6 +326,7 @@ class UpdateService:
             {**update, "auto_state": "downloading", "auto_message": f"Downloading {target.tag}…"}
         )
         try:
+            cfg = self._config()
             result = self._apply(target, cfg)
             applied_ok = bool(result.get("applied"))
             update["auto_state"] = "applied" if applied_ok else "error"
