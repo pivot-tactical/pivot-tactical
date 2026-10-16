@@ -30,7 +30,3 @@
 ## 2024-05-25 - [Loop invariant division and function inlining in V8]
 **Learning:** In JavaScript/V8 (e.g., tight audio processing loops like `pcmLevel`), calculating the array length outside the loop and replacing division inside the loop with reciprocal division outside the loop, as well as replacing nested `Math.min` functions with inlined ternary conditional clamps provides measurable performance gains (approx. 10-20% speedup).
 **Action:** Avoid nested math function calls and inner loop divisions where simple manual clamping logic or mathematical transposition suffices.
-
-## 2026-11-04 - WebSocket Text Guard in Message Receiver Loop
-**Learning:** In WebSocket message receive loops processing mixed binary (audio) and text (control) frames, using `text = message.get("text")` and guarding with `if not text: continue` avoids unnecessary `json.loads` calls and prevents `KeyError` exceptions when non-text or empty payload frames are received.
-**Action:** Always check and guard string payloads before calling `json.loads` in asynchronous WebSocket message processing loops.

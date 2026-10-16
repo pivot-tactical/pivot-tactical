@@ -5,6 +5,139 @@ import { api } from "../api";
 // the instructor chooses "Log in as instructor" and enters the password.
 const NAME_RE = /^[A-Za-z0-9 -]{1,32}$/;
 
+interface TraineeLoginFormProps {
+  name: string;
+  setName: (name: string) => void;
+  valid: boolean;
+  busy: boolean;
+  onSubmit: () => void;
+  onSwitchToInstructor: () => void;
+}
+
+function TraineeLoginForm({
+  name,
+  setName,
+  valid,
+  busy,
+  onSubmit,
+  onSwitchToInstructor,
+}: TraineeLoginFormProps) {
+  return (
+    <>
+      <label className="field">
+        <span>Name / Callsign</span>
+        <input
+          className="input mono"
+          value={name}
+          maxLength={32}
+          placeholder="e.g. ALPHA-1"
+          autoFocus
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && valid && onSubmit()}
+          aria-invalid={name.trim().length > 0 && !valid}
+          aria-describedby="callsign-error"
+        />
+      </label>
+      {name.trim().length > 0 && !valid && (
+        <p id="callsign-error" className="login__hint">
+          Only letters, numbers, spaces, and hyphens allowed.
+        </p>
+      )}
+      <button
+        className="btn btn--primary"
+        disabled={!valid || busy}
+        onClick={onSubmit}
+      >
+        {busy ? "Joining…" : "Join Net"}
+      </button>
+      <button
+        className="btn btn--ghost login__switch"
+        onClick={onSwitchToInstructor}
+      >
+        Log in as instructor →
+      </button>
+    </>
+  );
+}
+
+interface InstructorLoginFormProps {
+  password: string;
+  setPassword: (password: string) => void;
+  error: string;
+  busy: boolean;
+  onSubmit: () => void;
+  onSwitchToTrainee: () => void;
+}
+
+function InstructorLoginForm({
+  password,
+  setPassword,
+  error,
+  busy,
+  onSubmit,
+  onSwitchToTrainee,
+}: InstructorLoginFormProps) {
+  return (
+    <>
+      <label className="field">
+        <span>Instructor Password</span>
+        <input
+          className="input mono"
+          type="password"
+          value={password}
+          autoFocus
+          placeholder="default: instructor"
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) =>
+            e.key === "Enter" && password && onSubmit()
+          }
+        />
+      </label>
+      {error && <p className="login__hint">{error}</p>}
+      <button
+        className="btn btn--primary"
+        disabled={busy || !password}
+        onClick={onSubmit}
+      >
+        {busy ? "Signing in…" : "Sign In"}
+      </button>
+      <button
+        className="btn btn--ghost login__switch"
+        onClick={onSwitchToTrainee}
+      >
+        ← Back to trainee login
+      </button>
+    </>
+  );
+}
+
+interface MicStatusNoticeProps {
+  micInsecure: boolean;
+  micMissing: boolean;
+}
+
+function MicStatusNotice({ micInsecure, micMissing }: MicStatusNoticeProps) {
+  return (
+    <p className="login__hint">
+      {micInsecure ? (
+        <>
+          This connection isn't secure, so the browser won't allow
+          microphone access at all (no permission prompt will appear). If
+          the address bar shows <code>http://</code>, ask the instructor
+          for the <code>https://</code> address instead — the browser will
+          warn that it isn't verified (PIVOT uses a private, self-signed
+          certificate); choose <strong>Advanced → Proceed</strong> once,
+          then reload this page.
+        </>
+      ) : micMissing ? (
+        "No microphone found. Please connect a microphone and try again."
+      ) : (
+        "Allow microphone access in your browser to transmit."
+      )}
+    </p>
+  );
+}
+
 export function Login({
   onTrainee,
   onInstructor,
@@ -94,77 +227,29 @@ export function Login({
         </p>
 
         {mode === "trainee" ? (
-          <>
-            <label className="field">
-              <span>Name / Callsign</span>
-              <input
-                className="input mono"
-                value={name}
-                maxLength={32}
-                placeholder="e.g. ALPHA-1"
-                autoFocus
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && valid && submitTrainee()}
-                aria-invalid={name.trim().length > 0 && !valid}
-                aria-describedby="callsign-error"
-              />
-            </label>
-            {name.trim().length > 0 && !valid && (
-              <p id="callsign-error" className="login__hint">
-                Only letters, numbers, spaces, and hyphens allowed.
-              </p>
-            )}
-            <button
-              className="btn btn--primary"
-              disabled={!valid || busy}
-              onClick={submitTrainee}
-            >
-              {busy && mode === "trainee" ? "Joining…" : "Join Net"}
-            </button>
-            <button
-              className="btn btn--ghost login__switch"
-              onClick={() => {
-                setMode("instructor");
-                setError("");
-              }}
-            >
-              Log in as instructor →
-            </button>
-          </>
+          <TraineeLoginForm
+            name={name}
+            setName={setName}
+            valid={valid}
+            busy={busy}
+            onSubmit={submitTrainee}
+            onSwitchToInstructor={() => {
+              setMode("instructor");
+              setError("");
+            }}
+          />
         ) : (
-          <>
-            <label className="field">
-              <span>Instructor Password</span>
-              <input
-                className="input mono"
-                type="password"
-                value={password}
-                autoFocus
-                placeholder="default: instructor"
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) =>
-                  e.key === "Enter" && password && submitInstructor()
-                }
-              />
-            </label>
-            {error && <p className="login__hint">{error}</p>}
-            <button
-              className="btn btn--primary"
-              disabled={busy || !password}
-              onClick={submitInstructor}
-            >
-              {busy ? "Signing in…" : "Sign In"}
-            </button>
-            <button
-              className="btn btn--ghost login__switch"
-              onClick={() => {
-                setMode("trainee");
-                setError("");
-              }}
-            >
-              ← Back to trainee login
-            </button>
-          </>
+          <InstructorLoginForm
+            password={password}
+            setPassword={setPassword}
+            error={error}
+            busy={busy}
+            onSubmit={submitInstructor}
+            onSwitchToTrainee={() => {
+              setMode("trainee");
+              setError("");
+            }}
+          />
         )}
 
         <div className="login__status">
@@ -189,23 +274,7 @@ export function Login({
           )}
         </div>
         {mode === "trainee" && micOk === false && (
-          <p className="login__hint">
-            {micInsecure ? (
-              <>
-                This connection isn't secure, so the browser won't allow
-                microphone access at all (no permission prompt will appear). If
-                the address bar shows <code>http://</code>, ask the instructor
-                for the <code>https://</code> address instead — the browser will
-                warn that it isn't verified (PIVOT uses a private, self-signed
-                certificate); choose <strong>Advanced → Proceed</strong> once,
-                then reload this page.
-              </>
-            ) : micMissing ? (
-              "No microphone found. Please connect a microphone and try again."
-            ) : (
-              "Allow microphone access in your browser to transmit."
-            )}
-          </p>
+          <MicStatusNotice micInsecure={micInsecure} micMissing={micMissing} />
         )}
       </div>
     </div>

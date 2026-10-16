@@ -374,19 +374,25 @@ def _print_startup_message(
     return url
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = _parse_args(argv)
+def _dispatch_cli_actions(args: argparse.Namespace, settings: Settings) -> int | None:
+    """Execute early-exit CLI operations if requested.
+
+    Returns exit code integer if an action was handled, or None to continue startup.
+    """
     if args.version:
         print(version_info.title)
         return 0
-
-    settings = _settings_from_args(args)
     if args.apply_staged:
         return _apply_staged(settings)
     if args.rollback is not None:
         return _rollback(settings, args.rollback or None)
     if args.relaunch_after is not None:
         return _relaunch_after(args.relaunch_after, settings)
+    return None
+
+
+def _start_server(settings: Settings, tray_arg: bool | None) -> None:
+    """Initialize resources and start the PIVOT server (tray or headless)."""
     # Announce ourselves to the Windows installer before doing any real work, so
     # a Setup started while PIVOT is running asks the user to close it rather
     # than installing over a live one it cannot re-point (see
@@ -414,7 +420,7 @@ def main(argv: list[str] | None = None) -> int:
     tls = ensure_cert(settings.data_dir / "tls", ip)
     url = _print_startup_message(ip, settings.port, tls, auth.is_default())
 
-    if _use_tray(args.tray):
+    if _use_tray(tray_arg):
         # Headless on Windows: tuck the server into the notification area. The
         # tray menu offers Open / Copy address / Show log / Quit.
         from pivot.win_tray import run_with_tray
@@ -426,6 +432,17 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         run_server(settings, manager, tls)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    settings = _settings_from_args(args)
+
+    code = _dispatch_cli_actions(args, settings)
+    if code is not None:
+        return code
+
+    _start_server(settings, args.tray)
     return 0
 
 
