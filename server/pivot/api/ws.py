@@ -114,6 +114,15 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
     primary_id = info["radio_id"]
     login_epoch = info.get("epoch")
 
+    # NOTE (intentional): setup, receive loop and teardown are written out inline
+    # in both ``_trainee_session`` and ``_instructor_session``; do not fold them
+    # into a shared context manager / generic message loop. The two roles differ
+    # in lifecycle details (the instructor's ``watch_instructor_radios`` /
+    # ``unwatch``, per-role contexts), and the teardown order is load-bearing:
+    # keyed radios are released and sinks unregistered, then the pumps are shut
+    # down and the queue unsubscribed, and only then ``manager.disconnect`` runs.
+    # Wrapping the pumps in ``async with`` moves ``_shutdown`` after that cleanup,
+    # and the extraction also dropped the explanatory comments on each step.
     queue = manager.subscribe()
     audio_out: asyncio.Queue = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
     outbound = asyncio.create_task(_pump_outbound(ws, queue))
