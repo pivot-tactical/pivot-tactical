@@ -83,6 +83,10 @@ function pcm16ToFloat(buf: ArrayBuffer, gain = 1): Float32Array {
 export function parseTaggedAudio(buf: ArrayBuffer): { radioId: string; pcm: ArrayBuffer } {
   const bytes = new Uint8Array(buf);
   const len = bytes[0];
+  // NOTE (intentional): a fresh ``TextDecoder`` per frame. Do not hoist it to a
+  // module-level singleton as a "hot loop" optimisation: constructing one is
+  // cheap next to the buffer copy below, and frames arrive at ~50/s, so there is
+  // nothing measurable to save.
   const radioId = new TextDecoder().decode(bytes.subarray(1, 1 + len));
   // Slice (copy) so the PCM starts at offset 0 — an odd header length would
   // otherwise break Int16Array's alignment requirement on a shared buffer.
