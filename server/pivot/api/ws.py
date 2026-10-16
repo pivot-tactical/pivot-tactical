@@ -23,6 +23,15 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
+try:
+    import orjson
+
+    def _json_loads(data: str | bytes) -> dict:
+        return orjson.loads(data)
+except ImportError:  # pragma: no cover
+    def _json_loads(data: str | bytes) -> dict:
+        return json.loads(data)
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
 from pivot.audio.pcm import pcm16_to_float32
@@ -145,7 +154,7 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
                     for rid in active_tx:
                         manager.route_tx_frame(rid, pcm)
                 continue
-            data = json.loads(message["text"])
+            data = _json_loads(message["text"])
             mtype = data.get("type")
             payload = data.get("payload") or {}
 
@@ -224,7 +233,7 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
                     for rid in active_tx:
                         manager.route_tx_frame(rid, pcm)
                 continue
-            data = json.loads(message["text"])
+            data = _json_loads(message["text"])
             mtype = data.get("type")
             payload = data.get("payload") or {}
             await _handle_instructor_message(ws, manager, mtype, payload, ctx)
