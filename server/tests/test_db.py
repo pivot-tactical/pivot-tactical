@@ -361,7 +361,7 @@ def test_list_sessions_with_event_count(database):
         assert len(results) >= 2
 
         # Build dictionary for easier assertions
-        counts_by_id = {row.id: count for row, count in results}
+        counts_by_id = {session_id: count for session_id, name, started_at, ended_at, count in results}
 
         assert empty_session.id in counts_by_id
         assert counts_by_id[empty_session.id] == 0

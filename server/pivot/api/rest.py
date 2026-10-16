@@ -183,18 +183,18 @@ def band_profile(manager=Depends(get_manager)) -> dict:
 )
 def list_sessions(manager=Depends(get_manager)) -> list[SessionResponse]:
     with manager.db.session() as s:
-        out = []
-        for row, count in repo.list_sessions_with_event_count(s):
-            out.append(
-                SessionResponse(
-                    id=row.id,
-                    name=row.name,
-                    started_at=row.started_at,
-                    ended_at=row.ended_at,
-                    event_count=count,
-                )
+        return [
+            SessionResponse(
+                id=session_id,
+                name=name,
+                started_at=started_at,
+                ended_at=ended_at,
+                event_count=count,
             )
-    return out
+            for session_id, name, started_at, ended_at, count in repo.list_sessions_with_event_count(
+                s
+            )
+        ]
 
 
 @router.get("/sessions/{session_id}/events", dependencies=[Depends(require_instructor)])
