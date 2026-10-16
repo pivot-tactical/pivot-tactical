@@ -1,8 +1,10 @@
-import pytest
-from fastapi import WebSocket, status
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from fastapi import WebSocket, status
+
 from pivot.api.ws import websocket_endpoint
+
 
 @pytest.mark.asyncio
 async def test_origin_validation():
@@ -14,9 +16,17 @@ async def test_origin_validation():
     mock_ws.close.assert_called_once_with(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid Origin")
     mock_ws.accept.assert_not_called()
 
+    # LAN IP origin rejected
+    mock_ws_lan = AsyncMock(spec=WebSocket)
+    mock_ws_lan.headers = {"origin": "http://192.168.1.100:8080"}
+
+    await websocket_endpoint(mock_ws_lan)
+    mock_ws_lan.close.assert_called_once_with(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid Origin")
+    mock_ws_lan.accept.assert_not_called()
+
     # Valid origin
     mock_ws_valid = AsyncMock(spec=WebSocket)
-    mock_ws_valid.headers = {"origin": "http://192.168.1.100:8080"}
+    mock_ws_valid.headers = {"origin": "http://localhost:8080"}
     mock_ws_valid.cookies = {}
     mock_ws_valid.app.state.auth = None
     mock_ws_valid.app.state.manager = MagicMock()

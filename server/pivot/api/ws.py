@@ -59,7 +59,7 @@ _ALLOW_ORIGINS = [
     "http://localhost:8080",
     "http://127.0.0.1:8080",
 ]
-_ALLOW_ORIGIN_REGEX_STR = r"^https?://(localhost|127\.0\.0\.1|192\.168\.[0-9]+\.[0-9]+|10\.[0-9]+\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)(:[0-9]+)?\Z"
+_ALLOW_ORIGIN_REGEX_STR = r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?\Z"
 _ALLOW_ORIGIN_REGEX = re.compile(_ALLOW_ORIGIN_REGEX_STR)
 
 

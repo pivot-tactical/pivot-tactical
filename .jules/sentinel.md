@@ -16,3 +16,7 @@
 **Vulnerability:** The API endpoint returning audio playback dynamically joined a user-controlled path string from the database with a base directory without path sanitization, allowing arbitrary file retrieval.
 **Learning:** Always sanitize `Path` constructs generated from dynamic or database-stored values using `.is_absolute()` and verifying traversal (`..`) attempts before trusting the `Path.resolve()` boundary check.
 **Prevention:** Use defensive input validation enforcing `.is_relative_to(base_dir)` alongside absolute path and traversal character rejections.
+## 2026-03-31 - Fix CORS Overly Permissive Policy
+**Vulnerability:** CORS origin regex `_ALLOW_ORIGIN_REGEX_STR` allowed connections from any internal IP subnet (`192.168.x.x`, `10.x.x.x`, `172.16-31.x.x`).
+**Learning:** Broad regex matching for private IP ranges in CORS policies can expose WebSocket endpoints and REST resources to Cross-Site Request Forgery (CSRF) or cross-origin requests from malicious sites on the same internal network.
+**Prevention:** Strictly limit origin regexes to trusted localhost/loopback origins (`localhost`, `127.0.0.1`) and explicitly configured origins.

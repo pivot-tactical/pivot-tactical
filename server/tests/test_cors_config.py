@@ -9,13 +9,13 @@ def test_cors_methods_and_headers():
 
     # 1. Test allowed preflight request
     headers = {
-        "Origin": "http://192.168.1.100:8080",
+        "Origin": "http://localhost:8080",
         "Access-Control-Request-Method": "POST",
         "Access-Control-Request-Headers": "Authorization",
     }
     response = client.options("/api/status", headers=headers)
     assert response.status_code == 200
-    assert response.headers.get("access-control-allow-origin") == "http://192.168.1.100:8080"
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:8080"
     assert "POST" in response.headers.get("access-control-allow-methods", "")
     assert "Authorization" in response.headers.get("access-control-allow-headers", "")
 
@@ -33,6 +33,14 @@ def test_cors_methods_and_headers():
     # 4. Test disallowed origin (untrusted external domain)
     headers = {
         "Origin": "http://malicious.com",
+        "Access-Control-Request-Method": "GET",
+    }
+    response = client.options("/api/status", headers=headers)
+    assert response.headers.get("access-control-allow-origin") is None
+
+    # 5. Test disallowed origin (LAN IP)
+    headers = {
+        "Origin": "http://192.168.1.100:8080",
         "Access-Control-Request-Method": "GET",
     }
     response = client.options("/api/status", headers=headers)
