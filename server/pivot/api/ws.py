@@ -59,6 +59,12 @@ _ALLOW_ORIGINS = [
     "http://localhost:8080",
     "http://127.0.0.1:8080",
 ]
+# NOTE (intentional, do not narrow to localhost-only): PIVOT is a LAN exercise
+# tool. Trainee terminals load the app from the instructor's machine by its LAN
+# address, so their ``Origin`` is an RFC1918 host (192.168/16, 10/8, 172.16/12).
+# A localhost-only policy rejects every trainee terminal on both the WebSocket
+# origin check here and the CORS middleware (app.py reuses these values). The
+# actual cross-site protection is that public/non-private origins are rejected.
 _ALLOW_ORIGIN_REGEX_STR = r"^https?://(localhost|127\.0\.0\.1|192\.168\.[0-9]+\.[0-9]+|10\.[0-9]+\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)(:[0-9]+)?\Z"
 _ALLOW_ORIGIN_REGEX = re.compile(_ALLOW_ORIGIN_REGEX_STR)
 
