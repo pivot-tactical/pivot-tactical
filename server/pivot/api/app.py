@@ -100,8 +100,8 @@ def frontend_dist_dir() -> Path | None:
     return None
 
 
-@asynccontextmanager
-async def _app_lifespan(app: FastAPI, cfg: Settings, manager: SessionManager | None = None):
+def _init_app_state(app: FastAPI, cfg: Settings, manager: SessionManager | None = None) -> None:
+    """Initialise FastAPI application state and database connection."""
     import asyncio
 
     if manager is not None:
@@ -127,6 +127,21 @@ async def _app_lifespan(app: FastAPI, cfg: Settings, manager: SessionManager | N
     with app.state.manager.db.session() as s:
         repo.reconcile_orphan_transcriptions(s, cfg.recordings_dir)
 
+
+async def _stop_lifespan_services(worker, update_service, noise) -> None:
+    """Cleanly stop background services started during lifespan."""
+    if worker is not None:
+        worker.stop()
+    if update_service is not None:
+        update_service.stop()
+    if noise is not None:
+        await noise.stop()
+
+
+@asynccontextmanager
+async def _app_lifespan(app: FastAPI, cfg: Settings, manager: SessionManager | None = None):
+    _init_app_state(app, cfg, manager)
+
     # Async transcription worker — only started if faster-whisper is present
     # (the live event log still works without it; transcripts stay pending).
     worker = _maybe_start_transcription(app.state.manager, cfg)
@@ -151,12 +166,7 @@ async def _app_lifespan(app: FastAPI, cfg: Settings, manager: SessionManager | N
     try:
         yield
     finally:
-        if worker is not None:
-            worker.stop()
-        if update_service is not None:
-            update_service.stop()
-        if noise is not None:
-            await noise.stop()
+        await _stop_lifespan_services(worker, update_service, noise)
 
 
 def _create_app_lifespan(
