@@ -361,6 +361,40 @@ def test_rollback_invalid_tag_404(client, settings):
     assert r.status_code == 404
 
 
+def test_rollback_unauthenticated(raw_client):
+    r = raw_client.post("/api/admin/updates/rollback", json={})
+    assert r.status_code == 401
+
+
+def test_rollback_omitted_request_body(client, settings):
+    good = settings.versions_dir / "app-1.1.0"
+    (good / "_internal").mkdir(parents=True)
+    (good / "PIVOT-Tactical").write_text("retained 1.1.0")
+
+    r = client.post("/api/admin/updates/rollback")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["rollback"] is True
+    assert body["tag"] == "1.1.0"
+
+
+def test_rollback_without_update_service(client, settings, monkeypatch):
+    good = settings.versions_dir / "app-1.1.0"
+    (good / "_internal").mkdir(parents=True)
+    (good / "PIVOT-Tactical").write_text("retained 1.1.0")
+
+    manager = client.app.state.manager
+    if getattr(manager, "update_service", None) is not None:
+        manager.update_service.stop()
+    monkeypatch.setattr(manager, "update_service", None, raising=False)
+
+    r = client.post("/api/admin/updates/rollback", json={})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["rollback"] is True
+    assert body["tag"] == "1.1.0"
+
+
 def test_retained_versions_list_and_delete(client, settings):
     # Two versions kept on disk; the pane lists them with sizes and can delete.
     v1 = settings.versions_dir / "app-1.1.0"
