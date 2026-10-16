@@ -16,3 +16,8 @@
 **Vulnerability:** The API endpoint returning audio playback dynamically joined a user-controlled path string from the database with a base directory without path sanitization, allowing arbitrary file retrieval.
 **Learning:** Always sanitize `Path` constructs generated from dynamic or database-stored values using `.is_absolute()` and verifying traversal (`..`) attempts before trusting the `Path.resolve()` boundary check.
 **Prevention:** Use defensive input validation enforcing `.is_relative_to(base_dir)` alongside absolute path and traversal character rejections.
+
+## 2026-06-05 - [ZIP Export Directory Traversal Test Flaw & Arcname Sanitization]
+**Vulnerability:** Flawed test assertion in path traversal test for session zip export compared `zf.namelist()` against `{session_id}/...` instead of the human-readable `{session_dir_name}/...` top folder name, masking potential exfiltration false passes.
+**Learning:** Archive top-level folder naming conventions must match exact production path rendering in security tests to prevent false-negative test passes during security audits.
+**Prevention:** Compute top-level archive path names dynamically using production helpers in test assertions, and use `PureWindowsPath(wav_path.name).name` on `arcname` to strip cross-platform directory components when packaging files into ZIP archives.
