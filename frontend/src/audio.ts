@@ -83,6 +83,10 @@ function pcm16ToFloat(buf: ArrayBuffer, gain = 1): Float32Array {
 export function parseTaggedAudio(buf: ArrayBuffer): { radioId: string; pcm: ArrayBuffer } {
   const bytes = new Uint8Array(buf);
   const len = bytes[0];
+  // NOTE (intentional): a fresh ``TextDecoder`` per frame. Do not hoist it to a
+  // module-level singleton as a "hot loop" optimisation: constructing one is
+  // cheap next to the buffer copy below, and frames arrive at ~50/s, so there is
+  // nothing measurable to save.
   const radioId = new TextDecoder().decode(bytes.subarray(1, 1 + len));
   // Slice (copy) so the PCM starts at offset 0 — an odd header length would
   // otherwise break Int16Array's alignment requirement on a shared buffer.
@@ -94,6 +98,13 @@ export function parseTaggedAudio(buf: ArrayBuffer): { radioId: string; pcm: Arra
 // what is on the channel, not how loud the operator's earpiece is. The sqrt
 // softening lets the faint clean-channel hiss register near the bottom while a
 // keyed voice drives the bar toward full scale.
+//
+// NOTE (intentional): this is a plain single-accumulator loop. Do not manually
+// unroll it (4-way or otherwise) or add further micro-optimisations. A frame is
+// only ~320 samples, so the meter costs microseconds per frame, and V8 already
+// optimises a simple counted loop; hand-unrolling adds code and a tail loop for
+// no measurable gain. The loop was already tightened once (hoisted length and
+// reciprocal) — leave it as is.
 export function pcmLevel(pcm: ArrayBuffer): number {
   const i16 = new Int16Array(pcm);
   const len = i16.length;

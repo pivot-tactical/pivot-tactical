@@ -329,6 +329,16 @@ def install_is_writable(versions_dir: Path) -> bool:
     return True
 
 
+# NOTE (intentional): ``run_elevated_apply`` is one linear function; do not split
+# it into helpers. It is Windows-only, cannot be exercised on the Linux CI runners
+# (tests would only run against a mocked ``ctypes.windll``), and it drives raw
+# Win32 handles through ctypes, where the declared ``argtypes``/``restype`` for
+# each call and the exact ``byref(...)`` out-parameters matter (an undeclared or
+# mismatched prototype silently truncates a 64-bit handle to ``int``). A
+# behaviour-neutral-looking refactor here cannot be verified without a Windows
+# UAC run, and earlier splits changed ``byref`` to ``pointer`` and replaced
+# ``ctypes.WinError`` with an ``OSError`` fallback, which alters the error the
+# caller sees.
 def run_elevated_apply(exe: str, timeout: float = 300.0) -> int:  # pragma: no cover - Windows-only
     """Re-run ``--apply-staged`` elevated (UAC) and wait for it to finish.
 

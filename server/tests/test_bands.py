@@ -11,6 +11,7 @@ from pivot.core.bands import (
     JammingSpan,
     clamp_frequency,
     format_frequency,
+    net_key_for,
     parse_frequency,
     region_for,
 )
@@ -59,6 +60,25 @@ def test_region_boundaries(freq_hz, expected):
 )
 def test_parse_frequency(text, expected_hz):
     assert parse_frequency(text) == pytest.approx(expected_hz)
+
+
+@pytest.mark.parametrize(
+    "freq_hz,expected_str",
+    [
+        (2_400_000_000, "2.4000 GHz"),
+        (1_000_000_000, "1.0000 GHz"),
+        (14_250_000, "14.250 MHz"),
+        (145_512_500, "145.5125 MHz"),
+        (145_500_000, "145.500 MHz"),
+        (7_100_000, "7.100 MHz"),
+        (145_500, "145.500 kHz"),
+        (1_000, "1.000 kHz"),
+        (500, "500 Hz"),
+        (0, "0 Hz"),
+    ],
+)
+def test_format_frequency(freq_hz, expected_str):
+    assert format_frequency(freq_hz) == expected_str
 
 
 def test_parse_frequency_roundtrip():
@@ -207,3 +227,16 @@ def test_from_curve_json_missing_keys(missing):
     del anchor[missing]
     with pytest.raises(KeyError, match=f"'{missing}'"):
         BandProfile.from_curve_json([anchor])
+
+
+def test_net_key_for():
+    """`net_key_for` quantises frequency to its net index on the tuning grid (100 Hz), clamping to range."""
+    # On grid
+    assert net_key_for(14_250_000.0) == 142500
+    # Off grid rounding down/up
+    assert net_key_for(14_250_040.0) == 142500
+    assert net_key_for(14_250_060.0) == 142501
+    # Clamping below MIN_FREQ_HZ (1.6 MHz -> index 16000)
+    assert net_key_for(100.0) == net_key_for(MIN_FREQ_HZ) == 16000
+    # Clamping above MAX_FREQ_HZ (3 GHz -> index 30000000)
+    assert net_key_for(9e9) == net_key_for(MAX_FREQ_HZ) == 30_000_000

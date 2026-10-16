@@ -10,3 +10,6 @@
 ## 2025-03-09 - [System Services Configuration]
 **Learning:** The `README.md` previously made a blanket statement that PIVOT does not use registry entries or system services. This is only true for the portable download, not for installations using the Windows installer or the Linux `install.sh` script, which configures a systemd service.
 **Action:** The documentation must carefully distinguish between the portable execution path and the installed service paths when describing system impacts like uninstallation and service footprint.
+## 2025-03-09 - [ROADMAP.md updates]
+**Learning:** The "Platform updater helper" (version management swap helper) is fully implemented in `server/pivot/__main__.py` and the Linux installer `install.sh`, but `ROADMAP.md` still listed it as pending in the feature matrix and "Notable follow-ups" section.
+**Action:** Always verify feature completion statuses against the actual codebase (like `__main__.py` and deployment scripts) when reading ROADMAP or task lists. Update the status and remove the follow-up if already implemented.

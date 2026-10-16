@@ -76,6 +76,45 @@ def _start_update_service(manager: SessionManager, cfg: Settings):
     return service
 
 
+def _setup_app_state(app: FastAPI, cfg: Settings, manager: SessionManager | None = None) -> None:
+    """Initialize app state variables, database, auth, and reconcile orphan transcriptions."""
+    import asyncio
+
+    if manager is not None:
+        app.state.db = manager.db
+        app.state.manager = manager
+    else:
+        db = init_database(cfg)
+        app.state.db = db
+        app.state.manager = SessionManager(db, cfg)
+    app.state.settings = cfg
+    # Record the running loop so cross-thread broadcasts marshal correctly.
+    app.state.manager.loop = asyncio.get_running_loop()
+    app.state.audio_router = None  # set by the audio plane when available
+
+    # Instructor authentication: seed the default password on first run.
+    app.state.auth = AuthService(app.state.manager.db)
+    app.state.auth.ensure_default()
+
+    # Reconcile any events stuck on "transcribing…" with no recording on
+    # disk (e.g. logged before audio capture) so they show a terminal state.
+    from pivot.db import repository as repo
+
+    with app.state.manager.db.session() as s:
+        repo.reconcile_orphan_transcriptions(s, cfg.recordings_dir)
+
+
+def _start_noise_broadcaster(manager: SessionManager, cfg: Settings):
+    """Start continuous ambient band noise worker if enabled."""
+    if not getattr(cfg, "ambient_noise", True):
+        return None
+    from pivot.audio.noise_stream import NoiseBroadcaster
+
+    noise = NoiseBroadcaster(manager)
+    noise.start()
+    return noise
+
+
 def frontend_dist_dir() -> Path | None:
     """Locate the built frontend (``vite build`` output), if present.
 
@@ -102,30 +141,7 @@ def frontend_dist_dir() -> Path | None:
 
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI, cfg: Settings, manager: SessionManager | None = None):
-    import asyncio
-
-    if manager is not None:
-        app.state.db = manager.db
-        app.state.manager = manager
-    else:
-        db = init_database(cfg)
-        app.state.db = db
-        app.state.manager = SessionManager(db, cfg)
-    app.state.settings = cfg
-    # Record the running loop so cross-thread broadcasts marshal correctly.
-    app.state.manager.loop = asyncio.get_running_loop()
-    app.state.audio_router = None  # set by the audio plane when available
-
-    # Instructor authentication: seed the default password on first run.
-    app.state.auth = AuthService(app.state.manager.db)
-    app.state.auth.ensure_default()
-
-    # Reconcile any events stuck on "transcribing…" with no recording on
-    # disk (e.g. logged before audio capture) so they show a terminal state.
-    from pivot.db import repository as repo
-
-    with app.state.manager.db.session() as s:
-        repo.reconcile_orphan_transcriptions(s, cfg.recordings_dir)
+    _setup_app_state(app, cfg, manager)
 
     # Async transcription worker — only started if faster-whisper is present
     # (the live event log still works without it; transcripts stay pending).
@@ -141,12 +157,7 @@ async def _app_lifespan(app: FastAPI, cfg: Settings, manager: SessionManager | N
     # a real-time task streams the per-frequency noise floor to idle
     # listeners so an open channel hisses until someone keys up. Optional
     # (PIVOT_AMBIENT_NOISE=0 for a silent-when-idle net).
-    noise = None
-    if getattr(cfg, "ambient_noise", True):
-        from pivot.audio.noise_stream import NoiseBroadcaster
-
-        noise = NoiseBroadcaster(app.state.manager)
-        noise.start()
+    noise = _start_noise_broadcaster(app.state.manager, cfg)
     app.state.noise_broadcaster = noise
     try:
         yield
