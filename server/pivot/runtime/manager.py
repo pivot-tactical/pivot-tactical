@@ -312,6 +312,50 @@ class SessionManager:
 
     # -- trainee radios (§3.2.2) ------------------------------------------- #
 
+    def _resolve_trainee_radio_slot(self, trainee_id: str, slot: int | None) -> int:
+        """Validate terminal existence and resolve/validate the trainee radio slot."""
+        if trainee_id not in self.terminals:
+            raise KeyError(f"unknown terminal: {trainee_id}")
+        owned = self.registry.for_owner(trainee_id)
+        used = {trainee_radio_slot(r) for r in owned}
+        if slot is None:
+            slot = next((n for n in range(2, MAX_TRAINEE_RADIOS + 1) if n not in used), 0)
+            if slot == 0:
+                raise ValueError(f"at most {MAX_TRAINEE_RADIOS} radios per terminal")
+        slot = int(slot)
+        if not 2 <= slot <= MAX_TRAINEE_RADIOS:
+            raise ValueError(f"radio slot out of range: {slot}")
+        return slot
+
+    def _get_or_create_trainee_radio(
+        self,
+        radio_id: str,
+        trainee_id: str,
+        label: str,
+        freq_hz: float,
+        mode: RadioMode | None,
+    ) -> Radio:
+        """Retrieve existing trainee radio or create a new one in the registry."""
+        radio = self.registry.get(radio_id)
+        if radio is None:
+            return self.registry.add(
+                Radio(
+                    radio_id=radio_id,
+                    owner=trainee_id,
+                    label=label,
+                    frequency_hz=freq_hz,
+                    mode=mode or RadioMode.PLAIN,
+                )
+            )
+        # Re-declared by a reconnecting terminal: keep the radio, restore the
+        # state the client is still showing.
+        radio.label = label
+        if not radio.on_air:
+            radio.frequency_hz = freq_hz
+        if mode is not None and not radio.transmitting:
+            radio.mode = mode
+        return radio
+
     def add_trainee_radio(
         self,
         trainee_id: str,
@@ -327,17 +371,7 @@ class SessionManager:
         it is still showing and get the same ids back — re-adding a live slot
         just returns it, retuned to the passed frequency/mode.
         """
-        if trainee_id not in self.terminals:
-            raise KeyError(f"unknown terminal: {trainee_id}")
-        owned = self.registry.for_owner(trainee_id)
-        used = {trainee_radio_slot(r) for r in owned}
-        if slot is None:
-            slot = next((n for n in range(2, MAX_TRAINEE_RADIOS + 1) if n not in used), 0)
-            if slot == 0:
-                raise ValueError(f"at most {MAX_TRAINEE_RADIOS} radios per terminal")
-        slot = int(slot)
-        if not 2 <= slot <= MAX_TRAINEE_RADIOS:
-            raise ValueError(f"radio slot out of range: {slot}")
+        slot = self._resolve_trainee_radio_slot(trainee_id, slot)
 
         if frequency is None:
             with self.db.session() as s:
@@ -346,25 +380,13 @@ class SessionManager:
         radio_id = trainee_radio_id(trainee_id, slot)
         label = f"{self.terminals[trainee_id].name}/R{slot}"
 
-        radio = self.registry.get(radio_id)
-        if radio is None:
-            radio = self.registry.add(
-                Radio(
-                    radio_id=radio_id,
-                    owner=trainee_id,
-                    label=label,
-                    frequency_hz=freq_hz,
-                    mode=mode or RadioMode.PLAIN,
-                )
-            )
-        else:
-            # Re-declared by a reconnecting terminal: keep the radio, restore the
-            # state the client is still showing.
-            radio.label = label
-            if not radio.on_air:
-                radio.frequency_hz = freq_hz
-            if mode is not None and not radio.transmitting:
-                radio.mode = mode
+        radio = self._get_or_create_trainee_radio(
+            radio_id=radio_id,
+            trainee_id=trainee_id,
+            label=label,
+            freq_hz=freq_hz,
+            mode=mode,
+        )
         self._touch_monitor()
         return self._radio_dict(radio)
 
