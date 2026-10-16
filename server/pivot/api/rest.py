@@ -798,13 +798,22 @@ def admin_restart(
 def status(request: Request, manager=Depends(get_manager)) -> dict:
     """Public health/info endpoint for the login screen and trainee connect."""
 
+    # NOTE (intentional): the display timezone is read from the config store on
+    # every call rather than cached on ``SessionManager``. This endpoint is hit
+    # once per login screen / connect, not in a hot path, so a single indexed
+    # lookup is negligible. A cached copy would have to be kept in step with every
+    # writer of ``display_timezone`` (settings update, config import, direct
+    # ConfigStore writes) and silently serves a stale zone if one is missed; the
+    # database is the single source of truth.
+    with manager.db.session() as s:
+        tz = ConfigStore(s).display_timezone()
     return {
         "name": "PIVOT",
         "version": version_info.version,
         "git_sha": version_info.git_sha,
         "session_active": manager.session_active,
         "terminals": len(manager.terminals),
-        "display_timezone": manager.display_timezone,
+        "display_timezone": tz,
     }
 
 

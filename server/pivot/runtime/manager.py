@@ -117,7 +117,6 @@ class SessionManager:
             self.registry = RadioRegistry(tuning_step_hz=cfg.tuning_step_hz())
             self.band_profile = repo.load_band_profile(s)
             self._load_instructor_radios(s)
-            self.display_timezone: str = cfg.display_timezone()
             # Resume a scenario that was running when the server went down (e.g.
             # an update restart). The session lives in the DB as an un-ended row;
             # without this a restart silently ends it — trainees stay connected
@@ -225,12 +224,7 @@ class SessionManager:
 
     # -- trainee terminals ------------------------------------------------- #
 
-    def login(self, name: str, trainee_id: str) -> dict:
-        """Register/refresh a terminal and (re)create its radio (§3.2.1).
-
-        On reconnect within a session the radio resumes on its persisted
-        frequency and crypto mode — mode is never auto-reset (§3.4.4, §8.3).
-        """
+    def _load_trainee_initial_state(self, trainee_id: str, name: str) -> tuple[float, RadioMode]:
         mode = RadioMode.PLAIN
         with self.db.session() as s:
             freq_hz = ConfigStore(s).default_frequency_hz()
@@ -242,8 +236,11 @@ class SessionManager:
                     mode = (
                         state.mode if isinstance(state.mode, RadioMode) else RadioMode(state.mode)
                     )
+        return freq_hz, mode
 
-        radio_id = trainee_id
+    def _ensure_primary_radio(
+        self, radio_id: str, trainee_id: str, name: str, freq_hz: float, mode: RadioMode
+    ) -> None:
         existing = self.registry.get(radio_id)
         if existing is not None:
             existing.frequency_hz = freq_hz
@@ -258,6 +255,8 @@ class SessionManager:
                     mode=mode,
                 )
             )
+
+    def _register_terminal(self, trainee_id: str, name: str, radio_id: str) -> int:
         prev = self.terminals.get(trainee_id)
         epoch = (prev.epoch + 1) if prev is not None else 1
         self.terminals[trainee_id] = TerminalInfo(
@@ -267,6 +266,18 @@ class SessionManager:
             connected_at=to_iso_utc(utc_now()),
             epoch=epoch,
         )
+        return epoch
+
+    def login(self, name: str, trainee_id: str) -> dict:
+        """Register/refresh a terminal and (re)create its radio (§3.2.1).
+
+        On reconnect within a session the radio resumes on its persisted
+        frequency and crypto mode — mode is never auto-reset (§3.4.4, §8.3).
+        """
+        freq_hz, mode = self._load_trainee_initial_state(trainee_id, name)
+        radio_id = trainee_id
+        self._ensure_primary_radio(radio_id, trainee_id, name, freq_hz, mode)
+        epoch = self._register_terminal(trainee_id, name, radio_id)
         self._persist_radio_state(radio_id)
         self.broadcast("terminal_update", {"terminals": self.monitor_snapshot()})
         return {
@@ -313,6 +324,50 @@ class SessionManager:
 
     # -- trainee radios (§3.2.2) ------------------------------------------- #
 
+    def _resolve_trainee_radio_slot(self, trainee_id: str, slot: int | None) -> int:
+        """Validate terminal existence and resolve/validate the trainee radio slot."""
+        if trainee_id not in self.terminals:
+            raise KeyError(f"unknown terminal: {trainee_id}")
+        owned = self.registry.for_owner(trainee_id)
+        used = {trainee_radio_slot(r) for r in owned}
+        if slot is None:
+            slot = next((n for n in range(2, MAX_TRAINEE_RADIOS + 1) if n not in used), 0)
+            if slot == 0:
+                raise ValueError(f"at most {MAX_TRAINEE_RADIOS} radios per terminal")
+        slot = int(slot)
+        if not 2 <= slot <= MAX_TRAINEE_RADIOS:
+            raise ValueError(f"radio slot out of range: {slot}")
+        return slot
+
+    def _get_or_create_trainee_radio(
+        self,
+        radio_id: str,
+        trainee_id: str,
+        label: str,
+        freq_hz: float,
+        mode: RadioMode | None,
+    ) -> Radio:
+        """Retrieve existing trainee radio or create a new one in the registry."""
+        radio = self.registry.get(radio_id)
+        if radio is None:
+            return self.registry.add(
+                Radio(
+                    radio_id=radio_id,
+                    owner=trainee_id,
+                    label=label,
+                    frequency_hz=freq_hz,
+                    mode=mode or RadioMode.PLAIN,
+                )
+            )
+        # Re-declared by a reconnecting terminal: keep the radio, restore the
+        # state the client is still showing.
+        radio.label = label
+        if not radio.on_air:
+            radio.frequency_hz = freq_hz
+        if mode is not None and not radio.transmitting:
+            radio.mode = mode
+        return radio
+
     def add_trainee_radio(
         self,
         trainee_id: str,
@@ -328,17 +383,7 @@ class SessionManager:
         it is still showing and get the same ids back — re-adding a live slot
         just returns it, retuned to the passed frequency/mode.
         """
-        if trainee_id not in self.terminals:
-            raise KeyError(f"unknown terminal: {trainee_id}")
-        owned = self.registry.for_owner(trainee_id)
-        used = {trainee_radio_slot(r) for r in owned}
-        if slot is None:
-            slot = next((n for n in range(2, MAX_TRAINEE_RADIOS + 1) if n not in used), 0)
-            if slot == 0:
-                raise ValueError(f"at most {MAX_TRAINEE_RADIOS} radios per terminal")
-        slot = int(slot)
-        if not 2 <= slot <= MAX_TRAINEE_RADIOS:
-            raise ValueError(f"radio slot out of range: {slot}")
+        slot = self._resolve_trainee_radio_slot(trainee_id, slot)
 
         if frequency is None:
             with self.db.session() as s:
@@ -347,25 +392,13 @@ class SessionManager:
         radio_id = trainee_radio_id(trainee_id, slot)
         label = f"{self.terminals[trainee_id].name}/R{slot}"
 
-        radio = self.registry.get(radio_id)
-        if radio is None:
-            radio = self.registry.add(
-                Radio(
-                    radio_id=radio_id,
-                    owner=trainee_id,
-                    label=label,
-                    frequency_hz=freq_hz,
-                    mode=mode or RadioMode.PLAIN,
-                )
-            )
-        else:
-            # Re-declared by a reconnecting terminal: keep the radio, restore the
-            # state the client is still showing.
-            radio.label = label
-            if not radio.on_air:
-                radio.frequency_hz = freq_hz
-            if mode is not None and not radio.transmitting:
-                radio.mode = mode
+        radio = self._get_or_create_trainee_radio(
+            radio_id=radio_id,
+            trainee_id=trainee_id,
+            label=label,
+            freq_hz=freq_hz,
+            mode=mode,
+        )
         self._touch_monitor()
         return self._radio_dict(radio)
 
@@ -540,6 +573,58 @@ class SessionManager:
         radio = self.registry.get(radio_id)
         return radio is not None and not radio.rx_noise
 
+    def _group_idle_listeners(self, primed: set[str]) -> tuple[dict[int, list[str]], dict[int, float]]:
+        """Filter and group idle, sink-bound radios by net key, tracking frequency."""
+        groups: dict[int, list[str]] = {}
+        freq_of: dict[int, float] = {}
+        for rid in list(self._audio_sinks.keys()):
+            radio = self.registry.get(rid)
+            if radio is None or radio.transmitting or not radio.rx_noise:
+                # Not an idle listener right now (keyed, gone, or its noise
+                # toggle is off — a noiseless receive has no ambient hash).
+                primed.discard(rid)
+                continue
+            key = self.registry.net_key(radio.frequency_hz)
+            groups.setdefault(key, []).append(rid)
+            freq_of[key] = radio.frequency_hz
+        return groups, freq_of
+
+    def _render_idle_noise_for_net(
+        self,
+        freq: float,
+        listeners: list[str],
+        frame_samples: int,
+        primed: set[str],
+        sent_sinks: set[int],
+    ) -> None:
+        """Render and emit idle noise to all idle listeners on a given net."""
+        if self.registry.active_transmitters_on_net(freq):
+            for rid in listeners:
+                primed.discard(rid)
+            return
+
+        conditions = self.band_profile.conditions_at(freq)
+        data: bytes | None = None  # generated lazily, shared across the net
+        for rid in listeners:
+            sink = self._audio_sinks.get(rid)
+            if sink is None or id(sink) in sent_sinks:
+                continue
+            if data is None:
+                data = float32_to_pcm16(
+                    self.engine.render_idle_noise(frame_samples, conditions)
+                )
+            if rid not in primed:
+                for _ in range(2):  # prime a ~2-frame cushion on first sight
+                    self._emit_to_sink(
+                        sink,
+                        float32_to_pcm16(
+                            self.engine.render_idle_noise(frame_samples, conditions)
+                        ),
+                    )
+                primed.add(rid)
+            self._emit_to_sink(sink, data)
+            sent_sinks.add(id(sink))
+
     def render_idle_noise_tick(self, frame_samples: int, primed: set[str]) -> None:
         """Emit one ambient noise-floor frame to every idle listener (§3.2.2).
 
@@ -556,50 +641,16 @@ class SessionManager:
         """
         if not self.session_active or not self._audio_sinks:
             return
-        # Group idle, sink-bound radios by net; keep a representative frequency.
-        groups: dict[int, list[str]] = {}
-        freq_of: dict[int, float] = {}
-        for rid in list(self._audio_sinks.keys()):
-            radio = self.registry.get(rid)
-            if radio is None or radio.transmitting or not radio.rx_noise:
-                # Not an idle listener right now (keyed, gone, or its noise
-                # toggle is off — a noiseless receive has no ambient hash).
-                primed.discard(rid)
-                continue
-            key = self.registry.net_key(radio.frequency_hz)
-            groups.setdefault(key, []).append(rid)
-            freq_of[key] = radio.frequency_hz
+
+        groups, freq_of = self._group_idle_listeners(primed)
 
         # At most one idle frame per distinct sink per tick: an instructor binds
         # several radios to one queue, and N frames/tick would overflow it.
         sent_sinks: set[int] = set()
         for key, listeners in groups.items():
-            freq = freq_of[key]
-            if self.registry.active_transmitters_on_net(freq):
-                for rid in listeners:
-                    primed.discard(rid)
-                continue
-            conditions = self.band_profile.conditions_at(freq)
-            data: bytes | None = None  # generated lazily, shared across the net
-            for rid in listeners:
-                sink = self._audio_sinks.get(rid)
-                if sink is None or id(sink) in sent_sinks:
-                    continue
-                if data is None:
-                    data = float32_to_pcm16(
-                        self.engine.render_idle_noise(frame_samples, conditions)
-                    )
-                if rid not in primed:
-                    for _ in range(2):  # prime a ~2-frame cushion on first sight
-                        self._emit_to_sink(
-                            sink,
-                            float32_to_pcm16(
-                                self.engine.render_idle_noise(frame_samples, conditions)
-                            ),
-                        )
-                    primed.add(rid)
-                self._emit_to_sink(sink, data)
-                sent_sinks.add(id(sink))
+            self._render_idle_noise_for_net(
+                freq_of[key], listeners, frame_samples, primed, sent_sinks
+            )
 
     @staticmethod
     def _emit_to_sink(sink, data: bytes) -> None:
@@ -775,7 +826,6 @@ class SessionManager:
         self.broadcast("band_profile_update", {"curve": self.band_profile.curve_to_json()})
 
     def set_display_timezone(self, tz_name: str) -> None:
-        self.display_timezone = tz_name
         with self.db.session() as s:
             ConfigStore(s).set("display_timezone", tz_name)
         self.broadcast("timezone_update", {"timezone": tz_name})
@@ -902,17 +952,16 @@ class SessionManager:
             )  # Bolt: apply deferred casting/reshaping
         return None
 
-    def _write_event(self, acc, sync_status, audibility, clean) -> dict | None:
-        if self.current_session_id is None:
-            return None  # events only logged within a session
+    def _save_recording(
+        self, acc: _TxAccumulator, clean: np.ndarray | None
+    ) -> tuple[str, int, bool]:
+        """Save clean audio to disk if present and return (rel_path, duration_ms, has_audio)."""
         from pivot.audio.recording import (
             duration_ms,
             relative_audio_path,
             write_recording,
         )
-        from pivot.db.models import TranscriptionStatus
 
-        conditions = self.band_profile.conditions_at(acc.frequency_hz)
         rel_path = relative_audio_path(
             self.current_session_name,
             self.current_session_started_at or acc.started_at,
@@ -926,6 +975,21 @@ class SessionManager:
             path = self.settings.recordings_dir / rel_path
             write_recording(path, clean, RECORDING_SAMPLE_RATE)
             dur = duration_ms(clean, RECORDING_SAMPLE_RATE)
+        return rel_path, dur, has_audio
+
+    def _write_event(
+        self,
+        acc: _TxAccumulator,
+        sync_status: SyncStatus,
+        audibility: Audibility,
+        clean: np.ndarray | None,
+    ) -> dict | None:
+        if self.current_session_id is None:
+            return None  # events only logged within a session
+        from pivot.db.models import TranscriptionStatus
+
+        conditions = self.band_profile.conditions_at(acc.frequency_hz)
+        rel_path, dur, has_audio = self._save_recording(acc, clean)
 
         # No audio captured → terminal "Skipped" so the UI doesn't sit on
         # "transcribing…"; otherwise Pending for the async worker.
