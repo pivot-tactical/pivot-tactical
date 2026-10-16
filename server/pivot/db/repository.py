@@ -110,26 +110,20 @@ def get_session(session: Session, session_id: str) -> SessionRow | None:
     return session.get(SessionRow, session_id)
 
 
-def list_sessions(session: Session) -> list[SessionRow]:
-    return list(session.scalars(select(SessionRow).order_by(SessionRow.started_at.desc())))
-
-
-def list_sessions_with_event_count(
-    session: Session,
-) -> list[tuple[str, str, str, str | None, int]]:
+# NOTE (intentional): this returns whole ``SessionRow`` objects, not a tuple of
+# scalar columns. Do not switch the SELECT to individual columns as a "less data"
+# optimisation: the session list is a handful of rows read when the instructor
+# opens the AAR view, so there is nothing measurable to save, and a positional
+# 5-tuple return type is a worse contract for callers (and the REST mapping)
+# than named ORM attributes.
+def list_sessions_with_event_count(session: Session) -> list[tuple[SessionRow, int]]:
     stmt = (
-        select(
-            SessionRow.id,
-            SessionRow.name,
-            SessionRow.started_at,
-            SessionRow.ended_at,
-            func.count(EventRow.event_id),
-        )
+        select(SessionRow, func.count(EventRow.event_id))
         .outerjoin(EventRow, SessionRow.id == EventRow.session_id)
         .group_by(SessionRow.id)
         .order_by(SessionRow.started_at.desc())
     )
-    return list(session.execute(stmt).all())
+    return list(session.execute(stmt))
 
 
 def delete_session(session: Session, session_id: str) -> bool:

@@ -298,10 +298,29 @@ def test_migration_boundary_check():
     assert crosses_migration_boundary(1, 2) is False
 
 
+def test_v2_migration_adds_net_scenarios_column_idempotently():
+    """The v2 step adds net_scenarios_json and drops atmospheric_multiplier on band_profile."""
+    from sqlalchemy import create_engine, inspect, text
+
+    from pivot.db.migrations import _migrate_v2_net_scenarios
+
+    engine = create_engine("sqlite://")  # in-memory
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE band_profile (id INTEGER PRIMARY KEY, atmospheric_multiplier REAL)"
+            )
+        )
+        _migrate_v2_net_scenarios(conn)
+        _migrate_v2_net_scenarios(conn)  # idempotent — second run is a no-op
+        cols = {col["name"] for col in inspect(conn).get_columns("band_profile")}
+        assert "net_scenarios_json" in cols
+
+
 def test_v3_migration_adds_transcript_edit_columns_idempotently():
     """The v3 step adds the manual-edit columns to a pre-existing events table
     and is safe to run twice (§3.5.3)."""
-    from sqlalchemy import create_engine, text
+    from sqlalchemy import create_engine, inspect, text
 
     from pivot.db.migrations import _migrate_v3_transcript_edits
 
@@ -311,7 +330,7 @@ def test_v3_migration_adds_transcript_edit_columns_idempotently():
         conn.execute(text("CREATE TABLE events (event_id TEXT PRIMARY KEY, transcription TEXT)"))
         _migrate_v3_transcript_edits(conn)
         _migrate_v3_transcript_edits(conn)  # idempotent — second run is a no-op
-        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(events)"))}
+        cols = {col["name"] for col in inspect(conn).get_columns("events")}
         assert "transcription_original" in cols
         assert "transcription_edited" in cols
 
@@ -361,7 +380,7 @@ def test_list_sessions_with_event_count(database):
         assert len(results) >= 2
 
         # Build dictionary for easier assertions
-        counts_by_id = {session_id: count for session_id, name, started_at, ended_at, count in results}
+        counts_by_id = {row.id: count for row, count in results}
 
         assert empty_session.id in counts_by_id
         assert counts_by_id[empty_session.id] == 0

@@ -30,7 +30,3 @@
 ## 2024-05-25 - [Loop invariant division and function inlining in V8]
 **Learning:** In JavaScript/V8 (e.g., tight audio processing loops like `pcmLevel`), calculating the array length outside the loop and replacing division inside the loop with reciprocal division outside the loop, as well as replacing nested `Math.min` functions with inlined ternary conditional clamps provides measurable performance gains (approx. 10-20% speedup).
 **Action:** Avoid nested math function calls and inner loop divisions where simple manual clamping logic or mathematical transposition suffices.
-
-## 2026-03-30 - [Scalar Column Selection in SQLAlchemy Queries]
-**Learning:** Selecting full SQLAlchemy ORM entities (e.g. `SessionRow`) in query results when only a subset of columns is needed forces SQLAlchemy to instantiate full model instances and attach them to the session state, incurring high CPU overhead (approx 2x slower for 1k rows).
-**Action:** Always select explicit scalar columns (e.g. `select(SessionRow.id, SessionRow.name, ...)`) instead of full ORM entity classes when constructing list responses or performing aggregation queries.
