@@ -110,6 +110,12 @@ def get_session(session: Session, session_id: str) -> SessionRow | None:
     return session.get(SessionRow, session_id)
 
 
+# NOTE (intentional): this returns whole ``SessionRow`` objects, not a tuple of
+# scalar columns. Do not switch the SELECT to individual columns as a "less data"
+# optimisation: the session list is a handful of rows read when the instructor
+# opens the AAR view, so there is nothing measurable to save, and a positional
+# 5-tuple return type is a worse contract for callers (and the REST mapping)
+# than named ORM attributes.
 def list_sessions_with_event_count(session: Session) -> list[tuple[SessionRow, int]]:
     stmt = (
         select(SessionRow, func.count(EventRow.event_id))
