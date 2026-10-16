@@ -395,6 +395,18 @@ def test_rollback_without_update_service(client, settings, monkeypatch):
     assert body["tag"] == "1.1.0"
 
 
+def test_admin_retained_versions_endpoint_and_unauthenticated(client, raw_client):
+    """GET /api/admin/updates/retained requires instructor auth and returns retained details + version."""
+    assert raw_client.get("/api/admin/updates/retained").status_code == 401
+
+    resp = client.get("/api/admin/updates/retained")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "retained" in body
+    assert isinstance(body["retained"], list)
+    assert body["current_version"] == version_info.version
+
+
 def test_retained_versions_list_and_delete(client, settings):
     # Two versions kept on disk; the pane lists them with sizes and can delete.
     v1 = settings.versions_dir / "app-1.1.0"
