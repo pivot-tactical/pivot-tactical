@@ -37,18 +37,39 @@ function getTimezoneOptions(): string[] {
   return FALLBACK_TIMEZONES;
 }
 
-export function InstructorConsole({
-  timezone,
-  mustChangePassword,
-  onTimezone,
-  onLogout,
-}: {
-  timezone: string;
-  mustChangePassword: boolean;
-  onTimezone: (tz: string) => void;
-  onLogout: () => void;
-}) {
-  const [tab, setTab] = useState<Tab>(mustChangePassword ? "settings" : "radios");
+function mergeHistoryAndSessions(
+  history: EventRow[],
+  sessions: SessionSummary[],
+  prevEntries: LogEntry[]
+): LogEntry[] {
+  const historyEntries: LogEntry[] = history.map((event) => ({ kind: "event", event }));
+  const markers: LogEntry[] = [];
+  for (const s of sessions) {
+    markers.push({ kind: "session", marker: { session_id: s.id, session_name: s.name, type: "started", timestamp: s.started_at } });
+    if (s.ended_at) {
+      markers.push({ kind: "session", marker: { session_id: s.id, session_name: s.name, type: "ended", timestamp: s.ended_at } });
+    }
+  }
+  const seenEvents = new Set(prevEntries.filter((e) => e.kind === "event").map((e) => (e as { kind: "event"; event: EventRow }).event.event_id));
+  const seenMarkers = new Set(
+    prevEntries.filter((e) => e.kind === "session").map((e) => {
+      const m = (e as { kind: "session"; marker: SessionLogMarker }).marker;
+      return `${m.session_id}-${m.type}`;
+    })
+  );
+  const merged = [
+    ...prevEntries,
+    ...historyEntries.filter((e) => !seenEvents.has((e as { kind: "event"; event: EventRow }).event.event_id)),
+    ...markers.filter((e) => {
+      const m = (e as { kind: "session"; marker: SessionLogMarker }).marker;
+      return !seenMarkers.has(`${m.session_id}-${m.type}`);
+    }),
+  ];
+  merged.sort((a, b) => timestampOf(b).localeCompare(timestampOf(a)));
+  return merged.slice(0, 200);
+}
+
+function useInstructorConsoleData() {
   const [radios, setRadios] = useState<RadioState[]>([]);
   const [terminals, setTerminals] = useState<Terminal[]>([]);
   const [netScenarios, setNetScenarios] = useState<NetScenario[]>([]);
@@ -153,33 +174,7 @@ export function InstructorConsole({
     // broadcasts may land before this resolves, so merge by key with the live
     // entries kept in place.
     Promise.all([api.recentEvents(), api.sessions()]).then(([history, sessions]) => {
-      const historyEntries: LogEntry[] = history.map((event) => ({ kind: "event", event }));
-      const markers: LogEntry[] = [];
-      for (const s of sessions) {
-        markers.push({ kind: "session", marker: { session_id: s.id, session_name: s.name, type: "started", timestamp: s.started_at } });
-        if (s.ended_at) {
-          markers.push({ kind: "session", marker: { session_id: s.id, session_name: s.name, type: "ended", timestamp: s.ended_at } });
-        }
-      }
-      setEntries((prev) => {
-        const seenEvents = new Set(prev.filter((e) => e.kind === "event").map((e) => (e as { kind: "event"; event: EventRow }).event.event_id));
-        const seenMarkers = new Set(
-          prev.filter((e) => e.kind === "session").map((e) => {
-            const m = (e as { kind: "session"; marker: SessionLogMarker }).marker;
-            return `${m.session_id}-${m.type}`;
-          })
-        );
-        const merged = [
-          ...prev,
-          ...historyEntries.filter((e) => !seenEvents.has((e as { kind: "event"; event: EventRow }).event.event_id)),
-          ...markers.filter((e) => {
-            const m = (e as { kind: "session"; marker: SessionLogMarker }).marker;
-            return !seenMarkers.has(`${m.session_id}-${m.type}`);
-          }),
-        ];
-        merged.sort((a, b) => timestampOf(b).localeCompare(timestampOf(a)));
-        return merged.slice(0, 200);
-      });
+      setEntries((prev) => mergeHistoryAndSessions(history, sessions, prev));
     }).catch(() => {});
     api.terminals().then((t) => {
       setSessionActive(t.session_active);
@@ -211,13 +206,13 @@ export function InstructorConsole({
 
   // Settings → Restart server flips us into the reconnecting state; the socket
   // close handler then starts polling for the server to come back.
-  function enterRestarting() {
+  const enterRestarting = useCallback(() => {
     restartingRef.current = true;
     setConn("restarting");
     startRestartPoll();
-  }
+  }, []);
 
-  async function toggleSession() {
+  const toggleSession = useCallback(async () => {
     if (sessionActive) {
       if (!window.confirm("Are you sure you want to stop the current session?")) return;
       await api.endSession();
@@ -226,7 +221,52 @@ export function InstructorConsole({
       await api.startSession(sessionName.trim() || "Untitled Exercise");
       setSessionActive(true);
     }
-  }
+  }, [sessionActive, sessionName]);
+
+  return {
+    radios, setRadios,
+    terminals,
+    netScenarios,
+    entries,
+    sessionActive,
+    sessionName, setSessionName,
+    conn,
+    socketRef,
+    audio,
+    rxLevels,
+    updateEvent,
+    enterRestarting,
+    toggleSession,
+  };
+}
+
+export function InstructorConsole({
+  timezone,
+  mustChangePassword,
+  onTimezone,
+  onLogout,
+}: {
+  timezone: string;
+  mustChangePassword: boolean;
+  onTimezone: (tz: string) => void;
+  onLogout: () => void;
+}) {
+  const [tab, setTab] = useState<Tab>(mustChangePassword ? "settings" : "radios");
+  const {
+    radios, setRadios,
+    terminals,
+    netScenarios,
+    entries,
+    sessionActive,
+    sessionName, setSessionName,
+    conn,
+    socketRef,
+    audio,
+    rxLevels,
+    updateEvent,
+    enterRestarting,
+    toggleSession,
+  } = useInstructorConsoleData();
 
   return (
     <div className="console">
