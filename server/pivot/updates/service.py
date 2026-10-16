@@ -285,6 +285,25 @@ class UpdateService:
 
     # -- auto update policy ----------------------------------------------- #
 
+    def _get_auto_update_gate(
+        self, auto: bool, available: list[Release], staged: str | None
+    ) -> tuple[str, str] | None:
+        """Check gating conditions for auto-update before executing a download."""
+        if not auto or not available:
+            return "idle", ""
+
+        if staged is not None:
+            # Something is staged awaiting restart — possibly a *specific*
+            # version the instructor chose deliberately (§3.7.4). Auto-update
+            # must not replace that choice with the newest release; it waits
+            # until a restart applies (or clears) the pending update.
+            return "idle", f"{staged} staged — restart to apply."
+
+        if self._session_active():
+            return "deferred_session_active", "Update deferred — a session is running."
+
+        return None
+
     def _apply_auto_update_policy(
         self,
         update: dict,
@@ -295,24 +314,15 @@ class UpdateService:
         cfg: dict,
         mgr: UpdateManager,
     ) -> None:
-        """Apply auto-update policy: newest available, out-of-band, and never over a staged update."""
-        if not auto or not available:
-            update["auto_state"] = "idle"
-            update["auto_message"] = ""
-            return
+        """Apply auto-update policy: newest available, out-of-band, and never over a staged update.
 
-        if staged is not None:
-            # Something is staged awaiting restart — possibly a *specific*
-            # version the instructor chose deliberately (§3.7.4). Auto-update
-            # must not replace that choice with the newest release; it waits
-            # until a restart applies (or clears) the pending update.
-            update["auto_state"] = "idle"
-            update["auto_message"] = f"{staged} staged — restart to apply."
-            return
-
-        if self._session_active():
-            update["auto_state"] = "deferred_session_active"
-            update["auto_message"] = "Update deferred — a session is running."
+        ``cfg`` is the settings snapshot the surrounding check already read;
+        it is passed in (not re-read here) so the download is applied with the
+        same repo/token/channel the check used.
+        """
+        gate = self._get_auto_update_gate(auto, available, staged)
+        if gate is not None:
+            update["auto_state"], update["auto_message"] = gate
             return
 
         target = available[0]
