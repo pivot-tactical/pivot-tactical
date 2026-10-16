@@ -224,12 +224,7 @@ class SessionManager:
 
     # -- trainee terminals ------------------------------------------------- #
 
-    def login(self, name: str, trainee_id: str) -> dict:
-        """Register/refresh a terminal and (re)create its radio (§3.2.1).
-
-        On reconnect within a session the radio resumes on its persisted
-        frequency and crypto mode — mode is never auto-reset (§3.4.4, §8.3).
-        """
+    def _load_trainee_initial_state(self, trainee_id: str, name: str) -> tuple[float, RadioMode]:
         mode = RadioMode.PLAIN
         with self.db.session() as s:
             freq_hz = ConfigStore(s).default_frequency_hz()
@@ -241,8 +236,11 @@ class SessionManager:
                     mode = (
                         state.mode if isinstance(state.mode, RadioMode) else RadioMode(state.mode)
                     )
+        return freq_hz, mode
 
-        radio_id = trainee_id
+    def _ensure_primary_radio(
+        self, radio_id: str, trainee_id: str, name: str, freq_hz: float, mode: RadioMode
+    ) -> None:
         existing = self.registry.get(radio_id)
         if existing is not None:
             existing.frequency_hz = freq_hz
@@ -257,6 +255,8 @@ class SessionManager:
                     mode=mode,
                 )
             )
+
+    def _register_terminal(self, trainee_id: str, name: str, radio_id: str) -> int:
         prev = self.terminals.get(trainee_id)
         epoch = (prev.epoch + 1) if prev is not None else 1
         self.terminals[trainee_id] = TerminalInfo(
@@ -266,6 +266,18 @@ class SessionManager:
             connected_at=to_iso_utc(utc_now()),
             epoch=epoch,
         )
+        return epoch
+
+    def login(self, name: str, trainee_id: str) -> dict:
+        """Register/refresh a terminal and (re)create its radio (§3.2.1).
+
+        On reconnect within a session the radio resumes on its persisted
+        frequency and crypto mode — mode is never auto-reset (§3.4.4, §8.3).
+        """
+        freq_hz, mode = self._load_trainee_initial_state(trainee_id, name)
+        radio_id = trainee_id
+        self._ensure_primary_radio(radio_id, trainee_id, name, freq_hz, mode)
+        epoch = self._register_terminal(trainee_id, name, radio_id)
         self._persist_radio_state(radio_id)
         self.broadcast("terminal_update", {"terminals": self.monitor_snapshot()})
         return {
