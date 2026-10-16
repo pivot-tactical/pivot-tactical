@@ -21,3 +21,8 @@
 **Vulnerability:** The `RollbackRequest` schema accepted a `tag` field without validating for path traversal characters (`..`, `/`, `\`). While the backend validation inside `UpdateManager` might eventually fail to find the directory, relying solely on downstream checks is weak. In earlier versions of `delete_retained`, `tag` was directly concatenated in `shutil.rmtree(self.app_dir(tag))`.
 **Learning:** Pydantic models must validate all file path components derived from user input to prevent path traversal, even for endpoints considered lower risk or admin-only.
 **Prevention:** Always use `@field_validator` on API schemas to sanitize input strings that will be interpolated into file or directory paths. Reject payloads containing `/`, `\`, and `..`.
+
+## 2026-06-05 - [ZIP Export Directory Traversal Test Flaw & Arcname Sanitization]
+**Vulnerability:** Flawed test assertion in path traversal test for session zip export compared `zf.namelist()` against `{session_id}/...` instead of the human-readable `{session_dir_name}/...` top folder name, masking potential exfiltration false passes.
+**Learning:** Archive top-level folder naming conventions must match exact production path rendering in security tests to prevent false-negative test passes during security audits.
+**Prevention:** Compute top-level archive path names dynamically using production helpers in test assertions, and use `PureWindowsPath(wav_path.name).name` on `arcname` to strip cross-platform directory components when packaging files into ZIP archives.

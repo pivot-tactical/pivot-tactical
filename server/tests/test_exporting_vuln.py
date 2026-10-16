@@ -2,6 +2,7 @@ import io
 import zipfile
 from pathlib import Path
 
+from pivot.audio.recording import session_dir_name
 from pivot.core.crypto import Audibility, RadioMode, SyncStatus
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
@@ -14,6 +15,7 @@ def test_export_zip_path_traversal(database, settings, tmp_path):
         cfg.set("display_timezone", "UTC")
         sess = repo.start_session(s, "Test Session")
         sid = sess.id
+        started_at = sess.started_at
         for idx, path in enumerate(["../secret.txt", "sub/../../secret.txt", "/etc/passwd"]):
             repo.create_event(
                 s,
@@ -38,6 +40,8 @@ def test_export_zip_path_traversal(database, settings, tmp_path):
 
     zip_bytes = export_zip(database, settings, sid)
 
+    root = session_dir_name("Test Session", started_at)
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         names = zf.namelist()
-        assert f"{sid}/recordings/secret.txt" not in names
+        assert f"{root}/recordings/secret.txt" not in names
+        assert not any("secret.txt" in name or "passwd" in name for name in names)
