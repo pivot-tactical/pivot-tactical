@@ -94,21 +94,19 @@ export function parseTaggedAudio(buf: ArrayBuffer): { radioId: string; pcm: Arra
 // what is on the channel, not how loud the operator's earpiece is. The sqrt
 // softening lets the faint clean-channel hiss register near the bottom while a
 // keyed voice drives the bar toward full scale.
+//
+// NOTE (intentional): this is a plain single-accumulator loop. Do not manually
+// unroll it (4-way or otherwise) or add further micro-optimisations. A frame is
+// only ~320 samples, so the meter costs microseconds per frame, and V8 already
+// optimises a simple counted loop; hand-unrolling adds code and a tail loop for
+// no measurable gain. The loop was already tightened once (hoisted length and
+// reciprocal) — leave it as is.
 export function pcmLevel(pcm: ArrayBuffer): number {
   const i16 = new Int16Array(pcm);
   const len = i16.length;
   if (len === 0) return 0;
   let sum = 0;
-  const len4 = len & ~3;
-  let i = 0;
-  for (; i < len4; i += 4) {
-    const s0 = i16[i];
-    const s1 = i16[i + 1];
-    const s2 = i16[i + 2];
-    const s3 = i16[i + 3];
-    sum += s0 * s0 + s1 * s1 + s2 * s2 + s3 * s3;
-  }
-  for (; i < len; i++) {
+  for (let i = 0; i < len; i++) {
     const s = i16[i];
     sum += s * s;
   }

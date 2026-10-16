@@ -110,10 +110,6 @@ def get_session(session: Session, session_id: str) -> SessionRow | None:
     return session.get(SessionRow, session_id)
 
 
-def list_sessions(session: Session) -> list[SessionRow]:
-    return list(session.scalars(select(SessionRow).order_by(SessionRow.started_at.desc())))
-
-
 def list_sessions_with_event_count(session: Session) -> list[tuple[SessionRow, int]]:
     stmt = (
         select(SessionRow, func.count(EventRow.event_id))
