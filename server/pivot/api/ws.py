@@ -159,6 +159,13 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
                     for rid in active_tx:
                         manager.route_tx_frame(rid, pcm)
                 continue
+            # NOTE (intentional): no ``if text:`` guard around the parse, in this
+            # loop or the instructor one. A disconnect already breaks the loop
+            # above and binary frames ``continue``, so a text frame is always
+            # what reaches here. A malformed or empty control frame is a client
+            # bug: letting ``json.loads`` raise ends the session through the
+            # ``finally`` cleanup (keyed radios released) instead of silently
+            # ignoring a client that is sending garbage.
             data = json.loads(message["text"])
             mtype = data.get("type")
             payload = data.get("payload") or {}
