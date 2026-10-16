@@ -15,7 +15,7 @@ metadata, so there are no incremental steps yet. New migrations are appended to
 import json
 from collections.abc import Callable
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
 CURRENT_SCHEMA_VERSION = 3
@@ -24,7 +24,7 @@ CURRENT_SCHEMA_VERSION = 3
 def _migrate_v2_net_scenarios(conn) -> None:
     """v2: per-net instructor scenario overrides replace the global
     atmospheric multiplier on the band profile (§3.1.5)."""
-    cols = {row[1] for row in conn.execute(text("PRAGMA table_info(band_profile)"))}
+    cols = {col["name"] for col in inspect(conn).get_columns("band_profile")}
     if "net_scenarios_json" not in cols:
         conn.execute(
             text(
@@ -45,7 +45,7 @@ def _migrate_v3_transcript_edits(conn) -> None:
     hand-corrected row with ``transcription_edited`` so the console can show what
     was changed. Both are additive columns on ``events``.
     """
-    cols = {row[1] for row in conn.execute(text("PRAGMA table_info(events)"))}
+    cols = {col["name"] for col in inspect(conn).get_columns("events")}
     if "transcription_original" not in cols:
         conn.execute(text("ALTER TABLE events ADD COLUMN transcription_original TEXT"))
     if "transcription_edited" not in cols:
