@@ -10,6 +10,7 @@ from pivot.audio.recording import (
     session_dir_name,
     write_recording,
 )
+from pivot.config import RECORDING_SAMPLE_RATE
 
 
 def test_duration_ms_empty():
@@ -111,3 +112,42 @@ def test_read_recording_stereo(tmp_path: Path):
     assert data.dtype == np.float32
     expected_mono = np.array([0.5, 0.5, 0.0], dtype=np.float32)
     np.testing.assert_allclose(data, expected_mono, atol=1e-4)
+
+
+def test_write_recording_creates_parent_directories(tmp_path: Path):
+    nested_path = tmp_path / "subdir_a" / "subdir_b" / "output.wav"
+    assert not nested_path.parent.exists()
+
+    audio = np.array([0.1, -0.1, 0.2], dtype=np.float32)
+    ret_path = write_recording(nested_path, audio, sample_rate=16000)
+
+    assert ret_path == nested_path
+    assert nested_path.parent.exists()
+    assert nested_path.is_file()
+
+
+def test_write_recording_clips_and_flattens_audio(tmp_path: Path):
+    path = tmp_path / "clip_flatten.wav"
+
+    # Multi-dimensional array with values outside [-1.0, 1.0]
+    audio_2d = np.array([[-2.0, 0.5], [1.5, -0.8]], dtype=np.float32)
+    write_recording(path, audio_2d, sample_rate=16000)
+
+    data, sr = read_recording(path)
+    assert sr == 16000
+    assert data.ndim == 1
+    # Expected clipped and flattened 1D array: [-1.0, 0.5, 1.0, -0.8]
+    expected = np.array([-1.0, 0.5, 1.0, -0.8], dtype=np.float32)
+    np.testing.assert_allclose(data, expected, atol=1e-4)
+
+
+def test_write_recording_default_sample_rate(tmp_path: Path):
+    path = tmp_path / "default_sr.wav"
+    audio = np.zeros(800, dtype=np.float32)
+
+    ret_path = write_recording(path, audio)
+    assert ret_path == path
+
+    data, sr = read_recording(path)
+    assert sr == RECORDING_SAMPLE_RATE
+    assert len(data) == 800
