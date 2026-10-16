@@ -224,7 +224,7 @@ class UpdateService:
 
         # Apply the auto-update policy (modifies `update` dict in place).
         self._apply_auto_update_policy(
-            update, auto=auto, available=available, staged=staged, mgr=mgr
+            update, auto=auto, available=available, staged=staged, cfg=cfg, mgr=mgr
         )
 
         self._merge(update)
@@ -311,9 +311,15 @@ class UpdateService:
         auto: bool,
         available: list[Release],
         staged: str | None,
+        cfg: dict,
         mgr: UpdateManager,
     ) -> None:
-        """Apply auto-update policy: newest available, out-of-band, and never over a staged update."""
+        """Apply auto-update policy: newest available, out-of-band, and never over a staged update.
+
+        ``cfg`` is the settings snapshot the surrounding check already read;
+        it is passed in (not re-read here) so the download is applied with the
+        same repo/token/channel the check used.
+        """
         gate = self._get_auto_update_gate(auto, available, staged)
         if gate is not None:
             update["auto_state"], update["auto_message"] = gate
@@ -326,7 +332,6 @@ class UpdateService:
             {**update, "auto_state": "downloading", "auto_message": f"Downloading {target.tag}…"}
         )
         try:
-            cfg = self._config()
             result = self._apply(target, cfg)
             applied_ok = bool(result.get("applied"))
             update["auto_state"] = "applied" if applied_ok else "error"
