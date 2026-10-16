@@ -71,38 +71,6 @@ def _is_origin_allowed(origin: str | None) -> bool:
     return bool(_ALLOW_ORIGIN_REGEX.match(origin))
 
 
-@contextlib.asynccontextmanager
-async def _ws_session_pumps(ws: WebSocket, manager):
-    queue = manager.subscribe()
-    audio_out: asyncio.Queue = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
-    outbound = asyncio.create_task(_pump_outbound(ws, queue))
-    audio_pump = asyncio.create_task(_pump_audio(ws, audio_out))
-    try:
-        yield audio_out
-    finally:
-        await _shutdown([outbound, audio_pump], manager, queue)
-
-
-async def _process_ws_messages(
-    ws: WebSocket, manager, active_tx: set[str], handler: Callable[[str, dict], None]
-) -> None:
-    while True:
-        message = await ws.receive()
-        if message.get("type") == "websocket.disconnect":
-            break
-        if message.get("bytes") is not None:
-            if active_tx:
-                pcm = pcm16_to_float32(message["bytes"])
-                for rid in active_tx:
-                    manager.route_tx_frame(rid, pcm)
-            continue
-        data = json.loads(message["text"])
-        mtype = data.get("type")
-        payload = data.get("payload") or {}
-
-        await handler(mtype, payload)
-
-
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
     if not _is_origin_allowed(ws.headers.get("origin")):
@@ -132,45 +100,78 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
     primary_id = info["radio_id"]
     login_epoch = info.get("epoch")
 
+    # NOTE (intentional): setup, receive loop and teardown are written out inline
+    # in both ``_trainee_session`` and ``_instructor_session``; do not fold them
+    # into a shared context manager / generic message loop. The two roles differ
+    # in lifecycle details (the instructor's ``watch_instructor_radios`` /
+    # ``unwatch``, per-role contexts), and the teardown order is load-bearing:
+    # keyed radios are released and sinks unregistered, then the pumps are shut
+    # down and the queue unsubscribed, and only then ``manager.disconnect`` runs.
+    # Wrapping the pumps in ``async with`` moves ``_shutdown`` after that cleanup,
+    # and the extraction also dropped the explanatory comments on each step.
+    queue = manager.subscribe()
+    audio_out: asyncio.Queue = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
+    outbound = asyncio.create_task(_pump_outbound(ws, queue))
+    audio_pump = asyncio.create_task(_pump_audio(ws, audio_out))
+    # A terminal may run several radios (§3.2.2), each on its own frequency and
+    # each with its own PTT/crypto-sync lifecycle, so the keyed set and the sync
+    # timers are tracked per radio — as they are for the instructor.
     sync_tasks: dict[str, asyncio.Task] = {}
     active_tx: set[str] = set()
+    # One tagged sink per radio, so the browser can mix the terminal's radios
+    # into one playback stream at independent headset volumes (and mute all but
+    # one with the radio view's Focus control).
     sinks: dict[str, object] = {}
 
-    async with _ws_session_pumps(ws, manager) as audio_out:
-        def sync_radio_sinks() -> None:
-            live = {r["radio_id"] for r in manager.trainee_radios(trainee_id)}
-            for rid in list(sinks):
-                if rid not in live:
-                    manager.unregister_audio_sink(rid, sinks.pop(rid))
-            for rid in live:
-                if rid not in sinks:
-                    sink = _tagged_sink(audio_out, rid)
-                    sinks[rid] = sink
-                    manager.register_audio_sink(rid, sink)
+    def sync_radio_sinks() -> None:
+        live = {r["radio_id"] for r in manager.trainee_radios(trainee_id)}
+        for rid in list(sinks):
+            if rid not in live:
+                manager.unregister_audio_sink(rid, sinks.pop(rid))
+        for rid in live:
+            if rid not in sinks:
+                sink = _tagged_sink(audio_out, rid)
+                sinks[rid] = sink
+                manager.register_audio_sink(rid, sink)
 
-        sync_radio_sinks()
-        ctx = TraineeContext(trainee_id, primary_id, active_tx, sync_tasks, sync_radio_sinks)
-        await ws.send_json({"type": "welcome", "payload": {"role": "trainee", **info}})
-        await ws.send_json(
-            {"type": "band_profile_update", "payload": manager.band_profile_snapshot()}
-        )
+    sync_radio_sinks()
+    # Fixed for the life of the socket: the ids never change, and the set/dict
+    # are mutated in place by the handlers.
+    ctx = TraineeContext(trainee_id, primary_id, active_tx, sync_tasks, sync_radio_sinks)
+    await ws.send_json({"type": "welcome", "payload": {"role": "trainee", **info}})
+    await ws.send_json({"type": "band_profile_update", "payload": manager.band_profile_snapshot()})
 
-        try:
-            async def handler(mtype: str, payload: dict) -> None:
-                await _handle_trainee_message(ws, manager, mtype, payload, ctx)
+    try:
+        while True:
+            message = await ws.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            if message.get("bytes") is not None:
+                if active_tx:
+                    # One mic frame fans out to every radio this terminal has
+                    # keyed; each net renders it under its own conditions.
+                    pcm = pcm16_to_float32(message["bytes"])
+                    for rid in active_tx:
+                        manager.route_tx_frame(rid, pcm)
+                continue
+            data = json.loads(message["text"])
+            mtype = data.get("type")
+            payload = data.get("payload") or {}
 
-            await _process_ws_messages(ws, manager, active_tx, handler)
-        except WebSocketDisconnect:
-            pass
-        finally:
-            for task in sync_tasks.values():
-                _cancel(task)
-            for rid in active_tx:
-                with contextlib.suppress(Exception):
-                    manager.ptt_end(rid)
-            for rid, sink in sinks.items():
-                manager.unregister_audio_sink(rid, sink)
-            manager.disconnect(trainee_id, epoch=login_epoch)
+            await _handle_trainee_message(ws, manager, mtype, payload, ctx)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        for task in sync_tasks.values():
+            _cancel(task)
+        # A disconnect mid-keying must not leave radios stuck on the air.
+        for rid in active_tx:
+            with contextlib.suppress(Exception):
+                manager.ptt_end(rid)
+        for rid, sink in sinks.items():
+            manager.unregister_audio_sink(rid, sink)
+        await _shutdown([outbound, audio_pump], manager, queue)
+        manager.disconnect(trainee_id, epoch=login_epoch)
 
 
 # --------------------------------------------------------------------------- #
@@ -179,50 +180,78 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
 
 
 async def _instructor_session(ws: WebSocket, manager) -> None:
+    queue = manager.subscribe()
+    audio_out: asyncio.Queue = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
+    outbound = asyncio.create_task(_pump_outbound(ws, queue))
+    audio_pump = asyncio.create_task(_pump_audio(ws, audio_out))
+    # The instructor may key several radios at once (one voice on many nets).
+    # Each keyed radio runs its own PTT/crypto-sync lifecycle, so the set of
+    # keyed radios and the per-radio sync timers are tracked independently.
     sync_tasks: dict[str, asyncio.Task] = {}
-    active_tx: set[str] = set()
+    active_tx: set[str] = set()  # the instructor radios currently keyed
+
+    # The instructor hears on every one of their radios. Each radio gets its own
+    # sink that tags every PCM frame with the source radio_id, so the browser can
+    # mix them into one playback stream at independent headset volumes (§3.2.2).
+    # Radios are added/removed over REST as well as over this socket, so the
+    # sink set is kept in step via the manager's change watcher rather than
+    # only from this loop's own messages.
     sinks: dict[str, object] = {}
 
-    async with _ws_session_pumps(ws, manager) as audio_out:
-        def sync_radio_sinks() -> None:
-            live = {r["radio_id"] for r in manager.instructor_radios()}
-            for rid in list(sinks):
-                if rid not in live:
-                    manager.unregister_audio_sink(rid, sinks.pop(rid))
-            for rid in live:
-                if rid not in sinks:
-                    sink = _tagged_sink(audio_out, rid)
-                    sinks[rid] = sink
-                    manager.register_audio_sink(rid, sink)
+    def sync_radio_sinks() -> None:
+        live = {r["radio_id"] for r in manager.instructor_radios()}
+        for rid in list(sinks):
+            if rid not in live:
+                manager.unregister_audio_sink(rid, sinks.pop(rid))
+        for rid in live:
+            if rid not in sinks:
+                sink = _tagged_sink(audio_out, rid)
+                sinks[rid] = sink
+                manager.register_audio_sink(rid, sink)
 
-        sync_radio_sinks()
-        ctx = InstructorContext(active_tx, sync_tasks)
-        unwatch = manager.watch_instructor_radios(sync_radio_sinks)
-        await ws.send_json({"type": "welcome", "payload": {"role": "instructor"}})
-        await ws.send_json(
-            {"type": "band_profile_update", "payload": manager.band_profile_snapshot()}
-        )
-        await ws.send_json({"type": "instructor_radios", "payload": manager.instructor_radios()})
-        await ws.send_json(
-            {"type": "terminal_update", "payload": {"terminals": manager.monitor_snapshot()}}
-        )
+    sync_radio_sinks()
+    ctx = InstructorContext(active_tx, sync_tasks)
+    unwatch = manager.watch_instructor_radios(sync_radio_sinks)
+    await ws.send_json({"type": "welcome", "payload": {"role": "instructor"}})
+    await ws.send_json({"type": "band_profile_update", "payload": manager.band_profile_snapshot()})
+    await ws.send_json({"type": "instructor_radios", "payload": manager.instructor_radios()})
+    await ws.send_json(
+        {"type": "terminal_update", "payload": {"terminals": manager.monitor_snapshot()}}
+    )
 
-        try:
-            async def handler(mtype: str, payload: dict) -> None:
-                await _handle_instructor_message(ws, manager, mtype, payload, ctx)
-
-            await _process_ws_messages(ws, manager, active_tx, handler)
-        except WebSocketDisconnect:
-            pass
-        finally:
-            for task in sync_tasks.values():
-                _cancel(task)
-            for rid in active_tx:
-                with contextlib.suppress(Exception):
-                    manager.ptt_end(rid)
-            unwatch()
-            for rid, sink in sinks.items():
-                manager.unregister_audio_sink(rid, sink)
+    try:
+        while True:
+            message = await ws.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            if message.get("bytes") is not None:
+                if active_tx:
+                    # One mic frame fans out to every keyed radio: the source is
+                    # decoded once, and each radio's net renders it under its own
+                    # channel conditions (frequency-dependent noise, §3.2.2).
+                    pcm = pcm16_to_float32(message["bytes"])
+                    for rid in active_tx:
+                        manager.route_tx_frame(rid, pcm)
+                continue
+            data = json.loads(message["text"])
+            mtype = data.get("type")
+            payload = data.get("payload") or {}
+            await _handle_instructor_message(ws, manager, mtype, payload, ctx)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        for task in sync_tasks.values():
+            _cancel(task)
+        # A disconnect mid-keying must not leave radios stuck on the air.
+        for rid in active_tx:
+            with contextlib.suppress(Exception):
+                manager.ptt_end(rid)
+        unwatch()
+        # Only drop sinks still owned by *this* connection — a reconnected
+        # instructor may already have re-bound these radios to a new sink.
+        for rid, sink in sinks.items():
+            manager.unregister_audio_sink(rid, sink)
+        await _shutdown([outbound, audio_pump], manager, queue)
 
 
 # --------------------------------------------------------------------------- #
@@ -248,6 +277,88 @@ def _trainee_radio_id(manager, trainee_id: str, payload: dict, default: str) -> 
     return rid
 
 
+async def _handle_trainee_radio_config(
+    ws: WebSocket,
+    manager,
+    mtype: str,
+    payload: dict,
+    ctx: TraineeContext,
+) -> bool:
+    """Serve the tune/mode/add/remove group for trainees. True if ``mtype`` was ours."""
+    if mtype == "tune":
+        rid = _trainee_radio_id(manager, ctx.trainee_id, payload, ctx.primary_id)
+        await _safe(ws, "tuned", lambda: manager.tune(rid, payload["frequency"]))
+    elif mtype == "mode_change":
+        rid = _trainee_radio_id(manager, ctx.trainee_id, payload, ctx.primary_id)
+        await _safe(
+            ws, "mode_changed", lambda: manager.set_mode(rid, RadioMode(payload["mode"]))
+        )
+    elif mtype == "add_radio":
+        radio = manager.add_trainee_radio(
+            ctx.trainee_id,
+            slot=payload.get("slot"),
+            frequency=payload.get("frequency"),
+            mode=RadioMode(payload["mode"]) if payload.get("mode") else None,
+        )
+        ctx.on_radios_changed()
+        await ws.send_json({"type": "radio_added", "payload": radio})
+    elif mtype == "remove_radio":
+        rid = _trainee_radio_id(manager, ctx.trainee_id, payload, "")
+        _cancel(ctx.sync_tasks.pop(rid, None))
+        ctx.active_tx.discard(rid)
+        manager.remove_trainee_radio(ctx.trainee_id, rid)
+        ctx.on_radios_changed()
+        await ws.send_json({"type": "radio_removed", "payload": {"radio_id": rid}})
+    else:
+        return False
+    return True
+
+
+async def _handle_trainee_ptt(
+    ws: WebSocket,
+    manager,
+    mtype: str,
+    payload: dict,
+    ctx: TraineeContext,
+) -> bool:
+    """Serve the PTT start/end/abort group for trainees. True if ``mtype`` was ours."""
+    if mtype == "ptt_start":
+        rid = _trainee_radio_id(manager, ctx.trainee_id, payload, ctx.primary_id)
+        result = manager.ptt_start(
+            rid,
+            frequency=payload.get("frequency"),
+            tx_mode=RadioMode(payload["tx_mode"]) if payload.get("tx_mode") else None,
+        )
+        ctx.active_tx.add(rid)
+        # radio_id lets the radio view drive each panel's PTT state
+        # independently while several radios are keyed.
+        await ws.send_json({"type": "ptt_started", "payload": {**result, "radio_id": rid}})
+        if result["sync_applies"]:
+            ctx.sync_tasks[rid] = asyncio.create_task(
+                _schedule_on_air(ws, manager, rid, result["sync_delay_ms"])
+            )
+    elif mtype == "ptt_end":
+        rid = _trainee_radio_id(manager, ctx.trainee_id, payload, ctx.primary_id)
+        _cancel(ctx.sync_tasks.pop(rid, None))
+        ctx.active_tx.discard(rid)
+        await ws.send_json(
+            {"type": "ptt_ended", "payload": {**(manager.ptt_end(rid) or {}), "radio_id": rid}}
+        )
+    elif mtype == "ptt_abort":
+        rid = _trainee_radio_id(manager, ctx.trainee_id, payload, ctx.primary_id)
+        _cancel(ctx.sync_tasks.pop(rid, None))
+        ctx.active_tx.discard(rid)
+        await ws.send_json(
+            {
+                "type": "ptt_aborted",
+                "payload": {**(manager.ptt_abort(rid) or {}), "radio_id": rid},
+            }
+        )
+    else:
+        return False
+    return True
+
+
 async def _handle_trainee_message(
     ws: WebSocket,
     manager,
@@ -258,63 +369,10 @@ async def _handle_trainee_message(
     try:
         if mtype == "heartbeat":
             await ws.send_json({"type": "heartbeat", "payload": {}})
-        elif mtype == "tune":
-            rid = _trainee_radio_id(manager, ctx.trainee_id, payload, ctx.primary_id)
-            await _safe(ws, "tuned", lambda: manager.tune(rid, payload["frequency"]))
-        elif mtype == "mode_change":
-            rid = _trainee_radio_id(manager, ctx.trainee_id, payload, ctx.primary_id)
-            await _safe(
-                ws, "mode_changed", lambda: manager.set_mode(rid, RadioMode(payload["mode"]))
-            )
-        elif mtype == "add_radio":
-            radio = manager.add_trainee_radio(
-                ctx.trainee_id,
-                slot=payload.get("slot"),
-                frequency=payload.get("frequency"),
-                mode=RadioMode(payload["mode"]) if payload.get("mode") else None,
-            )
-            ctx.on_radios_changed()
-            await ws.send_json({"type": "radio_added", "payload": radio})
-        elif mtype == "remove_radio":
-            rid = _trainee_radio_id(manager, ctx.trainee_id, payload, "")
-            _cancel(ctx.sync_tasks.pop(rid, None))
-            ctx.active_tx.discard(rid)
-            manager.remove_trainee_radio(ctx.trainee_id, rid)
-            ctx.on_radios_changed()
-            await ws.send_json({"type": "radio_removed", "payload": {"radio_id": rid}})
-        elif mtype == "ptt_start":
-            rid = _trainee_radio_id(manager, ctx.trainee_id, payload, ctx.primary_id)
-            result = manager.ptt_start(
-                rid,
-                frequency=payload.get("frequency"),
-                tx_mode=RadioMode(payload["tx_mode"]) if payload.get("tx_mode") else None,
-            )
-            ctx.active_tx.add(rid)
-            # radio_id lets the radio view drive each panel's PTT state
-            # independently while several radios are keyed.
-            await ws.send_json({"type": "ptt_started", "payload": {**result, "radio_id": rid}})
-            if result["sync_applies"]:
-                ctx.sync_tasks[rid] = asyncio.create_task(
-                    _schedule_on_air(ws, manager, rid, result["sync_delay_ms"])
-                )
-        elif mtype == "ptt_end":
-            rid = _trainee_radio_id(manager, ctx.trainee_id, payload, ctx.primary_id)
-            _cancel(ctx.sync_tasks.pop(rid, None))
-            ctx.active_tx.discard(rid)
-            await ws.send_json(
-                {"type": "ptt_ended", "payload": {**(manager.ptt_end(rid) or {}), "radio_id": rid}}
-            )
-        elif mtype == "ptt_abort":
-            rid = _trainee_radio_id(manager, ctx.trainee_id, payload, ctx.primary_id)
-            _cancel(ctx.sync_tasks.pop(rid, None))
-            ctx.active_tx.discard(rid)
-            await ws.send_json(
-                {
-                    "type": "ptt_aborted",
-                    "payload": {**(manager.ptt_abort(rid) or {}), "radio_id": rid},
-                }
-            )
-        else:
+        elif not (
+            await _handle_trainee_radio_config(ws, manager, mtype, payload, ctx)
+            or await _handle_trainee_ptt(ws, manager, mtype, payload, ctx)
+        ):
             await ws.send_json({"type": "error", "payload": {"detail": f"unknown: {mtype}"}})
     except (RadioBusyError, KeyError, ValueError) as exc:
         await ws.send_json({"type": "error", "payload": {"detail": str(exc)}})
