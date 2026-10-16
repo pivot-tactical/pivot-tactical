@@ -16,7 +16,8 @@
 **Vulnerability:** The API endpoint returning audio playback dynamically joined a user-controlled path string from the database with a base directory without path sanitization, allowing arbitrary file retrieval.
 **Learning:** Always sanitize `Path` constructs generated from dynamic or database-stored values using `.is_absolute()` and verifying traversal (`..`) attempts before trusting the `Path.resolve()` boundary check.
 **Prevention:** Use defensive input validation enforcing `.is_relative_to(base_dir)` alongside absolute path and traversal character rejections.
-## 2026-03-31 - Fix CORS Overly Permissive Policy
-**Vulnerability:** CORS origin regex `_ALLOW_ORIGIN_REGEX_STR` allowed connections from any internal IP subnet (`192.168.x.x`, `10.x.x.x`, `172.16-31.x.x`).
-**Learning:** Broad regex matching for private IP ranges in CORS policies can expose WebSocket endpoints and REST resources to Cross-Site Request Forgery (CSRF) or cross-origin requests from malicious sites on the same internal network.
-**Prevention:** Strictly limit origin regexes to trusted localhost/loopback origins (`localhost`, `127.0.0.1`) and explicitly configured origins.
+
+## 2025-03-09 - [Path Traversal in RollbackRequest Schema]
+**Vulnerability:** The `RollbackRequest` schema accepted a `tag` field without validating for path traversal characters (`..`, `/`, `\`). While the backend validation inside `UpdateManager` might eventually fail to find the directory, relying solely on downstream checks is weak. In earlier versions of `delete_retained`, `tag` was directly concatenated in `shutil.rmtree(self.app_dir(tag))`.
+**Learning:** Pydantic models must validate all file path components derived from user input to prevent path traversal, even for endpoints considered lower risk or admin-only.
+**Prevention:** Always use `@field_validator` on API schemas to sanitize input strings that will be interpolated into file or directory paths. Reject payloads containing `/`, `\`, and `..`.
