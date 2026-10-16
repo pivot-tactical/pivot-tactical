@@ -1768,3 +1768,53 @@ def test_admin_add_instructor_radio(client, raw_client):
     assert default_resp.status_code == 200
     default_data = default_resp.json()
     assert "radio_id" in default_data
+
+
+def test_frontend_dist_dir_missing(monkeypatch, tmp_path):
+    """frontend_dist_dir returns None when no directory with index.html exists."""
+    import sys
+    from pivot.api.app import frontend_dist_dir
+
+    monkeypatch.delenv("PIVOT_FRONTEND_DIST", raising=False)
+    monkeypatch.delattr(sys, "_MEIPASS", raising=False)
+
+    # Point candidate paths away from any existing directories containing index.html
+    fake_app_file = tmp_path / "server" / "pivot" / "api" / "app.py"
+    fake_app_file.parent.mkdir(parents=True, exist_ok=True)
+    fake_app_file.write_text("# fake app.py")
+
+    import pivot.api.app as app_mod
+
+    monkeypatch.setattr(app_mod, "__file__", str(fake_app_file))
+
+    assert frontend_dist_dir() is None
+
+
+def test_frontend_dist_dir_from_env(monkeypatch, tmp_path):
+    """frontend_dist_dir respects PIVOT_FRONTEND_DIST env var when index.html exists."""
+    from pivot.api.app import frontend_dist_dir
+
+    dist_dir = tmp_path / "custom_dist"
+    dist_dir.mkdir()
+    (dist_dir / "index.html").write_text("<html></html>")
+
+    monkeypatch.setenv("PIVOT_FRONTEND_DIST", str(dist_dir))
+
+    assert frontend_dist_dir() == dist_dir
+
+
+def test_frontend_dist_dir_from_meipass(monkeypatch, tmp_path):
+    """frontend_dist_dir checks sys._MEIPASS / frontend_dist when index.html exists."""
+    import sys
+    from pivot.api.app import frontend_dist_dir
+
+    monkeypatch.delenv("PIVOT_FRONTEND_DIST", raising=False)
+
+    meipass_dir = tmp_path / "meipass"
+    dist_dir = meipass_dir / "frontend_dist"
+    dist_dir.mkdir(parents=True)
+    (dist_dir / "index.html").write_text("<html></html>")
+
+    monkeypatch.setattr(sys, "_MEIPASS", str(meipass_dir), raising=False)
+
+    assert frontend_dist_dir() == dist_dir
