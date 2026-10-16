@@ -17,6 +17,11 @@
 **Learning:** Always sanitize `Path` constructs generated from dynamic or database-stored values using `.is_absolute()` and verifying traversal (`..`) attempts before trusting the `Path.resolve()` boundary check.
 **Prevention:** Use defensive input validation enforcing `.is_relative_to(base_dir)` alongside absolute path and traversal character rejections.
 
+## 2025-03-09 - [Path Traversal in RollbackRequest Schema]
+**Vulnerability:** The `RollbackRequest` schema accepted a `tag` field without validating for path traversal characters (`..`, `/`, `\`). While the backend validation inside `UpdateManager` might eventually fail to find the directory, relying solely on downstream checks is weak. In earlier versions of `delete_retained`, `tag` was directly concatenated in `shutil.rmtree(self.app_dir(tag))`.
+**Learning:** Pydantic models must validate all file path components derived from user input to prevent path traversal, even for endpoints considered lower risk or admin-only.
+**Prevention:** Always use `@field_validator` on API schemas to sanitize input strings that will be interpolated into file or directory paths. Reject payloads containing `/`, `\`, and `..`.
+
 ## 2026-06-05 - [ZIP Export Directory Traversal Test Flaw & Arcname Sanitization]
 **Vulnerability:** Flawed test assertion in path traversal test for session zip export compared `zf.namelist()` against `{session_id}/...` instead of the human-readable `{session_dir_name}/...` top folder name, masking potential exfiltration false passes.
 **Learning:** Archive top-level folder naming conventions must match exact production path rendering in security tests to prevent false-negative test passes during security audits.

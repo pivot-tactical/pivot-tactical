@@ -424,3 +424,46 @@ def test_app_exe_survives_an_untraversable_current_link(monkeypatch):
     settings = SimpleNamespace(versions_dir="/anywhere")
     # Must return something runnable rather than propagate.
     assert lifecycle.app_exe(settings) == sys.executable
+
+
+def test_dispatch_cli_actions(monkeypatch, tmp_path):
+    """Verify CLI action dispatching for version, apply_staged, rollback, relaunch_after, and fallback."""
+    from pivot.config import Settings
+
+    settings = Settings(data_dir=tmp_path / "data", versions_dir=tmp_path / "versions")
+
+    args = entry._parse_args(["--version"])
+    assert entry._dispatch_cli_actions(args, settings) == 0
+
+    monkeypatch.setattr(entry, "_apply_staged", lambda _s: 0)
+    args = entry._parse_args(["--apply-staged"])
+    assert entry._dispatch_cli_actions(args, settings) == 0
+
+    monkeypatch.setattr(entry, "_rollback", lambda _s, tag: 0 if tag == "1.0.0" else 1)
+    args = entry._parse_args(["--rollback", "1.0.0"])
+    assert entry._dispatch_cli_actions(args, settings) == 0
+
+    monkeypatch.setattr(entry, "_relaunch_after", lambda pid, _s: 0 if pid == 1234 else 1)
+    args = entry._parse_args(["--relaunch-after", "1234"])
+    assert entry._dispatch_cli_actions(args, settings) == 0
+
+    args = entry._parse_args([])
+    assert entry._dispatch_cli_actions(args, settings) is None
+
+
+def test_main_version_flag(capsys):
+    """Verify main returns 0 on --version."""
+    rc = entry.main(["--version"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "PIVOT" in captured.out
+
+
+def test_main_start_server_called(monkeypatch):
+    """Verify main calls _start_server when no early-exit flags are present."""
+    called = []
+    monkeypatch.setattr(entry, "_start_server", lambda settings, tray: called.append((settings, tray)))
+
+    rc = entry.main([])
+    assert rc == 0
+    assert len(called) == 1
