@@ -101,12 +101,7 @@ def test_show_console_no_hwnd(win_tray_module):
 
 
 def test_create_window_arguments_match_win32_prototype(win_tray_module):
-    """Every CreateWindowExW argument must be convertible to its declared type.
-
-    Regression test: hMenu was passed as ``None`` while its ctypes type is an
-    integer (HMENU), which ctypes rejects — the packaged app died at startup
-    with "argument 10: TypeError: wrong type" before the tray ever appeared.
-    """
+    """Every CreateWindowExW argument must be convertible to its declared type."""
     win_tray_module.kernel32.GetModuleHandleW.return_value = 1
     win_tray_module.user32.CreateWindowExW.return_value = 4242
 
