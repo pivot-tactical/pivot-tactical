@@ -103,9 +103,8 @@ def test_show_console_no_hwnd(win_tray_module):
 def test_create_window_arguments_match_win32_prototype(win_tray_module):
     """Every CreateWindowExW argument must be convertible to its declared type.
 
-    Regression test: hMenu was passed as ``None`` while its ctypes type is an
-    integer (HMENU), which ctypes rejects — the packaged app died at startup
-    with "argument 10: TypeError: wrong type" before the tray ever appeared.
+    HMENU is wintypes.HMENU (deriving from c_void_p), which matches system
+    pointer width and natively permits passing None as NULL handles.
     """
     win_tray_module.kernel32.GetModuleHandleW.return_value = 1
     win_tray_module.user32.CreateWindowExW.return_value = 4242
@@ -114,9 +113,11 @@ def test_create_window_arguments_match_win32_prototype(win_tray_module):
     app._create_window()
 
     assert app._hwnd == 4242
+    assert win_tray_module.HMENU is win_tray_module.ctypes.wintypes.HMENU
     args = win_tray_module.user32.CreateWindowExW.call_args.args
     argtypes = win_tray_module.CREATE_WINDOW_EX_ARGTYPES
     assert len(args) == len(argtypes)
+    assert args[9] is None  # hMenu slot is passed as None
     for position, (argtype, value) in enumerate(zip(argtypes, args, strict=True), start=1):
         try:
             argtype.from_param(value)
