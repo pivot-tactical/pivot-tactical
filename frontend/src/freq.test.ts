@@ -22,6 +22,7 @@ describe('snapToGrid', () => {
 
   it('leaves frequencies off the 12.5 kHz channel raster alone', () => {
     // The bug this replaced: 5.687 landed on 5.6875, 8.974 on 8.975, and so on.
+    // Verifies that frequencies dialled on the 100 Hz grid are preserved exactly.
     for (const mhz of [5.687, 8.974, 11.235, 13.206]) {
       expect(snapToGrid(mhz * 1e6)).toBeCloseTo(mhz * 1e6, 3);
     }
