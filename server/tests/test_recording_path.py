@@ -40,7 +40,9 @@ def test_paths_that_escape_the_tree_are_refused(tmp_path, audio_path):
 
 
 def test_absolute_path_would_otherwise_escape_via_pathlib(tmp_path):
-    # The bug this guards: `base / "/etc/passwd"` is "/etc/passwd", not a child.
+    """Verify that recording_path prevents path traversal bug where pathlib's `/` operator
+    resets to root when joining an absolute path (e.g. base / "/etc/passwd" -> "/etc/passwd").
+    """
     from pathlib import Path
 
     assert Path(tmp_path) / "/etc/passwd" == Path("/etc/passwd")
