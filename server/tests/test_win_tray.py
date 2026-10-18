@@ -134,6 +134,16 @@ def test_create_window_raises_when_window_creation_fails(win_tray_module):
         app._create_window()
 
 
+def test_configure_menu_prototypes_64bit_handles(win_tray_module):
+    """Verify that menu function prototypes use 64-bit integer HMENU handles."""
+    assert win_tray_module.user32.CreatePopupMenu.restype == win_tray_module.HMENU
+    assert win_tray_module.user32.CreatePopupMenu.argtypes == []
+
+    assert win_tray_module.user32.AppendMenuW.argtypes[0] == win_tray_module.HMENU
+    assert win_tray_module.user32.TrackPopupMenu.argtypes[0] == win_tray_module.HMENU
+    assert win_tray_module.user32.DestroyMenu.argtypes == [win_tray_module.HMENU]
+
+
 def test_run_with_tray_success(win_tray_module, monkeypatch):
     """Test run_with_tray when TrayApp runs successfully."""
     mock_hide_console = MagicMock()
