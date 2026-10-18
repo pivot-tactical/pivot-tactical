@@ -40,6 +40,11 @@ def test_paths_that_escape_the_tree_are_refused(tmp_path, audio_path):
 
 
 def test_absolute_path_would_otherwise_escape_via_pathlib(tmp_path):
+    """Verify that path division (`base / "/etc/passwd"`) does not escape base directory.
+
+    In Python's pathlib, joining an absolute path to a base path discards the base path entirely.
+    `recording_path` guards against this by explicitly verifying relative path boundaries.
+    """
     # The bug this guards: `base / "/etc/passwd"` is "/etc/passwd", not a child.
     from pathlib import Path
 
