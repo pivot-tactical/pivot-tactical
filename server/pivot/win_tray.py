@@ -85,7 +85,8 @@ def _configure_window_prototypes() -> None:
 
 
 def _configure_menu_prototypes() -> None:
-    # Menu calls — the heart of the empty-menu bug: handles must be 64-bit.
+    # Menu calls — the heart of the empty-menu bug: handles must be 64-bit (HMENU).
+    # Ensures CreatePopupMenu, AppendMenuW, TrackPopupMenu, and DestroyMenu do not truncate handles.
     user32.CreatePopupMenu.restype = HMENU
     user32.CreatePopupMenu.argtypes = []
     user32.AppendMenuW.restype = wintypes.BOOL
