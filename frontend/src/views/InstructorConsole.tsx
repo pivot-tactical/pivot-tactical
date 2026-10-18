@@ -691,9 +691,12 @@ function renderWord(from: string | null, to: string, key: React.Key): React.Reac
   if (from == null) return whole;
   const chars = lcsOps([...from], [...to]).filter((o) => o.t !== "del");
   const unchanged = chars.filter((c) => c.t === "eq").length;
-  // Refine only when at least half the correction's characters are shared with
-  // the machine word — otherwise it's a reword, not a typo fix.
-  const isTypoFix = unchanged / Math.max(from.length, to.length) >= 0.5;
+  // Refine when at least half the correction's characters are shared with
+  // the machine word, or when one word is a prefix/suffix extension of a base word (>= 2 chars).
+  const isPrefixSuffixFix =
+    (to.startsWith(from) || from.startsWith(to) || to.endsWith(from) || from.endsWith(to)) &&
+    Math.min(from.length, to.length) >= 2;
+  const isTypoFix = isPrefixSuffixFix || unchanged / Math.max(from.length, to.length) >= 0.5;
   if (!isTypoFix) return whole;
   // Coalesce adjacent same-kind characters into as few marks as possible.
   const nodes: React.ReactNode[] = [];
