@@ -685,14 +685,17 @@ function lcsOps<T extends string>(a: T[], b: T[]): { t: "eq" | "del" | "ins"; v:
 
 // Render one word `to` that replaced machine word `from` (or was inserted when
 // `from` is null): highlight the characters that differ, or the whole word when
-// the two are too dissimilar to refine cleanly.
+// the two are too dissimilar to refine cleanly (e.g. single-digit fixes in
+// numbers or frequencies highlight only the changed character).
 function renderWord(from: string | null, to: string, key: React.Key): React.ReactNode {
   const whole = <mark key={key} className="transcript__edit">{to}</mark>;
   if (from == null) return whole;
   const chars = lcsOps([...from], [...to]).filter((o) => o.t !== "del");
   const unchanged = chars.filter((c) => c.t === "eq").length;
   // Refine only when at least half the correction's characters are shared with
-  // the machine word — otherwise it's a reword, not a typo fix.
+  // the machine word — otherwise it's a reword, not a typo fix (e.g. single-digit
+  // or suffix corrections are refined to character level while wholesale rewords
+  // mark the entire word).
   const isTypoFix = unchanged / Math.max(from.length, to.length) >= 0.5;
   if (!isTypoFix) return whole;
   // Coalesce adjacent same-kind characters into as few marks as possible.

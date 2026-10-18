@@ -275,6 +275,28 @@ describe('InstructorConsole', () => {
     expect(marks).toContain('fast');
   });
 
+  it('highlights single-digit fixes in frequency or number tokens at character level', async () => {
+    (api.recentEvents as any).mockResolvedValueOnce([
+      makeEvent({
+        transcription: 'freq 14.260 MHz',
+        transcription_original: 'freq 14.250 MHz',
+        transcription_edited: true,
+      }),
+    ]);
+
+    let container: HTMLElement;
+    await act(async () => {
+      const r = render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+      container = r.container;
+    });
+
+    await screen.findByText(/edited/);
+    const marks = Array.from(container!.querySelectorAll('.transcript__edit')).map((m) => m.textContent);
+    // Single-digit fix '14.250' -> '14.260': only '6' is highlighted, not '14.260'
+    expect(marks).toContain('6');
+    expect(marks).not.toContain('14.260');
+  });
+
   it('positively confirms a deliberately chosen version, distinct from the auto-staged one', async () => {
     const release = (tag: string) => ({
       tag, name: tag, prerelease: false, standing: 'newer', published_at: '',
