@@ -110,7 +110,18 @@ export function pcmLevel(pcm: ArrayBuffer): number {
   const len = i16.length;
   if (len === 0) return 0;
   let sum = 0;
-  for (let i = 0; i < len; i++) {
+  let i = 0;
+  const limit = len - (len % 4);
+
+  // 4-way loop unrolling to reduce loop control overhead in hot DSP path
+  for (; i < limit; i += 4) {
+    const s0 = i16[i];
+    const s1 = i16[i + 1];
+    const s2 = i16[i + 2];
+    const s3 = i16[i + 3];
+    sum += s0 * s0 + s1 * s1 + s2 * s2 + s3 * s3;
+  }
+  for (; i < len; i++) {
     const s = i16[i];
     sum += s * s;
   }
