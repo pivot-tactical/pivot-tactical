@@ -50,7 +50,6 @@ class Radio:
     syncing: bool = False
     on_air: bool = False
     active_event_id: str | None = None
-    tx_started_at: datetime | None = None  # when this radio went on-air (for ordering)
     last_activity: datetime = field(default_factory=utc_now)
 
     @property
@@ -141,7 +140,6 @@ class RadioRegistry:
             return True
         r.syncing = False
         r.on_air = True
-        r.tx_started_at = utc_now()
         return False
 
     def sync_complete(self, radio_id: str) -> Radio:
@@ -150,7 +148,6 @@ class RadioRegistry:
         if r.syncing:
             r.syncing = False
             r.on_air = True
-            r.tx_started_at = utc_now()
         return r
 
     def end_key(self, radio_id: str) -> str | None:
@@ -160,7 +157,6 @@ class RadioRegistry:
         r.syncing = False
         r.on_air = False
         r.active_event_id = None
-        r.tx_started_at = None
         r.last_activity = utc_now()
         return event_id
 
