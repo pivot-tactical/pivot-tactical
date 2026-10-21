@@ -571,6 +571,7 @@ def _live_update_check(manager) -> dict:
         "staged_tag": mgr.staged_tag(),
     }
     try:
+        # Note: github.fetch_releases is already decorated with @ttl_cache (300s TTL)
         raw = github.fetch_releases(repo, token)
     except Exception as exc:  # network/HTTP/JSON — stay graceful for air-gapped
         log.warning("update check for %r failed: %s", repo, exc)
