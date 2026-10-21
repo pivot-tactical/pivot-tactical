@@ -53,12 +53,12 @@ def test_extract_token_from_cookie():
 
 
 def test_extract_token_from_query_param():
-    """Verify token extraction from the query parameter when others are absent."""
+    """Verify that query parameter tokens are ignored for security."""
     mock_request = MagicMock(spec=Request)
     mock_request.cookies = {}
     mock_request.query_params = {"token": "query_token"}
 
-    assert _extract_token(mock_request, None) == "query_token"
+    assert _extract_token(mock_request, None) is None
 
 
 def test_extract_token_missing():
