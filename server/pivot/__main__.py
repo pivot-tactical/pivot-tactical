@@ -293,9 +293,15 @@ def _open_relaunch_log(settings: Settings):
     dead — pointing them at a file makes every ``print`` (ours and the update
     swap's) both safe and, finally, debuggable after a failed restart.
     """
+    log_path = settings.data_dir / "relaunch.log"
     try:
-        settings.data_dir.mkdir(parents=True, exist_ok=True)
-        return open(settings.data_dir / "relaunch.log", "a", encoding="utf-8", buffering=1)
+        return open(log_path, "a", encoding="utf-8", buffering=1)
+    except FileNotFoundError:
+        try:
+            settings.data_dir.mkdir(parents=True, exist_ok=True)
+            return open(log_path, "a", encoding="utf-8", buffering=1)
+        except OSError:
+            return None
     except OSError:
         return None
 
