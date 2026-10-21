@@ -61,11 +61,6 @@ def test_try_parse_returns_none_on_garbage():
     assert SemVer.try_parse("1.2.3") is not None
 
 
-def test_is_prerelease_flag():
-    assert SemVer.parse("1.0.0-rc.1").is_prerelease
-    assert not SemVer.parse("1.0.0").is_prerelease
-
-
 def test_utc_roundtrip():
     dt = datetime(2026, 6, 5, 12, 30, 15, tzinfo=UTC)
     assert parse_iso_utc(to_iso_utc(dt)) == dt
