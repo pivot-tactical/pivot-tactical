@@ -188,19 +188,30 @@ def reconcile_orphan_transcriptions(session: Session, recordings_dir) -> int:
     produced no file), so the UI shows a terminal state instead of "transcribing…".
     Returns the number of rows changed.
     """
+    from pathlib import Path
+
     from pivot.audio.recording import UnsafeRecordingPath, recording_path
 
-    changed = 0
     pending = session.scalars(
         select(EventRow).where(EventRow.transcription_status == TranscriptionStatus.PENDING)
     ).all()
+    if not pending:
+        return 0
+
+    base = Path(recordings_dir).resolve()
+    if not base.is_dir():
+        for row in pending:
+            row.transcription_status = TranscriptionStatus.SKIPPED
+        return len(pending)
+
+    changed = 0
     for row in pending:
         # A path that will not resolve inside the recordings tree is not a
         # recording this server wrote, so it is treated as missing rather than
         # probed on disk — `base / audio_path` would otherwise follow an
         # absolute value straight out of the tree.
         try:
-            wav = recording_path(recordings_dir, row.audio_path)
+            wav = recording_path(base, row.audio_path)
         except UnsafeRecordingPath:
             wav = None
         if wav is None or not wav.exists():

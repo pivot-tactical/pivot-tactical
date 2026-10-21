@@ -30,3 +30,6 @@
 ## 2024-05-25 - [Loop invariant division and function inlining in V8]
 **Learning:** In JavaScript/V8 (e.g., tight audio processing loops like `pcmLevel`), calculating the array length outside the loop and replacing division inside the loop with reciprocal division outside the loop, as well as replacing nested `Math.min` functions with inlined ternary conditional clamps provides measurable performance gains (approx. 10-20% speedup).
 **Action:** Avoid nested math function calls and inner loop divisions where simple manual clamping logic or mathematical transposition suffices.
+## 2026-07-20 - [Directory Pre-check vs Full Disk Traversal in Reconciliation]
+**Learning:** In database reconciliation loops (such as `reconcile_orphan_transcriptions`), checking if target records exist before doing disk probes (e.g. `if not pending: return 0`) and verifying base directory existence (`if not base.is_dir()`) once outside the loop eliminates unnecessary disk I/O. Crawling the entire directory tree with `rglob("*")` scales with total files on disk rather than pending records ($O(N_{\text{files}})$ vs $O(N_{\text{pending}})$) causing performance degradation on large storage volumes.
+**Action:** Always pre-check base directory validity and bound checks to the number of query target items ($O(N_{\text{pending}})$) rather than scanning the entire filesystem.
