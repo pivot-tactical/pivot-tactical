@@ -1,5 +1,7 @@
 """Tests for the reception matrix and collision rules (spec §3.4)."""
 
+import pytest
+
 from pivot.core.crypto import (
     Audibility,
     RadioMode,
@@ -19,6 +21,22 @@ C = RadioMode.CYPHER
 # --- 3.4.1 reception matrix (acceptance criteria #7-#10) ------------------- #
 
 
+@pytest.mark.parametrize(
+    ("tx_mode", "rx_mode", "expected_reception", "expected_value"),
+    [
+        (P, P, Reception.CLEAR, "clear"),
+        (P, C, Reception.CLEAR, "clear"),
+        (C, C, Reception.DIGITAL, "digital"),
+        (C, P, Reception.HASH, "hash"),
+    ],
+)
+def test_single_reception_matrix(tx_mode, rx_mode, expected_reception, expected_value):
+    """Test 2x2 reception matrix explicitly returning Reception enum values."""
+    result = single_reception(tx_mode, rx_mode)
+    assert result is expected_reception
+    assert result == expected_value
+
+
 def test_plain_to_plain_is_clear():
     assert single_reception(P, P) is Reception.CLEAR
 
@@ -33,8 +51,10 @@ def test_cypher_to_cypher_is_digital():
 
 
 def test_cypher_to_plain_is_hash():
-    # The only non-clear single-TX combination.
-    assert single_reception(C, P) is Reception.HASH
+    # The only non-clear single-TX combination (returns Reception.HASH).
+    result = single_reception(C, P)
+    assert result is Reception.HASH
+    assert result == "hash"
 
 
 # --- 3.4.6 collisions ------------------------------------------------------ #
