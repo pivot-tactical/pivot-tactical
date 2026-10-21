@@ -29,3 +29,6 @@
 ## 2026-10-14 - Tablist WAI-ARIA Pattern
 **Learning:** When using `role="tablist"` on a container, the child elements must have `role="tab"` and be linked to their corresponding content panels via `aria-controls`. The content container itself must have `role="tabpanel"`, an `id` matching the `aria-controls`, and an `aria-labelledby` pointing back to the active tab's `id` to satisfy strict accessibility checks.
 **Action:** Ensure all dynamically rendered tabs apply the complete suite of ARIA attributes (`id`, `aria-controls` for tabs; `role="tabpanel"`, `id`, `aria-labelledby` for content areas) rather than just `role="tablist"` and `aria-selected`.
+## 2026-10-21 - Add tooltip for disabled buttons
+**Learning:** Users lack feedback when export buttons are disabled without an active selection.
+**Action:** Add disabled state explanations to buttons using title attributes.
