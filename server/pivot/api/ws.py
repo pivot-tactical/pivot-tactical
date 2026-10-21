@@ -25,11 +25,13 @@ import contextlib
 # next to the DSP work. A new compiled runtime dependency would also need a
 # licence-policy review (spec 13.7) and packaging for both platforms, which a
 # micro-benchmark gain does not justify.
+import ipaddress
 import json
 import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
@@ -78,11 +80,19 @@ _ALLOW_ORIGIN_REGEX = re.compile(_ALLOW_ORIGIN_REGEX_STR)
 
 
 def _is_origin_allowed(origin: str | None) -> bool:
-    if not origin:
+    if not origin or origin in _ALLOW_ORIGINS:
         return True
-    if origin in _ALLOW_ORIGINS:
-        return True
-    return bool(_ALLOW_ORIGIN_REGEX.match(origin))
+    try:
+        parsed = urlparse(origin)
+        hostname = parsed.hostname
+        if parsed.scheme not in ("http", "https") or not hostname:
+            return False
+        if hostname == "localhost":
+            return True
+        ip = ipaddress.ip_address(hostname)
+        return bool(ip.is_private or ip.is_loopback)
+    except ValueError:
+        return False
 
 
 @router.websocket("/ws")
