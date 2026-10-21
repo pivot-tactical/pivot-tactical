@@ -9,7 +9,7 @@ Carries three kinds of traffic on one socket:
   binary frames to each listener's socket (the WebSocket audio transport, §6.3).
 
 Two connection modes: **trainee** (``?name=&trainee_id=``, bound to its own
-terminal's radios) and **instructor** (``?token=``, drives any instructor
+terminal's radios) and **instructor** (authenticated via cookie, drives any instructor
 radio). Either side may run several radios on one socket — control messages
 carry a ``radio_id`` and outbound audio frames are tagged with theirs — and the
 server owns crypto-sync timing for both (§3.2.3).
