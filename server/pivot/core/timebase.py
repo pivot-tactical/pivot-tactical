@@ -42,10 +42,10 @@ def resolve_timezone(name: str) -> ZoneInfo:
     """
     try:
         return ZoneInfo(name)
-    except (ZoneInfoNotFoundError, ValueError, KeyError):
+    except (ZoneInfoNotFoundError, ValueError, KeyError, TypeError):
         try:
             return ZoneInfo("UTC")
-        except (ZoneInfoNotFoundError, ValueError, KeyError):
+        except (ZoneInfoNotFoundError, ValueError, KeyError, TypeError):
             return UTC
 
 
