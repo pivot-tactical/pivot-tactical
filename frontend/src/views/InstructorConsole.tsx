@@ -1481,37 +1481,12 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
                 <p className="muted" style={{ fontSize: "0.85em" }}>
                   Stored on disk (instant rollback, no download):
                 </p>
-                {retained === null ? (
-                  <p className="muted mt" style={{ fontSize: "0.85em" }}>Loading…</p>
-                ) : retained.length === 0 ? (
-                  <p className="muted mt" style={{ fontSize: "0.85em" }}>
-                    No versions stored on disk yet. One is kept each time you update.
-                  </p>
-                ) : (
-                  retained.map((v) => (
-                    <div className="row between mt" key={v.tag} style={{ alignItems: "center" }}>
-                      <span className="mono">{v.tag} · {fmtBytes(v.bytes)}</span>
-                      <span className="row gap" style={{ alignItems: "center" }}>
-                        {applying === `rollback:${v.tag}` ? (
-                          <span className="muted">Staging…</span>
-                        ) : (
-                          <button className="btn btn--danger" onClick={() => rollback(v.tag)}
-                            disabled={applying !== null}>
-                            Roll back
-                          </button>
-                        )}
-                        {applying === `delete:${v.tag}` ? (
-                          <span className="muted">Deleting…</span>
-                        ) : (
-                          <button className="btn btn--ghost" onClick={() => deleteRetained(v.tag)}
-                            disabled={applying !== null} title="Delete from disk to free space">
-                            Delete
-                          </button>
-                        )}
-                      </span>
-                    </div>
-                  ))
-                )}
+                <RetainedVersionsList
+                  retained={retained}
+                  applying={applying}
+                  onRollback={rollback}
+                  onDelete={deleteRetained}
+                />
                 <p className="muted mt" style={{ fontSize: "0.85em" }}>
                   Or install any earlier version (re-downloads &amp; verifies it):
                 </p>
@@ -1584,6 +1559,65 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
       </section>
       </div>
     </div>
+  );
+}
+
+interface RetainedVersionsListProps {
+  retained: { tag: string; bytes: number }[] | null;
+  applying: string | null;
+  onRollback: (tag: string) => void;
+  onDelete: (tag: string) => void;
+}
+
+function RetainedVersionsList({
+  retained,
+  applying,
+  onRollback,
+  onDelete,
+}: RetainedVersionsListProps) {
+  if (retained === null) {
+    return <p className="muted mt" style={{ fontSize: "0.85em" }}>Loading…</p>;
+  }
+  if (retained.length === 0) {
+    return (
+      <p className="muted mt" style={{ fontSize: "0.85em" }}>
+        No versions stored on disk yet. One is kept each time you update.
+      </p>
+    );
+  }
+  return (
+    <>
+      {retained.map((v) => (
+        <div className="row between mt" key={v.tag} style={{ alignItems: "center" }}>
+          <span className="mono">{v.tag} · {fmtBytes(v.bytes)}</span>
+          <span className="row gap" style={{ alignItems: "center" }}>
+            {applying === `rollback:${v.tag}` ? (
+              <span className="muted">Staging…</span>
+            ) : (
+              <button
+                className="btn btn--danger"
+                onClick={() => onRollback(v.tag)}
+                disabled={applying !== null}
+              >
+                Roll back
+              </button>
+            )}
+            {applying === `delete:${v.tag}` ? (
+              <span className="muted">Deleting…</span>
+            ) : (
+              <button
+                className="btn btn--ghost"
+                onClick={() => onDelete(v.tag)}
+                disabled={applying !== null}
+                title="Delete from disk to free space"
+              >
+                Delete
+              </button>
+            )}
+          </span>
+        </div>
+      ))}
+    </>
   );
 }
 
