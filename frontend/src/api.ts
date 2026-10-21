@@ -7,14 +7,19 @@ import type {
   SessionSummary,
   Terminal,
 } from "./types";
+import { ApiError } from "./errors";
+export { ApiError } from "./errors";
 
 // Persisted as a boolean flag in sessionStorage so the UI knows an instructor
 // session is active across a page refresh and a server restart within the same
 // tab, but is cleared when the tab is closed. The actual token is now an
 // HttpOnly cookie handled automatically by the browser.
 let instructorSessionActive: boolean = sessionStorage.getItem("pivot_instructor") === "1";
+let sessionRevision = 0;
+const refreshRequests = new Set<AbortController>();
 
 export function setToken(t: string | null) {
+  sessionRevision++;
   instructorSessionActive = !!t;
   if (t) sessionStorage.setItem("pivot_instructor", "1");
   else sessionStorage.removeItem("pivot_instructor");
@@ -31,7 +36,7 @@ function headers(): Record<string, string> {
 async function jsonFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, { headers: headers(), ...options });
   if (!res.ok) {
-    throw new Error(`${res.status}: ${await res.text()}`);
+    throw new ApiError(res.status, await res.text());
   }
   return res.json() as Promise<T>;
 }
@@ -127,7 +132,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ role: "instructor", password }),
     });
-    if (resp.token) setToken(resp.token);
+    // The server sets an HttpOnly cookie; a null token in the JSON response is
+    // expected. Persist only the fact that this tab has an instructor session.
+    setToken("cookie");
     return resp;
   },
 
@@ -135,21 +142,29 @@ export const api = {
   // Used on load (to confirm a stored token survived a refresh/restart and
   // restore the console) and on a timer while the console is open. Throws on
   // 401, which the caller treats as "logged out".
-  async refreshToken(): Promise<{ token: string; must_change_password?: boolean }> {
-    const resp = await jsonFetch<{ token: string; must_change_password?: boolean }>(
-      "/api/auth/refresh",
-      { method: "POST" }
-    );
-    if (resp.token) setToken(resp.token);
-    return resp;
+  async refreshToken(): Promise<{ token: string | null; must_change_password?: boolean }> {
+    const revision = sessionRevision;
+    const controller = new AbortController();
+    refreshRequests.add(controller);
+    try {
+      const resp = await jsonFetch<{ token: string | null; must_change_password?: boolean }>(
+        "/api/auth/refresh",
+        { method: "POST", signal: controller.signal }
+      );
+      if (revision === sessionRevision) setToken("cookie");
+      return resp;
+    } finally {
+      refreshRequests.delete(controller);
+    }
   },
 
   async logout() {
-    try {
-      await jsonFetch("/api/logout", { method: "POST" });
-    } finally {
-      setToken(null);
-    }
+    // Invalidate and cancel refreshes before deleting the cookie. A stale
+    // response must not mark a completed logout as an active session again.
+    sessionRevision++;
+    refreshRequests.forEach((controller) => controller.abort());
+    await jsonFetch("/api/logout", { method: "POST" });
+    setToken(null);
   },
 
   changePassword: (current_password: string, new_password: string) =>
@@ -294,7 +309,7 @@ export const api = {
       method: "POST",
       headers: headers(),
     });
-    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    if (!res.ok) throw new ApiError(res.status, await res.text());
     const blob = await res.blob();
     const ext = fmt === "text" ? "txt" : fmt;
     saveBlob(blob, `${safeFilename(name || sessionId)}.${ext}`);

@@ -3,7 +3,7 @@
 // itself when the socket reconnects, so the operator always knows whether the
 // page is live.
 
-export type ConnState = "online" | "offline" | "restarting";
+export type ConnState = "online" | "offline" | "restarting" | "connecting";
 
 export function ConnectionBanner({ state }: { state: ConnState }) {
   if (state === "online") return null;
@@ -26,6 +26,8 @@ export function ConnectionBanner({ state }: { state: ConnState }) {
     >
       {restarting
         ? "PIVOT is restarting — reconnecting, the page will refresh automatically…"
+        : state === "connecting"
+        ? "Connecting to PIVOT — waiting for radio state…"
         : "Connection to the server lost — reconnecting…"}
     </div>
   );

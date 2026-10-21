@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import * as matchers from "@testing-library/jest-dom/matchers";
 expect.extend(matchers);
 
@@ -91,15 +91,58 @@ describe("InstrRadioCard", () => {
     expect(props.socket.instrMode).toHaveBeenCalledWith("radio-1", "Cypher");
   });
 
-  it("handles channel jam toggle and interference changes", () => {
+  it("handles channel jam toggle and interference changes", async () => {
     const props = createProps();
     render(<InstrRadioCard {...props} />);
 
     const jamButton = screen.getByRole("button", { name: "Jam INSTRUCTOR (Alpha) channel" });
-    fireEvent.click(jamButton);
+    await act(async () => { fireEvent.click(jamButton); });
     expect(api.scenario).toHaveBeenCalledWith({
       net_scenario: { frequency_hz: 142000000, jammed: true },
     });
+  });
+
+  it("reports failed noise changes, restores the confirmed level, and retries the same change", async () => {
+    vi.mocked(api.scenario).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const props = createProps();
+    render(<InstrRadioCard {...props} />);
+    const slider = screen.getByRole("slider", { name: "Noise offset on INSTRUCTOR (Alpha) channel (0 = natural baseline)" });
+    await act(async () => { fireEvent.change(slider, { target: { value: "70" } }); });
+    expect(slider).toHaveValue("0");
+    expect(screen.getByRole("alert")).toHaveTextContent("Cannot reach the server");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Retry channel change" })); });
+    expect(api.scenario).toHaveBeenCalledTimes(2);
+    expect(api.scenario).toHaveBeenLastCalledWith({ net_scenario: { frequency_hz: 142000000, interference: 0.7 } });
+    expect(slider).toHaveValue("70");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("ignores a delayed failure from a channel the instructor has left", async () => {
+    let reject!: (error: Error) => void;
+    vi.mocked(api.scenario).mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail; }));
+    const props = createProps();
+    const { rerender } = render(<InstrRadioCard {...props} />);
+    const slider = screen.getByRole("slider", { name: "Noise offset on INSTRUCTOR (Alpha) channel (0 = natural baseline)" });
+    fireEvent.change(slider, { target: { value: "70" } });
+    expect(slider).toBeDisabled();
+    rerender(<InstrRadioCard {...props}
+      radio={{ ...mockRadio, frequency: "145.0000 MHz", frequency_hz: 145000000 }}
+      scenario={{ freq_hz: 145000000, interference: 0.25, jammed: false }} />);
+    expect(slider).toHaveValue("25");
+    expect(slider).not.toBeDisabled();
+    await act(async () => reject(new TypeError("Failed to fetch")));
+    expect(slider).toHaveValue("25");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry channel change" })).not.toBeInTheDocument();
+  });
+
+  it("disables channel changes when the connection or console controls are unavailable", () => {
+    const props = createProps({ controlsDisabled: true });
+    render(<InstrRadioCard {...props} />);
+    expect(screen.getByRole("slider", { name: "Noise offset on INSTRUCTOR (Alpha) channel (0 = natural baseline)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Jam INSTRUCTOR (Alpha) channel" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Jam INSTRUCTOR (Alpha) channel" }));
+    expect(api.scenario).not.toHaveBeenCalled();
   });
 
   it("handles RX noise toggle button", () => {
@@ -118,10 +161,10 @@ describe("InstrRadioCard", () => {
     render(<InstrRadioCard {...props} />);
 
     const pttButton = screen.getByLabelText("Push to talk on INSTRUCTOR (Alpha)");
-    fireEvent.mouseDown(pttButton);
+    fireEvent(pttButton, new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 1 }));
     expect(props.onStart).toHaveBeenCalledWith(mockRadio);
 
-    fireEvent.mouseUp(pttButton);
+    fireEvent(pttButton, new PointerEvent("pointerup", { bubbles: true, button: 0, pointerId: 1 }));
     expect(props.onEnd).toHaveBeenCalledWith(mockRadio);
   });
 

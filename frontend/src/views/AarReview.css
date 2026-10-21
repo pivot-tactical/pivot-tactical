@@ -1,0 +1,17 @@
+.aar-review .aar__bar, .aar-review .aar__toggles { flex-wrap: wrap; }
+.aar-review__filters, .aar-review__playback { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 16px; }
+.aar-review__filters label, .aar-review__playback label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); flex: 1 1 180px; }
+.aar-review .input { font-size: 14px; min-width: 0; padding: 9px 10px; }
+.aar-review__playback { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.aar-review__event { padding: 12px; margin-bottom: 10px; }
+.aar-review__event-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 12px; }
+.aar-review__event p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; margin-bottom: 0; }
+.aar-review__confidence { display: inline-block; margin-left: 10px; font-size: 11px; }
+.aar-review__player { margin-top: 12px; }
+.aar-review__player audio { width: min(100%, 500px); }
+.aar-review__notice { display: grid; justify-items: start; gap: 10px; margin: 12px 0; color: var(--amber); }
+@media (max-width: 640px) {
+  .aar-review .aar__bar { padding: 12px; }
+  .aar-review .aar__sessions { max-height: 200px; border-bottom: 1px solid var(--line); }
+  .aar-review .aar__body { grid-template-rows: auto 1fr; }
+}

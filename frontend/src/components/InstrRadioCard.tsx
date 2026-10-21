@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { errorMessage } from "../errors";
 import { AudioIO, loadVolume, saveVolume } from "../audio";
+import { PttButton } from "./PttButton";
 import { ModeDial } from "./ModeDial";
 import { METER_DECAY, SignalMeter } from "./SignalMeter";
 import { VolumeSlider } from "./VolumeSlider";
@@ -9,10 +11,6 @@ import type { NetScenario, RadioState, TxPhase } from "../types";
 import { PivotSocket } from "../ws";
 
 export type RxLevels = React.MutableRefObject<Record<string, number>>;
-
-function phaseLabel(p: TxPhase) {
-  return p === "CRYPTO_SYNC" ? "CRYPTO SYNC…" : p === "SECURE_TX" ? "SECURE TX" : p === "TX" ? "TX" : "PUSH TO TALK";
-}
 
 export interface InstrRadioCardProps {
   radio: RadioState;
@@ -25,6 +23,9 @@ export interface InstrRadioCardProps {
   onStart: (r: RadioState) => void;
   onEnd: (r: RadioState) => void;
   onRemove: (id: string) => void;
+  controlsDisabled?: boolean;
+  pttDisabled?: boolean;
+  shortcutLabel?: string;
 }
 
 // One instructor radio rendered like the trainee panel: large frequency display
@@ -32,12 +33,12 @@ export interface InstrRadioCardProps {
 // numpad key with the card's number (shown on the control so there is no doubt),
 // and the channel-effects controls — per-net interference and jamming applied
 // to whatever frequency this radio is tuned to (§3.1.5).
-export function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels, onStart, onEnd, onRemove }: InstrRadioCardProps) {
+export function InstrRadioCard({ radio, index, socket, audio, phase, scenario, rxLevels, onStart, onEnd, onRemove, controlsDisabled = false, pttDisabled = false, shortcutLabel }: InstrRadioCardProps) {
   const [entry, setEntry] = useState(fmtMHz(radio.frequency_hz));
   const [volume, setVolume] = useState(() => loadVolume(`instr.${radio.radio_id}`));
   const entryRef = useRef<HTMLInputElement>(null);
   const transmitting = phase !== "IDLE";
-  const shortcut = index <= 9 ? `NUMPAD ${index}` : null;
+  const shortcut = shortcutLabel ?? (index <= 9 ? `NUMPAD ${index}` : null);
 
   const interference = scenario?.interference ?? 0;
   const jammed = scenario?.jammed ?? false;
@@ -54,17 +55,46 @@ export function InstrRadioCard({ radio, index, socket, audio, phase, scenario, r
     [rxLevels, radio.radio_id],
   );
 
-  // Local slider value for a smooth drag; the server's broadcast echoes the
-  // applied level back through `scenario` (and on retune the box re-syncs to
-  // the new channel's setting).
+  // Scope each request to the channel at the time of the change. A late
+  // response from a previous tune must not change this channel's controls.
+  type Channel = { radioId: string; frequencyHz: number };
+  type Patch = { interference?: number; jammed?: boolean };
+  const channel = useRef<Channel>({ radioId: radio.radio_id, frequencyHz: radio.frequency_hz });
+  if (channel.current.radioId !== radio.radio_id || channel.current.frequencyHz !== radio.frequency_hz)
+    channel.current = { radioId: radio.radio_id, frequencyHz: radio.frequency_hz };
+  const currentChannel = channel.current;
+  const confirmedInterference = useRef(interference);
+  confirmedInterference.current = interference;
+  const activeRequest = useRef<{ channel: Channel } | null>(null);
+  const [pendingChannel, setPendingChannel] = useState<Channel | null>(null);
+  const [netFailure, setNetFailure] = useState<{ channel: Channel; patch: Patch; message: string } | null>(null);
+  const netBusy = pendingChannel === currentChannel;
+  const currentFailure = netFailure?.channel === currentChannel ? netFailure : null;
   const [intPct, setIntPct] = useState(Math.round(interference * 100));
   useEffect(() => {
     setIntPct(Math.round(interference * 100));
-  }, [interference, radio.frequency_hz]);
+  }, [interference, radio.frequency_hz, radio.radio_id]);
+  useEffect(() => () => { activeRequest.current = null; }, []);
 
-  // Apply a per-net override to this radio's current channel ("god mode").
-  function setNet(patch: { interference?: number; jammed?: boolean }) {
-    api.scenario({ net_scenario: { frequency_hz: radio.frequency_hz, ...patch } }).catch(() => {});
+  async function setNet(patch: Patch) {
+    if (controlsDisabled || activeRequest.current?.channel === currentChannel) return;
+    const request = { channel: currentChannel };
+    activeRequest.current = request;
+    setPendingChannel(currentChannel);
+    setNetFailure(null);
+    if (patch.interference != null) setIntPct(Math.round(patch.interference * 100));
+    try {
+      await api.scenario({ net_scenario: { frequency_hz: currentChannel.frequencyHz, ...patch } });
+    } catch (cause) {
+      if (activeRequest.current !== request || channel.current !== currentChannel) return;
+      if (patch.interference != null) setIntPct(Math.round(confirmedInterference.current * 100));
+      setNetFailure({ channel: currentChannel, patch, message: errorMessage(cause, "Could not update channel conditions. Please try again.") });
+    } finally {
+      if (activeRequest.current === request) {
+        activeRequest.current = null;
+        setPendingChannel(null);
+      }
+    }
   }
 
   // Keep the entry box in step with server-confirmed tunes (step buttons,
@@ -97,21 +127,21 @@ export function InstrRadioCard({ radio, index, socket, audio, phase, scenario, r
           <span className="instr-radio__num mono" aria-hidden>{index}</span>
           <span className="instr-radio__name mono">{radio.name}</span>
           <button className="btn btn--ghost instr-radio__remove" aria-label={`Remove radio ${radio.name}`} title={`Remove radio ${radio.name}`}
-            onClick={() => onRemove(radio.radio_id)} disabled={transmitting}>✕</button>
+            onClick={() => onRemove(radio.radio_id)} disabled={transmitting || controlsDisabled}>✕</button>
         </div>
 
         <div className="freq">
           <div className="freq__display mono">{fmtMHz(radio.frequency_hz)}<span className="freq__unit">MHz</span></div>
           <div className="freq__controls">
             <button className="btn btn--step" aria-label={`Decrease frequency on ${radio.name}`}
-              onClick={() => tuneTo(steppedFrom(radio.frequency_hz, -1))} disabled={transmitting}>▼</button>
+              onClick={() => tuneTo(steppedFrom(radio.frequency_hz, -1))} disabled={transmitting || controlsDisabled}>▼</button>
             <input ref={entryRef} className="input mono freq__entry" aria-label={`Frequency in MHz on ${radio.name}`}
-              value={entry} disabled={transmitting}
+              value={entry} disabled={transmitting || controlsDisabled}
               onChange={(e) => setEntry(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") confirmEntry(); }} />
             <button className="btn btn--step" aria-label={`Increase frequency on ${radio.name}`}
-              onClick={() => tuneTo(steppedFrom(radio.frequency_hz, 1))} disabled={transmitting}>▲</button>
-            <button className="btn btn--primary" aria-label={`Tune ${radio.name}`} onClick={confirmEntry} disabled={transmitting}>Tune</button>
+              onClick={() => tuneTo(steppedFrom(radio.frequency_hz, 1))} disabled={transmitting || controlsDisabled}>▲</button>
+            <button className="btn btn--primary" aria-label={`Tune ${radio.name}`} onClick={confirmEntry} disabled={transmitting || controlsDisabled}>Tune</button>
           </div>
         </div>
 
@@ -119,7 +149,7 @@ export function InstrRadioCard({ radio, index, socket, audio, phase, scenario, r
           <ModeDial
             mode={radio.mode}
             onToggle={() => socket?.instrMode(radio.radio_id, radio.mode === "Cypher" ? "Plain" : "Cypher")}
-            disabled={transmitting}
+            disabled={transmitting || controlsDisabled}
             title={`Plain / Cypher on ${radio.name} (persists across retuning)`}
           />
           <SignalMeter label={`SIGNAL · ${radio.band_region}`} read={readRxLevel} />
@@ -132,14 +162,13 @@ export function InstrRadioCard({ radio, index, socket, audio, phase, scenario, r
           <div className="row gap">
             <input
               type="range" min={-100} max={100} value={intPct} list={`net-baseline-${radio.radio_id}`}
+              disabled={controlsDisabled || netBusy}
               aria-label={`Noise offset on ${radio.name} channel (0 = natural baseline)`}
               title={`Noise on ${radio.name} channel: 0 is the frequency's natural baseline; raise it to induce interference, lower it to temporarily clean the channel up`}
               onChange={(e) => {
-                const v = +e.target.value;
-                setIntPct(v);
-                setNet({ interference: v / 100 });
+                void setNet({ interference: +e.target.value / 100 });
               }}
-              onDoubleClick={() => { setIntPct(0); setNet({ interference: 0 }); }}
+              onDoubleClick={() => { void setNet({ interference: 0 }); }}
             />
             <datalist id={`net-baseline-${radio.radio_id}`}>
               <option value={0} label="baseline" />
@@ -148,11 +177,16 @@ export function InstrRadioCard({ radio, index, socket, audio, phase, scenario, r
               className={`btn ${jammed ? "btn--danger" : ""}`}
               aria-label={`Jam ${radio.name} channel`}
               title={`Jam ${radio.name} channel (a wall of jammer noise; trainees must change frequency)`}
-              onClick={() => setNet({ jammed: !jammed })}
+              disabled={controlsDisabled || netBusy} onClick={() => { void setNet({ jammed: !jammed }); }}
             >
               {jammed ? "JAMMING" : "Jam"}
             </button>
           </div>
+          {currentFailure && <div className="login__hint" role="alert">
+            {currentFailure.message}{" "}
+            <button className="btn" disabled={controlsDisabled || netBusy}
+              onClick={() => { void setNet(currentFailure.patch); }}>Retry channel change</button>
+          </div>}
         </div>
 
         <div className="rxctl">
@@ -161,6 +195,7 @@ export function InstrRadioCard({ radio, index, socket, audio, phase, scenario, r
             className={`btn ${rxNoiseOn ? "" : "btn--warn"}`}
             aria-label={`Toggle RX Noise on ${radio.name}`}
             title={`Channel noise on ${radio.name}'s receive only — turn it off to monitor this net unhindered. Every other station still hears the channel noise (shape the net itself with the CHANNEL NOISE controls).`}
+            disabled={controlsDisabled}
             onClick={() => socket?.instrRxNoise(radio.radio_id, !rxNoiseOn)}
           >
             {rxNoiseOn ? "RX Noise: On" : "RX NOISE OFF"}
@@ -168,18 +203,14 @@ export function InstrRadioCard({ radio, index, socket, audio, phase, scenario, r
         </div>
       </div>
 
-      <button
-        className={`ptt ptt--${phase.toLowerCase()}`}
-        aria-label={`Push to talk on ${radio.name}`}
-        onMouseDown={() => onStart(radio)}
-        onMouseUp={() => onEnd(radio)}
-        onMouseLeave={() => transmitting && onEnd(radio)}
-        onTouchStart={(e) => { e.preventDefault(); onStart(radio); }}
-        onTouchEnd={(e) => { e.preventDefault(); onEnd(radio); }}
-      >
-        <span className="ptt__state">{phaseLabel(phase)}</span>
-        <span className="ptt__hint">{shortcut ? `HOLD · ${shortcut}` : "HOLD"}</span>
-      </button>
+      <PttButton
+        phase={phase}
+        disabled={pttDisabled}
+        label={`Push to talk on ${radio.name}`}
+        hint={shortcut ? `HOLD · ${shortcut}` : "HOLD"}
+        onStart={() => onStart(radio)}
+        onEnd={() => onEnd(radio)}
+      />
     </section>
   );
 }
