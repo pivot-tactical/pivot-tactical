@@ -42,7 +42,7 @@ class ConfigStore:
     def all(self) -> dict[str, Any]:
         """Full effective config (defaults overlaid with stored values)."""
         result = dict(DEFAULT_CONFIG)
-        for key, value in self.session.execute(select(ConfigRow.key, ConfigRow.value)):
+        for key, value in self.session.execute(select(ConfigRow.key, ConfigRow.value)).all():
             try:
                 result[key] = json.loads(value)
             except (ValueError, TypeError):
