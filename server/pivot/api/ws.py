@@ -80,21 +80,17 @@ _ALLOW_ORIGIN_REGEX = re.compile(_ALLOW_ORIGIN_REGEX_STR)
 
 
 def _is_origin_allowed(origin: str | None) -> bool:
-    if not origin:
-        return True
-    if origin in _ALLOW_ORIGINS:
+    if not origin or origin in _ALLOW_ORIGINS:
         return True
     try:
         parsed = urlparse(origin)
-        if parsed.scheme not in ("http", "https"):
-            return False
         hostname = parsed.hostname
-        if not hostname:
+        if parsed.scheme not in ("http", "https") or not hostname:
             return False
         if hostname == "localhost":
             return True
         ip = ipaddress.ip_address(hostname)
-        return ip.is_private or ip.is_loopback
+        return bool(ip.is_private or ip.is_loopback)
     except ValueError:
         return False
 
