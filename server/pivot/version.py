@@ -75,10 +75,6 @@ class SemVer:
             s += f"+{self.build}"
         return s
 
-    @property
-    def is_prerelease(self) -> bool:
-        return self.pre is not None
-
 
 def _pre_release_key(pre: str | None) -> tuple:
     """Build a comparison key so that a release outranks its pre-releases.
