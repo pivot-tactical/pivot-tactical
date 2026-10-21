@@ -30,3 +30,7 @@
 ## 2024-05-25 - [Loop invariant division and function inlining in V8]
 **Learning:** In JavaScript/V8 (e.g., tight audio processing loops like `pcmLevel`), calculating the array length outside the loop and replacing division inside the loop with reciprocal division outside the loop, as well as replacing nested `Math.min` functions with inlined ternary conditional clamps provides measurable performance gains (approx. 10-20% speedup).
 **Action:** Avoid nested math function calls and inner loop divisions where simple manual clamping logic or mathematical transposition suffices.
+
+## 2026-03-31 - [EAFP File Open Pattern for Log Initialization]
+**Learning:** Calling `Path.mkdir(parents=True, exist_ok=True)` unconditionally before `open()` triggers redundant `stat` system calls across parent directories even when the directory already exists (~55.22 µs / call).
+**Action:** Use an EAFP approach by attempting `open()` directly first, catching `FileNotFoundError` to lazily create the parent directory and retry `open()` only when necessary (~43.56 µs / call, ~21% speedup).
