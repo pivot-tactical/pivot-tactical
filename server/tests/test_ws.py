@@ -95,3 +95,63 @@ async def test_instructor_session_disconnect():
     await _instructor_session(mock_ws, mock_manager)
 
     mock_ws.receive.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_trainee_session_malformed_json():
+    mock_ws = AsyncMock(spec=WebSocket)
+    mock_ws.query_params.get.return_value = "test"
+    mock_ws.receive.side_effect = [
+        {"type": "websocket.receive", "text": "not valid json {"},
+        {"type": "websocket.receive", "text": "12345"},
+        {"type": "websocket.receive", "text": '{"type": "heartbeat"}'},
+        WebSocketDisconnect(),
+    ]
+    mock_manager = MagicMock()
+    mock_manager.login.return_value = {"radio_id": "r1", "epoch": 123}
+
+    await _trainee_session(mock_ws, mock_manager)
+
+    # Should send welcome, band_profile_update, error (malformed), error (not dict), heartbeat
+    error_calls = [
+        call for call in mock_ws.send_json.call_args_list
+        if call.args[0].get("type") == "error"
+    ]
+    assert len(error_calls) == 2
+    assert error_calls[0].args[0] == {"type": "error", "payload": {"detail": "invalid JSON"}}
+    assert error_calls[1].args[0] == {"type": "error", "payload": {"detail": "invalid JSON"}}
+
+    heartbeat_calls = [
+        call for call in mock_ws.send_json.call_args_list
+        if call.args[0].get("type") == "heartbeat"
+    ]
+    assert len(heartbeat_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_instructor_session_malformed_json():
+    mock_ws = AsyncMock(spec=WebSocket)
+    mock_ws.receive.side_effect = [
+        {"type": "websocket.receive", "text": "not valid json {"},
+        {"type": "websocket.receive", "text": "true"},
+        {"type": "websocket.receive", "text": '{"type": "heartbeat"}'},
+        WebSocketDisconnect(),
+    ]
+    mock_manager = MagicMock()
+    mock_manager.instructor_radios.return_value = [{"radio_id": "r1"}]
+
+    await _instructor_session(mock_ws, mock_manager)
+
+    error_calls = [
+        call for call in mock_ws.send_json.call_args_list
+        if call.args[0].get("type") == "error"
+    ]
+    assert len(error_calls) == 2
+    assert error_calls[0].args[0] == {"type": "error", "payload": {"detail": "invalid JSON"}}
+    assert error_calls[1].args[0] == {"type": "error", "payload": {"detail": "invalid JSON"}}
+
+    heartbeat_calls = [
+        call for call in mock_ws.send_json.call_args_list
+        if call.args[0].get("type") == "heartbeat"
+    ]
+    assert len(heartbeat_calls) == 1

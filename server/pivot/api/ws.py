@@ -168,16 +168,9 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
                     for rid in active_tx:
                         manager.route_tx_frame(rid, pcm)
                 continue
-            # NOTE (intentional): no ``if text:`` guard around the parse, in this
-            # loop or the instructor one. A disconnect already breaks the loop
-            # above and binary frames ``continue``, so a text frame is always
-            # what reaches here. A malformed or empty control frame is a client
-            # bug: letting ``json.loads`` raise ends the session through the
-            # ``finally`` cleanup (keyed radios released) instead of silently
-            # ignoring a client that is sending garbage.
-            data = json.loads(message["text"])
-            mtype = data.get("type")
-            payload = data.get("payload") or {}
+            mtype, payload, ok = await _parse_control_frame(ws, message["text"])
+            if not ok:
+                continue
 
             await _handle_trainee_message(ws, manager, mtype, payload, ctx)
     except WebSocketDisconnect:
@@ -254,9 +247,9 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
                     for rid in active_tx:
                         manager.route_tx_frame(rid, pcm)
                 continue
-            data = json.loads(message["text"])
-            mtype = data.get("type")
-            payload = data.get("payload") or {}
+            mtype, payload, ok = await _parse_control_frame(ws, message["text"])
+            if not ok:
+                continue
             await _handle_instructor_message(ws, manager, mtype, payload, ctx)
     except WebSocketDisconnect:
         pass
@@ -278,6 +271,22 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
 # --------------------------------------------------------------------------- #
 # Shared helpers
 # --------------------------------------------------------------------------- #
+
+
+async def _parse_control_frame(ws: WebSocket, text: str) -> tuple[str, dict, bool]:
+    """Parse a WebSocket text control frame.
+
+    Returns (mtype, payload, ok). If parsing fails or payload is not a dict,
+    sends an error response and returns ("", {}, False).
+    """
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data.get("type", ""), data.get("payload") or {}, True
+    except (json.JSONDecodeError, TypeError):
+        pass
+    await ws.send_json({"type": "error", "payload": {"detail": "invalid JSON"}})
+    return "", {}, False
 
 
 def _instructor_radio_id(manager, payload: dict) -> str:
