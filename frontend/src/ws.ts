@@ -9,9 +9,18 @@ export class PivotSocket {
   private handlers = new Map<string, Set<Handler>>();
   private query: () => Record<string, string>;
   private heartbeat?: number;
+  private healthTimer?: number;
   private reconnectTimer?: number;
   private closed = false;
   private audioHandler?: (buf: ArrayBuffer) => void;
+  private welcomed = false;
+  welcome: Record<string, any> | null = null;
+
+  // A transport can be open before the server has registered this terminal.
+  // Controls become available only after its authoritative welcome snapshot.
+  get connected(): boolean {
+    return this.welcomed && !this.closed && this.ws?.readyState === WebSocket.OPEN;
+  }
 
   // The query may be a function so the URL is rebuilt on every (re)connect. The
   // instructor passes a token getter: a long scenario slides its token, and a
@@ -28,39 +37,67 @@ export class PivotSocket {
 
   connect() {
     this.closed = false;
-    this.ws = new WebSocket(this.buildUrl());
-    this.ws.binaryType = "arraybuffer";
-    this.ws.onopen = () => {
+    this.welcomed = false;
+    window.clearTimeout(this.reconnectTimer);
+    window.clearInterval(this.heartbeat);
+    window.clearInterval(this.healthTimer);
+    const previous = this.ws;
+    const ws = new WebSocket(this.buildUrl());
+    this.ws = ws;
+    previous?.close();
+    let lastReceived = Date.now();
+    const lost = () => {
+      if (this.ws !== ws) return;
+      this.ws = null;
+      this.welcomed = false;
+      window.clearInterval(this.heartbeat);
+      window.clearInterval(this.healthTimer);
+      this.emit("close", {});
+      ws.close();
+      if (!this.closed) this.reconnectTimer = window.setTimeout(() => this.connect(), 1500);
+    };
+    // Heartbeats are acknowledged by both server roles. A broken LAN can
+    // otherwise leave an apparently open socket and an "ON NET" display.
+    this.healthTimer = window.setInterval(() => {
+      if (Date.now() - lastReceived >= 30000) lost();
+    }, 10000);
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => {
+      if (this.ws !== ws || this.closed) return;
       this.emit("open", {});
       this.heartbeat = window.setInterval(() => this.send("heartbeat", {}), 10000);
     };
-    this.ws.onmessage = (ev) => {
+    ws.onmessage = (ev) => {
+      if (this.ws !== ws || this.closed) return;
+      lastReceived = Date.now();
       if (typeof ev.data !== "string") {
         this.audioHandler?.(ev.data as ArrayBuffer); // binary = rendered PCM
         return;
       }
       try {
         const msg = JSON.parse(ev.data);
+        if (msg.type === "welcome") {
+          this.welcomed = true;
+          this.welcome = msg.payload;
+        }
         this.emit(msg.type, msg.payload);
       } catch {
         /* ignore malformed frames */
       }
     };
-    this.ws.onclose = () => {
-      this.emit("close", {});
-      window.clearInterval(this.heartbeat);
-      if (!this.closed) {
-        this.reconnectTimer = window.setTimeout(() => this.connect(), 1500);
-      }
-    };
+    ws.onclose = lost;
   }
 
   disconnect() {
     this.closed = true;
+    this.welcomed = false;
     window.clearInterval(this.heartbeat);
+    window.clearInterval(this.healthTimer);
     window.clearTimeout(this.reconnectTimer);
-    this.ws?.close();
+    const ws = this.ws;
     this.ws = null;
+    this.emit("close", {});
+    ws?.close();
   }
 
   on(type: string, handler: Handler) {

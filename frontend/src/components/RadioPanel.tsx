@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PttButton } from "./PttButton";
 import { ModeDial } from "./ModeDial";
 import { METER_DECAY, SignalMeter } from "./SignalMeter";
 import { VolumeSlider } from "./VolumeSlider";
@@ -35,6 +36,9 @@ export function RadioPanel({
   onEnd,
   onFocus,
   onRemove,
+  controlsDisabled = false,
+  pttDisabled = false,
+  shortcut,
 }: {
   radio: TraineeRadio;
   index: number;
@@ -51,6 +55,9 @@ export function RadioPanel({
   onEnd: (r: TraineeRadio) => void;
   onFocus: () => void;
   onRemove: (r: TraineeRadio) => void;
+  controlsDisabled?: boolean;
+  pttDisabled?: boolean;
+  shortcut?: string;
 }) {
   const [entry, setEntry] = useState(formatMHz(radio.freqHz));
   // Each radio keeps its own headset volume across refreshes; the terminal's
@@ -125,7 +132,7 @@ export function RadioPanel({
               aria-label={`Remove ${radio.name}`}
               title={`Remove ${radio.name}`}
               onClick={() => onRemove(radio)}
-              disabled={transmitting}
+              disabled={transmitting || controlsDisabled}
             >
               ✕
             </button>
@@ -143,7 +150,7 @@ export function RadioPanel({
             className="btn btn--step"
             aria-label={`Decrease frequency on ${radio.name}`}
             onClick={() => applyTune(steppedFrom(radio.freqHz, -1))}
-            disabled={transmitting}
+            disabled={transmitting || controlsDisabled}
           >
             ▼
           </button>
@@ -152,7 +159,7 @@ export function RadioPanel({
             className="input mono freq__entry"
             aria-label={`Frequency in MHz on ${radio.name}`}
             value={entry}
-            disabled={transmitting}
+            disabled={transmitting || controlsDisabled}
             onChange={(e) => setEntry(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") confirmEntry();
@@ -162,7 +169,7 @@ export function RadioPanel({
             className="btn btn--step"
             aria-label={`Increase frequency on ${radio.name}`}
             onClick={() => applyTune(steppedFrom(radio.freqHz, 1))}
-            disabled={transmitting}
+            disabled={transmitting || controlsDisabled}
           >
             ▲
           </button>
@@ -170,7 +177,7 @@ export function RadioPanel({
             className="btn btn--primary"
             aria-label={`Tune ${radio.name}`}
             onClick={confirmEntry}
-            disabled={transmitting}
+            disabled={transmitting || controlsDisabled}
           >
             Tune
           </button>
@@ -181,7 +188,7 @@ export function RadioPanel({
         <ModeDial
           mode={radio.mode}
           onToggle={toggleMode}
-          disabled={transmitting}
+          disabled={transmitting || controlsDisabled}
           title={`Plain / Cypher on ${radio.name} (persists across retuning)`}
         />
 
@@ -209,43 +216,14 @@ export function RadioPanel({
         </button>
       </div>
 
-      <button
-        className={`ptt ptt--${phase.toLowerCase()}`}
-        aria-label={`Push to talk on ${radio.name}`}
-        onMouseDown={() => onStart(radio)}
-        onMouseUp={() => onEnd(radio)}
-        onMouseLeave={() => transmitting && onEnd(radio)}
-        onTouchStart={(e) => {
-          e.preventDefault();
-          onStart(radio);
-        }}
-        onTouchEnd={(e) => {
-          e.preventDefault();
-          onEnd(radio);
-        }}
-      >
-        <span className="ptt__state">{phaseLabel(phase)}</span>
-        <span className="ptt__hint">{hotkeyHint(index)}</span>
-      </button>
+      <PttButton
+        phase={phase}
+        disabled={pttDisabled}
+        label={`Push to talk on ${radio.name}`}
+        hint={`HOLD · ${shortcut ?? `NUMPAD ${index}`}`}
+        onStart={() => onStart(radio)}
+        onEnd={() => onEnd(radio)}
+      />
     </div>
   );
-}
-
-// What keys this radio: every radio within reach of the numpad shows its own
-// key, so there is no ambiguity about which one keys up.
-function hotkeyHint(index: number): string {
-  return index <= 9 ? `HOLD · NUMPAD ${index}` : "HOLD";
-}
-
-function phaseLabel(phase: TxPhase): string {
-  switch (phase) {
-    case "CRYPTO_SYNC":
-      return "CRYPTO SYNC…";
-    case "SECURE_TX":
-      return "SECURE TX";
-    case "TX":
-      return "TX";
-    default:
-      return "PUSH TO TALK";
-  }
 }

@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RadioPanel, TraineeRadio } from "../components/RadioPanel";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
 import {
   AudioIO,
   parseTaggedAudio,
   pcmLevel,
-  playClick,
-  playSyncTone,
 } from "../audio";
 import { formatMHz } from "../freq";
-import type { LoginResponse, RadioMode, RadioState, TxPhase } from "../types";
+import type { LoginResponse, RadioMode, RadioState } from "../types";
 import { PivotSocket } from "../ws";
+import { ConnectionBanner, type ConnState } from "../components/ConnectionBanner";
+import { AudioControls, useMicState } from "../components/AudioControls";
+import { usePtt, shortcutLabel } from "../usePtt";
+import { PttShortcuts } from "../components/PttShortcuts";
 
 // Radio view (spec §3.2.2, §7.2.2): one panel per radio — large frequency
 // display + tuning, a prominent Plain/Cypher toggle, a live signal meter driven
@@ -61,18 +63,20 @@ export function Radio({
       mode: login.mode ?? "Plain",
     },
   ]);
-  // TX phase per keyed radio (absent = IDLE). Several radios can be keyed at
-  // once — the one mic feeds them all, and each runs its own PTT/crypto-sync
-  // lifecycle on the server (ptt_* messages carry the radio_id).
-  const [phases, setPhases] = useState<Record<string, TxPhase>>({});
-  // The radio being listened to alone, if any: every other radio's playback is
-  // muted while it is set.
   const [focused, setFocused] = useState<string | null>(null);
   const audio = useRef(new AudioIO());
-  // Radios this terminal is currently holding keyed: gates duplicate key-downs
-  // and decides when the last release stops the shared mic capture. A ref —
-  // start/end fire from event handlers and must see the live set.
-  const keyed = useRef<Set<string>>(new Set());
+  const mic = useMicState(audio.current);
+  const [conn, setConn] = useState<ConnState>(() => socket.connected ? "online" : "connecting");
+  const [restoringRadios, setRestoringRadios] = useState<string[]>([]);
+  const [controlError, setControlError] = useState("");
+  const controlsReady = conn === "online" && restoringRadios.length === 0;
+  const canTransmit = controlsReady && mic.status === "ready";
+  const { phases, start, end, shortcuts, setShortcut, error: pttError } = usePtt({
+    audio: audio.current,
+    socket,
+    radios: radios.map((r) => ({ id: r.radioId, frequency: `${formatMHz(r.freqHz)} MHz`, mode: r.mode })),
+    enabled: canTransmit,
+  });
   // The live radio list for handlers that must not be re-subscribed on every
   // tune (the socket's reconnect handler, the PTT hotkeys).
   const radiosRef = useRef(radios);
@@ -102,127 +106,57 @@ export function Radio({
     const enable = () => io.prewarm().catch(() => {});
     window.addEventListener("pointerdown", enable, { once: true });
     window.addEventListener("keydown", enable, { once: true });
-    return () => io.close();
+    return () => {
+      window.removeEventListener("pointerdown", enable);
+      window.removeEventListener("keydown", enable);
+      io.close();
+    };
   }, [socket]);
 
   // --- WebSocket-driven state machine (§3.2.3) ---
   useEffect(() => {
     // Messages about the terminal's own radio may omit the id.
     const at = (p: any): string => p?.radio_id ?? primaryId;
-    const setPhase = (id: string, ph: TxPhase) => setPhases((prev) => ({ ...prev, [id]: ph }));
-    const clearPhase = (id: string) =>
-      setPhases((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
     const patch = (id: string, fields: Partial<TraineeRadio>) =>
       setRadios((prev) => prev.map((r) => (r.radioId === id ? { ...r, ...fields } : r)));
 
+    const restore = (p: Record<string, any>) => {
+      if (p.role !== "trainee") {
+        setControlError("This connection belongs to an instructor. Reload to sign in again.");
+        setConn("offline");
+        return;
+      }
+      patch(primaryId, { freqHz: p.frequency_hz, mode: p.mode });
+      const extra = radiosRef.current.filter((r) => r.slot > 1);
+      setRestoringRadios(extra.map((r) => r.radioId));
+      setControlError("");
+      setConn("online");
+      for (const r of extra) socket.addRadio(r.slot, `${formatMHz(r.freqHz)} MHz`, r.mode);
+    };
     const offs = [
-      // The extra radios live only for the length of the connection, so after a
-      // dropped socket comes back they are re-declared by slot — same ids, same
-      // frequencies and modes — rather than silently going deaf.
-      socket.on("open", () => {
-        for (const r of radiosRef.current) {
-          if (r.slot > 1) socket.addRadio(r.slot, `${formatMHz(r.freqHz)} MHz`, r.mode);
-        }
-      }),
+      socket.on("open", () => setConn("connecting")),
+      socket.on("close", () => { setConn("offline"); setRestoringRadios([]); }),
+      socket.on("welcome", restore),
+      socket.on("error", (p) => setControlError(p?.detail || "The radio command failed. Please try again.")),
       socket.on("tuned", (p) => patch(at(p), { freqHz: p.frequency_hz })),
       socket.on("mode_changed", (p) => patch(at(p), { mode: p.mode })),
-      socket.on("radio_added", (p: RadioState) =>
+      socket.on("radio_added", (p: RadioState) => {
+        setRestoringRadios((prev) => prev.filter((id) => id !== p.radio_id));
         setRadios((prev) => {
           const added = fromRadioState(p);
           const merged = prev.some((r) => r.radioId === added.radioId)
             ? prev.map((r) => (r.radioId === added.radioId ? added : r))
             : [...prev, added];
           return merged.sort((a, b) => a.slot - b.slot);
-        })
-      ),
+        });
+      }),
       socket.on("radio_removed", (p) =>
         setRadios((prev) => prev.filter((r) => r.radioId !== p.radio_id))
       ),
-      socket.on("ptt_started", (p) => {
-        setPhase(at(p), p.sync_applies ? "CRYPTO_SYNC" : "TX");
-        if (p.sync_applies) playSyncTone(); // local only — not transmitted
-      }),
-      socket.on("secure_tx", (p) => setPhase(at(p), "SECURE_TX")),
-      socket.on("ptt_ended", (p) => clearPhase(at(p))),
-      socket.on("ptt_aborted", (p) => clearPhase(at(p))),
     ];
+    if (socket.connected && socket.welcome) restore(socket.welcome);
     return () => offs.forEach((off) => off && off());
   }, [socket, primaryId]);
-
-  // --- PTT ---
-  const startTx = useCallback(
-    async (r: TraineeRadio) => {
-      if (keyed.current.has(r.radioId)) return;
-      playClick();
-      keyed.current.add(r.radioId);
-      try {
-        // Capture mic and stream PCM frames to the server while keyed (§6.3).
-        await audio.current.startCapture((pcm) => socket.sendAudio(pcm));
-      } catch {
-        /* permission denied: control still proceeds; no audio reaches the net */
-      }
-      // A quick tap can release before the mic finished opening — don't key a
-      // radio whose end has already been sent.
-      if (!keyed.current.has(r.radioId)) return;
-      socket.pttStart(`${formatMHz(r.freqHz)} MHz`, r.mode, r.radioId);
-    },
-    [socket]
-  );
-
-  const endTx = useCallback(
-    (r: TraineeRadio) => {
-      if (!keyed.current.has(r.radioId)) return;
-      keyed.current.delete(r.radioId);
-      playClick(700);
-      if (keyed.current.size === 0) audio.current.stopCapture();
-      // Releasing during sync is an abort; otherwise a normal end (§3.2.3).
-      if (phases[r.radioId] === "CRYPTO_SYNC") socket.pttAbort(r.radioId);
-      else socket.pttEnd(r.radioId);
-      setPhases((prev) => {
-        const next = { ...prev };
-        delete next[r.radioId];
-        return next;
-      });
-    },
-    [socket, phases]
-  );
-
-  // PTT hotkey (§3.2.2): the numpad key with a radio's number keys that radio —
-  // one key per radio, so any open net can be answered by hand without first
-  // choosing which radio the keyboard is pointed at. Matched on e.code, which is
-  // the physical key, so it works with Num Lock off.
-  useEffect(() => {
-    const numbered = (e: KeyboardEvent): TraineeRadio | undefined => {
-      const m = e.code.match(/^Numpad([1-9])$/);
-      return m ? radiosRef.current[parseInt(m[1], 10) - 1] : undefined;
-    };
-    const down = (e: KeyboardEvent) => {
-      if (isTyping(e) || e.repeat) return;
-      const r = numbered(e);
-      if (r) {
-        e.preventDefault();
-        startTx(r);
-      }
-    };
-    const up = (e: KeyboardEvent) => {
-      if (isTyping(e)) return;
-      const r = numbered(e);
-      if (r) {
-        e.preventDefault();
-        endTx(r);
-      }
-    };
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-    };
-  }, [startTx, endTx]);
 
   // --- radio set ---
   function addRadio() {
@@ -255,11 +189,19 @@ export function Radio({
 
   return (
     <div className={`radio ${radios.length > 1 ? "radio--multi" : ""}`}>
+      <ConnectionBanner state={conn} />
       <header className="radio__top">
-        <div className="radio__call mono">{login.radio_id ? "ON NET" : ""}</div>
+        <div className="radio__call mono">{login.name} · {controlsReady ? "ON NET" : conn === "online" ? "RESTORING RADIOS…" : conn === "connecting" ? "CONNECTING…" : "OFFLINE"}</div>
         <SevenSegmentClock timezone={timezone} />
       </header>
 
+      <AudioControls audio={audio.current} disabled={Object.values(phases).some((p) => p !== "IDLE")} />
+      {(controlError || pttError) && <p role="alert" className="login__hint">{controlError || pttError}</p>}
+      {restoringRadios.length > 0 && <p role="status">Restoring additional radios…</p>}
+      {(conn === "offline" || (restoringRadios.length > 0 && controlError)) && (
+        <button className="btn" onClick={() => { socket.disconnect(); socket.connect(); }}>Reconnect</button>
+      )}
+      <PttShortcuts radios={radios.map((r) => ({ id: r.radioId, name: r.name }))} shortcuts={shortcuts} onChange={setShortcut} />
       <div className="radio__panels">
         {radios.map((r, i) => (
           <RadioPanel
@@ -275,8 +217,11 @@ export function Radio({
             rxLevels={rxLevels}
             onTune={retune}
             onMode={changeMode}
-            onStart={startTx}
-            onEnd={endTx}
+            onStart={(r) => start(r.radioId)}
+            onEnd={(r) => end(r.radioId)}
+            controlsDisabled={!controlsReady}
+            pttDisabled={!canTransmit}
+            shortcut={shortcutLabel(shortcuts[i])}
             onFocus={() => setFocused((f) => (f === r.radioId ? null : r.radioId))}
             onRemove={removeRadio}
           />
@@ -284,15 +229,10 @@ export function Radio({
       </div>
 
       {radios.length < MAX_RADIOS && (
-        <button className="radio__add" onClick={addRadio}>
+        <button className="radio__add" onClick={addRadio} disabled={!controlsReady}>
           + Add Radio
         </button>
       )}
     </div>
   );
-}
-
-function isTyping(e: KeyboardEvent): boolean {
-  const el = e.target as HTMLElement;
-  return el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
 }

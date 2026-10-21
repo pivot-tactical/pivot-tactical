@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, getToken, setToken } from "./api";
+import { errorMessage, isAuthenticationError } from "./errors";
 import type { LoginResponse } from "./types";
 import { PivotSocket } from "./ws";
 import { Login } from "./views/Login";
@@ -26,6 +27,12 @@ export default function App() {
   // Restore prior login before deciding what to show, so a refresh doesn't flash
   // the login screen on the way back into a session.
   const [restoring, setRestoring] = useState(true);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const logoutPending = useRef(false);
+  const authRevision = useRef(0);
   const socketRef = useRef<PivotSocket | null>(null);
 
   useEffect(() => {
@@ -35,7 +42,12 @@ export default function App() {
   async function joinTrainee(name: string) {
     const id = traineeId();
     const resp = await api.loginTrainee(name, id);
+    connectTrainee(resp, name, id);
+  }
+
+  function connectTrainee(resp: LoginResponse, name: string, id: string) {
     setLogin(resp);
+    socketRef.current?.disconnect();
     const socket = new PivotSocket({ name, trainee_id: id });
     socket.on("timezone_update", (p) => setTimezone(p.timezone));
     socket.connect();
@@ -46,13 +58,26 @@ export default function App() {
 
   async function loginInstructor(password: string) {
     const resp = await api.loginInstructor(password); // throws on bad password
+    authRevision.current++;
+    setLogoutError(null);
     setMustChange(!!resp.must_change_password);
     setView("instructor");
   }
 
-  function logoutInstructor() {
-    api.logout();
-    setView("login");
+  async function logoutInstructor() {
+    if (logoutPending.current) return;
+    logoutPending.current = true;
+    authRevision.current++;
+    setLogoutError(null);
+    try {
+      await api.logout();
+      setNotice("");
+      setView("login");
+    } catch (err) {
+      setLogoutError(`Sign out failed. ${errorMessage(err, "The server could not confirm sign out.")} Use Log out to retry.`);
+    } finally {
+      logoutPending.current = false;
+    }
   }
 
   // On first load, restore a prior session so a refresh or a server restart
@@ -60,6 +85,8 @@ export default function App() {
   // by refreshing it; a remembered trainee callsign rejoins automatically.
   useEffect(() => {
     let cancelled = false;
+    setRestoring(true);
+    setRestoreError(null);
     (async () => {
       try {
         if (getToken()) {
@@ -71,11 +98,20 @@ export default function App() {
         }
         const name = loadTrainee();
         if (name) {
-          await joinTrainee(name);
+          const id = traineeId();
+          const resp = await api.loginTrainee(name, id);
+          if (cancelled) return;
+          connectTrainee(resp, name, id);
           return;
         }
-      } catch {
-        setToken(null); // stale/expired instructor token — fall back to login
+      } catch (err) {
+        if (cancelled) return;
+        if (isAuthenticationError(err)) {
+          setToken(null);
+          setNotice("Your instructor session has expired. Sign in again.");
+        } else {
+          setRestoreError(errorMessage(err, "Could not restore your session. Please try again."));
+        }
       } finally {
         if (!cancelled) setRestoring(false);
       }
@@ -83,16 +119,26 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [restoreAttempt]);
 
   // Slide the instructor token while the console is open so a long scenario never
   // expires mid-exercise (and a refresh/restart always finds a fresh token).
   useEffect(() => {
     if (view !== "instructor") return;
+    let cancelled = false;
     const id = window.setInterval(() => {
-      api.refreshToken().catch(() => {});
+      if (logoutPending.current) return;
+      const revision = authRevision.current;
+      api.refreshToken().catch((err) => {
+        if (cancelled || revision !== authRevision.current || logoutPending.current) return;
+        if (isAuthenticationError(err)) {
+          setToken(null);
+          setNotice("Your instructor session has expired. Sign in again.");
+          setView("login");
+        }
+      });
     }, REFRESH_INTERVAL_MS);
-    return () => window.clearInterval(id);
+    return () => { cancelled = true; window.clearInterval(id); };
   }, [view]);
 
   // Keep the remembered trainee callsign fresh while the radio is open.
@@ -105,20 +151,36 @@ export default function App() {
 
   useEffect(() => () => socketRef.current?.disconnect(), []);
 
-  if (restoring) return null;
+  if (restoring || restoreError) {
+    return (
+      <div className="login">
+        <div className="card login__card">
+          <h1 className="login__title">PIVOT</h1>
+          {restoring ? <p role="status">Restoring your session…</p> : <>
+            <p role="alert" className="login__hint">{restoreError}</p>
+            <button className="btn btn--primary" onClick={() => setRestoreAttempt((n) => n + 1)}>Retry session</button>
+            <button className="btn btn--ghost login__switch" onClick={() => setRestoreError(null)}>Back to sign in</button>
+          </>}
+        </div>
+      </div>
+    );
+  }
 
   if (view === "trainee" && login) {
     return <Radio socket={socketRef.current!} login={login} timezone={timezone} />;
   }
   if (view === "instructor") {
     return (
-      <InstructorConsole
-        timezone={timezone}
-        mustChangePassword={mustChange}
-        onTimezone={setTimezone}
-        onLogout={logoutInstructor}
-      />
+      <>
+        {logoutError && <div role="alert" className="login__hint" style={{ padding: "10px 20px", margin: 0 }}>{logoutError}</div>}
+        <InstructorConsole
+          timezone={timezone}
+          mustChangePassword={mustChange}
+          onTimezone={setTimezone}
+          onLogout={logoutInstructor}
+        />
+      </>
     );
   }
-  return <Login onTrainee={joinTrainee} onInstructor={loginInstructor} />;
+  return <Login onTrainee={joinTrainee} onInstructor={loginInstructor} notice={notice} />;
 }

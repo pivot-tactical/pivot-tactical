@@ -3,6 +3,7 @@ import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Login } from "./Login";
 import { api } from "../api";
+import { ApiError } from "../errors";
 import * as matchers from "@testing-library/jest-dom/matchers";
 
 expect.extend(matchers);
@@ -188,7 +189,7 @@ describe("Login", () => {
     expect(signInBtn).not.toBeDisabled();
 
     // Mock failure
-    mockOnInstructor.mockRejectedValueOnce(new Error("Unauthorized"));
+    mockOnInstructor.mockRejectedValueOnce(new ApiError(401, "Unauthorized"));
 
     await user.click(signInBtn);
 
@@ -231,7 +232,7 @@ describe("Login", () => {
     const input = screen.getByPlaceholderText("default: instructor");
 
     // Mock failure
-    mockOnInstructor.mockRejectedValueOnce(new Error("Unauthorized"));
+    mockOnInstructor.mockRejectedValueOnce(new ApiError(401, "Unauthorized"));
 
     await user.type(input, "wrong-password{enter}");
 
