@@ -168,17 +168,9 @@ async def _trainee_session(ws: WebSocket, manager) -> None:
                     for rid in active_tx:
                         manager.route_tx_frame(rid, pcm)
                 continue
-            try:
-                data = json.loads(message["text"])
-                if not isinstance(data, dict):
-                    await ws.send_json({"type": "error", "payload": {"detail": "invalid JSON"}})
-                    continue
-            except (json.JSONDecodeError, TypeError):
-                await ws.send_json({"type": "error", "payload": {"detail": "invalid JSON"}})
+            mtype, payload, ok = await _parse_control_frame(ws, message["text"])
+            if not ok:
                 continue
-
-            mtype = data.get("type")
-            payload = data.get("payload") or {}
 
             await _handle_trainee_message(ws, manager, mtype, payload, ctx)
     except WebSocketDisconnect:
@@ -255,17 +247,9 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
                     for rid in active_tx:
                         manager.route_tx_frame(rid, pcm)
                 continue
-            try:
-                data = json.loads(message["text"])
-                if not isinstance(data, dict):
-                    await ws.send_json({"type": "error", "payload": {"detail": "invalid JSON"}})
-                    continue
-            except (json.JSONDecodeError, TypeError):
-                await ws.send_json({"type": "error", "payload": {"detail": "invalid JSON"}})
+            mtype, payload, ok = await _parse_control_frame(ws, message["text"])
+            if not ok:
                 continue
-
-            mtype = data.get("type")
-            payload = data.get("payload") or {}
             await _handle_instructor_message(ws, manager, mtype, payload, ctx)
     except WebSocketDisconnect:
         pass
@@ -287,6 +271,22 @@ async def _instructor_session(ws: WebSocket, manager) -> None:
 # --------------------------------------------------------------------------- #
 # Shared helpers
 # --------------------------------------------------------------------------- #
+
+
+async def _parse_control_frame(ws: WebSocket, text: str) -> tuple[str, dict, bool]:
+    """Parse a WebSocket text control frame.
+
+    Returns (mtype, payload, ok). If parsing fails or payload is not a dict,
+    sends an error response and returns ("", {}, False).
+    """
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data.get("type", ""), data.get("payload") or {}, True
+    except (json.JSONDecodeError, TypeError):
+        pass
+    await ws.send_json({"type": "error", "payload": {"detail": "invalid JSON"}})
+    return "", {}, False
 
 
 def _instructor_radio_id(manager, payload: dict) -> str:
