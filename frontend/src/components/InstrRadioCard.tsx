@@ -176,6 +176,18 @@ export function InstrRadioCard({ radio, index, socket, audio, phase, scenario, r
         onMouseLeave={() => transmitting && onEnd(radio)}
         onTouchStart={(e) => { e.preventDefault(); onStart(radio); }}
         onTouchEnd={(e) => { e.preventDefault(); onEnd(radio); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            if (!e.repeat) onStart(radio);
+          }
+        }}
+        onKeyUp={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onEnd(radio);
+          }
+        }}
       >
         <span className="ptt__state">{phaseLabel(phase)}</span>
         <span className="ptt__hint">{shortcut ? `HOLD · ${shortcut}` : "HOLD"}</span>

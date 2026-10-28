@@ -223,6 +223,18 @@ export function RadioPanel({
           e.preventDefault();
           onEnd(radio);
         }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            if (!e.repeat) onStart(radio);
+          }
+        }}
+        onKeyUp={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onEnd(radio);
+          }
+        }}
       >
         <span className="ptt__state">{phaseLabel(phase)}</span>
         <span className="ptt__hint">{hotkeyHint(index)}</span>
