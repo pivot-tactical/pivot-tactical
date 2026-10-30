@@ -39,6 +39,24 @@ class ConfigStore:
         else:
             row.value = encoded
 
+    def set_many(self, items: dict[str, Any]) -> None:
+        """Batch set key/value pairs in a single database query."""
+        if not items:
+            return
+        existing = {
+            r.key: r
+            for r in self.session.scalars(
+                select(ConfigRow).where(ConfigRow.key.in_(list(items.keys())))
+            ).all()
+        }
+        for key, value in items.items():
+            encoded = json.dumps(value)
+            row = existing.get(key)
+            if row is None:
+                self.session.add(ConfigRow(key=key, value=encoded))
+            else:
+                row.value = encoded
+
     def all(self) -> dict[str, Any]:
         """Full effective config (defaults overlaid with stored values)."""
         result = dict(DEFAULT_CONFIG)

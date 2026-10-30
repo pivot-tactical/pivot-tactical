@@ -452,16 +452,17 @@ def admin_update_settings(updates: dict = Body(...), manager=Depends(get_manager
     """Persist instructor-tunable settings (whitelisted keys). Timezone, crypto
     enable and crypto delay are applied live."""
     applied: dict = {}
+    for key, value in updates.items():
+        if key not in _SETTABLE_KEYS:
+            continue
+        # The start frequency must be one the radios can actually tune to,
+        # so snap it to the tuning grid before persisting.
+        stored = snap_frequency(float(value)) if key == "default_frequency_hz" else value
+        applied[key] = stored
+
     with manager.db.session() as s:
         cfg = ConfigStore(s)
-        for key, value in updates.items():
-            if key not in _SETTABLE_KEYS:
-                continue
-            # The start frequency must be one the radios can actually tune to,
-            # so snap it to the tuning grid before persisting.
-            stored = snap_frequency(float(value)) if key == "default_frequency_hz" else value
-            cfg.set(key, stored)
-            applied[key] = stored
+        cfg.set_many(applied)
     if "display_timezone" in applied:
         manager.set_display_timezone(applied["display_timezone"])
     if "crypto_enabled" in applied:
