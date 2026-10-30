@@ -42,6 +42,11 @@ async def test_origin_validation():
         ("javascript:alert(1)", False),
         ("http://evil.com", False),
         ("http://192.168.1.100.evil.com", False),
+        # is_private would admit these; the REST CORS rule does not.
+        ("http://169.254.1.1", False),
+        ("http://[fd00::1]:8080", False),
+        ("http://0.0.0.0:8080", False),
+        ("http://[::1]:8080", True),
     ],
 )
 async def test_origin_validation_extended(origin: str, allowed: bool):

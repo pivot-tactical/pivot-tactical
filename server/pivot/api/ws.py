@@ -79,6 +79,15 @@ _ALLOW_ORIGIN_REGEX_STR = r"^https?://(localhost|127\.0\.0\.1|192\.168\.[0-9]+\.
 _ALLOW_ORIGIN_REGEX = re.compile(_ALLOW_ORIGIN_REGEX_STR)
 
 
+# Same set as the REST CORS regex above: loopback plus the RFC1918 LAN ranges.
+# (ip_address().is_private is broader — link-local, reserved, IPv6 ULA — so the
+# networks are listed explicitly.)
+_ALLOW_ORIGIN_NETWORKS = tuple(
+    ipaddress.ip_network(n)
+    for n in ("127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
+
+
 def _is_origin_allowed(origin: str | None) -> bool:
     if not origin or origin in _ALLOW_ORIGINS:
         return True
@@ -90,7 +99,7 @@ def _is_origin_allowed(origin: str | None) -> bool:
         if hostname == "localhost":
             return True
         ip = ipaddress.ip_address(hostname)
-        return bool(ip.is_private or ip.is_loopback)
+        return any(ip in net for net in _ALLOW_ORIGIN_NETWORKS)
     except ValueError:
         return False
 
