@@ -33,6 +33,19 @@ from pivot.db.database import Database
 # to change it while it is still the default (see AuthService.is_default).
 DEFAULT_INSTRUCTOR_PASSWORD = "instructor"
 
+
+def _seed_password() -> str:
+    """Password to seed on first run: the operator's env override, else the default.
+
+    Read at call time (not import time) so the override never ends up in the
+    module constant, which is printed in the startup "still the default" note.
+    """
+    return (
+        os.environ.get("PIVOT_DEFAULT_INSTRUCTOR_PASSWORD")
+        or os.environ.get("PIVOT_INSTRUCTOR_PASSWORD")
+        or DEFAULT_INSTRUCTOR_PASSWORD
+    )
+
 _PBKDF2_ROUNDS = 200_000
 _CONFIG_KEY = "instructor_password_hash"
 _SECRET_KEY = "instructor_token_secret"
@@ -122,12 +135,13 @@ class AuthService:
 
     # -- password ---------------------------------------------------------- #
 
-    def ensure_default(self, default_password: str = DEFAULT_INSTRUCTOR_PASSWORD) -> None:
+    def ensure_default(self, default_password: str | None = None) -> None:
         """Seed the instructor password hash on first run if not already set."""
+        pwd = default_password if default_password is not None else _seed_password()
         with self.db.session() as s:
             cfg = ConfigStore(s)
             if not cfg.get(_CONFIG_KEY):
-                cfg.set(_CONFIG_KEY, hash_password(default_password))
+                cfg.set(_CONFIG_KEY, hash_password(pwd))
 
     def _stored_hash(self) -> str:
         with self.db.session() as s:
