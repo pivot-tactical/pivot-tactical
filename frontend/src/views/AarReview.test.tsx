@@ -42,10 +42,10 @@ describe("AarReview", () => {
     vi.mocked(api.sessions).mockReturnValueOnce(new Promise((_, fail) => { reject = fail; }));
     render(<AarReview timezone="UTC" />);
     expect(screen.getByText("Loading sessions…")).toBeInTheDocument();
-    expect(screen.queryByText("No sessions recorded yet.")).not.toBeInTheDocument();
+    expect(screen.queryByText("No sessions recorded yet. Start a session in the Radios tab to begin recording.")).not.toBeInTheDocument();
     await act(async () => { reject(new Error("network")); });
     expect(screen.getByRole("alert")).toHaveTextContent("Could not load sessions");
-    expect(screen.queryByText("No sessions recorded yet.")).not.toBeInTheDocument();
+    expect(screen.queryByText("No sessions recorded yet. Start a session in the Radios tab to begin recording.")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry sessions" }));
     expect(await screen.findByText("First message")).toBeInTheDocument();
     expect(api.sessions).toHaveBeenCalledTimes(2);
@@ -54,7 +54,7 @@ describe("AarReview", () => {
   it("shows a real empty archive after a successful empty response", async () => {
     vi.mocked(api.sessions).mockResolvedValue([]);
     render(<AarReview timezone="UTC" />);
-    expect(await screen.findByText("No sessions recorded yet.")).toBeInTheDocument();
+    expect(await screen.findByText("No sessions recorded yet. Start a session in the Radios tab to begin recording.")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 

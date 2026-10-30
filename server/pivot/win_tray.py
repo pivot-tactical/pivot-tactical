@@ -258,27 +258,33 @@ class TrayApp:
 
     # -- message handling -------------------------------------------------- #
 
+    def _handle_trayicon(self, lparam: int) -> None:
+        if lparam == WM_LBUTTONDBLCLK:
+            # Double-click: surface the console so the log can be read.
+            self._set_console(True)
+        elif lparam == WM_LBUTTONUP:
+            webbrowser.open(self.url)
+        elif lparam == WM_RBUTTONUP:
+            self._show_menu()
+
+    def _handle_command(self, wparam: int) -> None:
+        cmd = wparam & 0xFFFF
+        if cmd == ID_OPEN:
+            webbrowser.open(self.url)
+        elif cmd == ID_COPY:
+            _copy_to_clipboard(self.url)
+        elif cmd == ID_LOG:
+            self._set_console(not self._console_visible)
+        elif cmd == ID_QUIT:
+            self._quit()
+
     def _on_message(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
         """Window procedure callback, invoked implicitly by the OS windowing system."""
         if msg == WM_TRAYICON:
-            if lparam == WM_LBUTTONDBLCLK:
-                # Double-click: surface the console so the log can be read.
-                self._set_console(True)
-            elif lparam == WM_LBUTTONUP:
-                webbrowser.open(self.url)
-            elif lparam == WM_RBUTTONUP:
-                self._show_menu()
+            self._handle_trayicon(lparam)
             return 0
         if msg == WM_COMMAND:
-            cmd = wparam & 0xFFFF
-            if cmd == ID_OPEN:
-                webbrowser.open(self.url)
-            elif cmd == ID_COPY:
-                _copy_to_clipboard(self.url)
-            elif cmd == ID_LOG:
-                self._set_console(not self._console_visible)
-            elif cmd == ID_QUIT:
-                self._quit()
+            self._handle_command(wparam)
             return 0
         if msg == WM_DESTROY:
             user32.PostQuitMessage(0)

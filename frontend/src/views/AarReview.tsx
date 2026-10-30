@@ -58,6 +58,14 @@ function ReviewAudio({ event, mode, view }: {
   );
 }
 
+const EXPORT_TITLES: Record<ExportFormat, string> = {
+  text: "Export transcript as text",
+  csv: "Export transcript as CSV",
+  zip: "Export audio and transcript as ZIP",
+};
+
+const NO_SESSIONS = "No sessions recorded yet. Start a session in the Radios tab to begin recording.";
+
 export function AarReview({ timezone }: { timezone: string }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -148,7 +156,8 @@ export function AarReview({ timezone }: { timezone: string }) {
         <div className="aar__toggles">
           {(["text", "csv", "zip"] as ExportFormat[]).map((format) => (
             <button key={format} className={`btn ${format === "zip" ? "btn--primary" : ""}`}
-              disabled={!selected || exportBusy !== null} onClick={() => exportSession(format)}>
+              disabled={!selected || exportBusy !== null} onClick={() => exportSession(format)}
+              title={!selected ? "Select a session to export" : EXPORT_TITLES[format]}>
               {exportBusy === format ? "Exporting…" : format === "zip" ? "Export ZIP + audio" : `Export ${format === "text" ? "Text" : "CSV"}`}
             </button>
           ))}
@@ -162,7 +171,7 @@ export function AarReview({ timezone }: { timezone: string }) {
             Could not load sessions. {sessionsError}
             <button className="btn" onClick={() => setSessionsAttempt((n) => n + 1)}>Retry sessions</button>
           </div>}
-          {!sessionsLoading && !sessionsError && sessions.length === 0 && <p className="muted">No sessions recorded yet.</p>}
+          {!sessionsLoading && !sessionsError && sessions.length === 0 && <p className="muted">{NO_SESSIONS}</p>}
           {sessions.map((session) => (
             <button key={session.id} className={`session ${session.id === selectedId ? "session--active" : ""}`}
               aria-pressed={session.id === selectedId} onClick={() => selectSession(session.id)}>

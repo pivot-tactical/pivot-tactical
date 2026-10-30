@@ -296,6 +296,28 @@ describe('InstructorConsole', () => {
     expect(marks).toContain('fast');
   });
 
+  it('refines short base word suffix fixes (e.g. go -> going) down to character level', async () => {
+    (api.recentEvents as any).mockResolvedValueOnce([
+      makeEvent({
+        transcription: 'going fast to store',
+        transcription_original: 'go slow to store',
+        transcription_edited: true,
+      }),
+    ]);
+
+    let container: HTMLElement;
+    await act(async () => {
+      const r = render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+      container = r.container;
+    });
+
+    await screen.findByText(/edited/);
+    const marks = Array.from(container!.querySelectorAll('.transcript__edit')).map((m) => m.textContent);
+    // Suffix fix 'go' -> 'going': 'ing' is highlighted as character-level edit, not 'going' as a whole
+    expect(marks).toContain('ing');
+    expect(marks).not.toContain('going');
+  });
+
   it('positively confirms a deliberately chosen version, distinct from the auto-staged one', async () => {
     const release = (tag: string) => ({
       tag, name: tag, prerelease: false, standing: 'newer', published_at: '',
@@ -397,7 +419,7 @@ describe('InstructorConsole', () => {
       fireEvent.click(screen.getByRole('tab', { name: 'AAR' }));
     });
 
-    expect(await screen.findByText('No sessions recorded yet.')).toBeInTheDocument();
+    expect(await screen.findByText('No sessions recorded yet. Start a session in the Radios tab to begin recording.')).toBeInTheDocument();
   });
 });
 

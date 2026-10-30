@@ -96,6 +96,14 @@ def test_resolve_timezone_value_error_fallback():
     assert resolve_timezone("/etc/localtime").key == "UTC"
 
 
+def test_resolve_timezone_edge_cases_fallback():
+    # None triggers TypeError in ZoneInfo
+    assert resolve_timezone(None).key == "UTC"
+    # Whitespace-only strings trigger ZoneInfoNotFoundError in ZoneInfo
+    assert resolve_timezone("   ").key == "UTC"
+    assert resolve_timezone("\t\n").key == "UTC"
+
+
 def test_resolve_timezone_key_error_fallback():
     from unittest.mock import patch
     from zoneinfo import ZoneInfo
@@ -163,6 +171,9 @@ def test_resolve_timezone_utc_fallback_exceptions():
         assert resolve_timezone("Invalid/Zone") is UTC
 
     with patch("pivot.core.timebase.ZoneInfo", side_effect=KeyError("Missing")):
+        assert resolve_timezone("Invalid/Zone") is UTC
+
+    with patch("pivot.core.timebase.ZoneInfo", side_effect=TypeError("Invalid type")):
         assert resolve_timezone("Invalid/Zone") is UTC
 
 

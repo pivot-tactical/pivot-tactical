@@ -134,6 +134,86 @@ def test_create_window_raises_when_window_creation_fails(win_tray_module):
         app._create_window()
 
 
+def test_on_message_trayicon_events(win_tray_module, monkeypatch):
+    """Test _on_message properly dispatches WM_TRAYICON events."""
+    app = win_tray_module.TrayApp("https://192.168.0.2:8080")
+
+    mock_set_console = MagicMock()
+    mock_show_menu = MagicMock()
+    mock_webbrowser_open = MagicMock()
+
+    monkeypatch.setattr(app, "_set_console", mock_set_console)
+    monkeypatch.setattr(app, "_show_menu", mock_show_menu)
+    monkeypatch.setattr(win_tray_module.webbrowser, "open", mock_webbrowser_open)
+
+    # WM_LBUTTONDBLCLK -> _set_console(True)
+    res = app._on_message(0, win_tray_module.WM_TRAYICON, 0, win_tray_module.WM_LBUTTONDBLCLK)
+    assert res == 0
+    mock_set_console.assert_called_once_with(True)
+
+    # WM_LBUTTONUP -> webbrowser.open(url)
+    res = app._on_message(0, win_tray_module.WM_TRAYICON, 0, win_tray_module.WM_LBUTTONUP)
+    assert res == 0
+    mock_webbrowser_open.assert_called_once_with("https://192.168.0.2:8080")
+
+    # WM_RBUTTONUP -> _show_menu()
+    res = app._on_message(0, win_tray_module.WM_TRAYICON, 0, win_tray_module.WM_RBUTTONUP)
+    assert res == 0
+    mock_show_menu.assert_called_once()
+
+
+def test_on_message_command_events(win_tray_module, monkeypatch):
+    """Test _on_message properly dispatches WM_COMMAND events."""
+    app = win_tray_module.TrayApp("https://192.168.0.2:8080")
+
+    mock_set_console = MagicMock()
+    mock_quit = MagicMock()
+    mock_webbrowser_open = MagicMock()
+    mock_copy = MagicMock()
+
+    monkeypatch.setattr(app, "_set_console", mock_set_console)
+    monkeypatch.setattr(app, "_quit", mock_quit)
+    monkeypatch.setattr(win_tray_module.webbrowser, "open", mock_webbrowser_open)
+    monkeypatch.setattr(win_tray_module, "_copy_to_clipboard", mock_copy)
+
+    # ID_OPEN
+    res = app._on_message(0, win_tray_module.WM_COMMAND, win_tray_module.ID_OPEN, 0)
+    assert res == 0
+    mock_webbrowser_open.assert_called_once_with("https://192.168.0.2:8080")
+
+    # ID_COPY
+    res = app._on_message(0, win_tray_module.WM_COMMAND, win_tray_module.ID_COPY, 0)
+    assert res == 0
+    mock_copy.assert_called_once_with("https://192.168.0.2:8080")
+
+    # ID_LOG
+    app._console_visible = False
+    res = app._on_message(0, win_tray_module.WM_COMMAND, win_tray_module.ID_LOG, 0)
+    assert res == 0
+    mock_set_console.assert_called_once_with(True)
+
+    # ID_QUIT
+    res = app._on_message(0, win_tray_module.WM_COMMAND, win_tray_module.ID_QUIT, 0)
+    assert res == 0
+    mock_quit.assert_called_once()
+
+
+def test_on_message_destroy_and_default(win_tray_module):
+    """Test _on_message handling of WM_DESTROY and unhandled messages."""
+    app = win_tray_module.TrayApp("https://192.168.0.2:8080")
+
+    # WM_DESTROY
+    res = app._on_message(0, win_tray_module.WM_DESTROY, 0, 0)
+    assert res == 0
+    win_tray_module.user32.PostQuitMessage.assert_called_once_with(0)
+
+    # Unhandled message
+    win_tray_module.user32.DefWindowProcW.return_value = 999
+    res = app._on_message(123, 0x1234, 1, 2)
+    assert res == 999
+    win_tray_module.user32.DefWindowProcW.assert_called_with(123, 0x1234, 1, 2)
+
+
 def test_run_with_tray_success(win_tray_module, monkeypatch):
     """Test run_with_tray when TrayApp runs successfully."""
     mock_hide_console = MagicMock()
