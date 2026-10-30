@@ -6,7 +6,7 @@ routers, and serves the built React frontend so trainees reach the UI at
 ``http://[server-ip]:8080`` (spec §2.1).
 """
 
-import importlib.util
+import importlib.util  # Used in _maybe_start_transcription to detect faster_whisper
 import os
 import sys
 from collections.abc import Callable
