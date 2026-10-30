@@ -6,7 +6,7 @@ from pivot.core.bands import BandProfile, JammingSpan
 from pivot.core.crypto import Audibility, RadioMode, SyncStatus
 from pivot.db import repository as repo
 from pivot.db.config_store import ConfigStore
-from pivot.db.migrations import CURRENT_SCHEMA_VERSION, crosses_migration_boundary
+from pivot.db.migrations import CURRENT_SCHEMA_VERSION, crosses_migration_boundary, run_migrations
 from pivot.db.models import ConfigRow, EventRow, TranscriptionStatus
 
 
@@ -437,3 +437,96 @@ def test_config_store_all_ignores_invalid_json(database):
 
         allcfg = cfg.all()
         assert "bad_key" not in allcfg
+
+
+def test_run_migrations_fresh_db_baselines_to_current_version():
+    """A fresh database (schema_version = 0) is baselined directly to
+    CURRENT_SCHEMA_VERSION without running individual migrations."""
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT)"))
+
+    resulting_version = run_migrations(engine)
+    assert resulting_version == CURRENT_SCHEMA_VERSION
+
+    with engine.connect() as conn:
+        val = conn.execute(
+            text("SELECT value FROM config WHERE key = 'schema_version'")
+        ).scalar()
+        assert val == str(CURRENT_SCHEMA_VERSION)
+
+
+def test_run_migrations_applies_incremental_migrations_from_v1():
+    """An existing v1 database applies all forward migrations (v2, v3) sequentially."""
+    from sqlalchemy import create_engine, inspect, text
+
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT)"))
+        conn.execute(text("INSERT INTO config (key, value) VALUES ('schema_version', '1')"))
+        # Pre-v2 band_profile table
+        conn.execute(
+            text("CREATE TABLE band_profile (id INTEGER PRIMARY KEY, atmospheric_multiplier REAL)")
+        )
+        # Pre-v3 events table
+        conn.execute(text("CREATE TABLE events (event_id TEXT PRIMARY KEY, transcription TEXT)"))
+
+    resulting_version = run_migrations(engine)
+    assert resulting_version == CURRENT_SCHEMA_VERSION
+
+    with engine.connect() as conn:
+        bp_cols = {c["name"] for c in inspect(conn).get_columns("band_profile")}
+        assert "net_scenarios_json" in bp_cols
+
+        ev_cols = {c["name"] for c in inspect(conn).get_columns("events")}
+        assert "transcription_original" in ev_cols
+        assert "transcription_edited" in ev_cols
+
+        val = conn.execute(
+            text("SELECT value FROM config WHERE key = 'schema_version'")
+        ).scalar()
+        assert val == str(CURRENT_SCHEMA_VERSION)
+
+
+def test_run_migrations_applies_partial_migrations_from_v2():
+    """A database at v2 applies only remaining migrations (v3) to reach CURRENT_SCHEMA_VERSION."""
+    from sqlalchemy import create_engine, inspect, text
+
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT)"))
+        conn.execute(text("INSERT INTO config (key, value) VALUES ('schema_version', '2')"))
+        conn.execute(
+            text("CREATE TABLE band_profile (id INTEGER PRIMARY KEY, net_scenarios_json TEXT)")
+        )
+        conn.execute(text("CREATE TABLE events (event_id TEXT PRIMARY KEY, transcription TEXT)"))
+
+    resulting_version = run_migrations(engine)
+    assert resulting_version == CURRENT_SCHEMA_VERSION
+
+    with engine.connect() as conn:
+        ev_cols = {c["name"] for c in inspect(conn).get_columns("events")}
+        assert "transcription_original" in ev_cols
+        assert "transcription_edited" in ev_cols
+
+        val = conn.execute(
+            text("SELECT value FROM config WHERE key = 'schema_version'")
+        ).scalar()
+        assert val == str(CURRENT_SCHEMA_VERSION)
+
+
+def test_run_migrations_no_op_when_already_current():
+    """An up-to-date database at CURRENT_SCHEMA_VERSION does nothing."""
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT)"))
+        conn.execute(
+            text(f"INSERT INTO config (key, value) VALUES ('schema_version', '{CURRENT_SCHEMA_VERSION}')")
+        )
+
+    resulting_version = run_migrations(engine)
+    assert resulting_version == CURRENT_SCHEMA_VERSION
