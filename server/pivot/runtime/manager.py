@@ -563,7 +563,8 @@ class SessionManager:
         the channel as it is, and radios whose noise toggle is off hearing it
         noiseless. Most frames have no toggled radio and stay one pass. Shared
         with the WebRTC router's render loop."""
-        quiet = {rid: rec for rid, rec in render_map.items() if self._rx_noise_off(rid)}
+        rx_noise_off = self._rx_noise_off
+        quiet = {rid: rec for rid, rec in render_map.items() if rx_noise_off(rid)}
         if not quiet:
             return [(render_map, conditions)]
         loud = {rid: rec for rid, rec in render_map.items() if rid not in quiet}
