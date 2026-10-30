@@ -116,6 +116,10 @@ interface MicStatusNoticeProps {
   micMissing: boolean;
 }
 
+/**
+ * Renders status notices for microphone permissions, missing hardware, or
+ * insecure origins where `navigator.mediaDevices` is undefined.
+ */
 function MicStatusNotice({ micInsecure, micMissing }: MicStatusNoticeProps) {
   return (
     <p className="login__hint">
