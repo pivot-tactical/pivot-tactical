@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { errorMessage, isAuthenticationError } from "../errors";
 
 // Login view (spec §3.2.1, §7.2.1). Trainees enter a callsign (no password);
 // the instructor chooses "Log in as instructor" and enters the password.
@@ -10,6 +11,7 @@ interface TraineeLoginFormProps {
   setName: (name: string) => void;
   valid: boolean;
   busy: boolean;
+  error: string;
   onSubmit: () => void;
   onSwitchToInstructor: () => void;
 }
@@ -19,6 +21,7 @@ function TraineeLoginForm({
   setName,
   valid,
   busy,
+  error,
   onSubmit,
   onSwitchToInstructor,
 }: TraineeLoginFormProps) {
@@ -43,6 +46,7 @@ function TraineeLoginForm({
           Only letters, numbers, spaces, and hyphens allowed.
         </p>
       )}
+      {error && <p role="alert" className="login__hint">{error}</p>}
       <button
         className="btn btn--primary"
         disabled={!valid || busy}
@@ -52,6 +56,7 @@ function TraineeLoginForm({
       </button>
       <button
         className="btn btn--ghost login__switch"
+        disabled={busy}
         onClick={onSwitchToInstructor}
       >
         Log in as instructor →
@@ -93,7 +98,7 @@ function InstructorLoginForm({
           }
         />
       </label>
-      {error && <p className="login__hint">{error}</p>}
+      {error && <p role="alert" className="login__hint">{error}</p>}
       <button
         className="btn btn--primary"
         disabled={busy || !password}
@@ -103,6 +108,7 @@ function InstructorLoginForm({
       </button>
       <button
         className="btn btn--ghost login__switch"
+        disabled={busy}
         onClick={onSwitchToTrainee}
       >
         ← Back to trainee login
@@ -145,9 +151,11 @@ function MicStatusNotice({ micInsecure, micMissing }: MicStatusNoticeProps) {
 export function Login({
   onTrainee,
   onInstructor,
+  notice,
 }: {
   onTrainee: (name: string) => Promise<void> | void;
   onInstructor: (password: string) => Promise<void>;
+  notice?: string;
 }) {
   const [mode, setMode] = useState<"trainee" | "instructor">("trainee");
   const [name, setName] = useState("");
@@ -158,12 +166,20 @@ export function Login({
   const [micMissing, setMicMissing] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
+
+  async function checkServer() {
+    setOnline(null);
+    try {
+      await api.status();
+      setOnline(true);
+    } catch {
+      setOnline(false);
+    }
+  }
 
   useEffect(() => {
-    api
-      .status()
-      .then(() => setOnline(true))
-      .catch(() => setOnline(false));
+    checkServer();
 
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
       setMicInsecure(true);
@@ -199,25 +215,31 @@ export function Login({
   }
 
   async function submitInstructor() {
+    if (!password || submitting.current) return;
+    submitting.current = true;
     setError("");
     setBusy(true);
     try {
       await onInstructor(password);
-    } catch {
-      setError("Incorrect password.");
+    } catch (err) {
+      setError(isAuthenticationError(err) ? "Incorrect password." : errorMessage(err, "Sign in failed. Please try again."));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
 
   async function submitTrainee() {
-    if (!valid || busy) return;
+    if (!valid || submitting.current) return;
+    submitting.current = true;
+    setError("");
     setBusy(true);
     try {
       await onTrainee(name.trim());
-    } catch {
-      // Ignore error as consumer handles/notifies or state resets
+    } catch (err) {
+      setError(errorMessage(err, "Could not join the net. Please try again."));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
@@ -229,6 +251,7 @@ export function Login({
         <p className="login__subtitle">
           Procedural Interactive Voice Operations Trainer
         </p>
+        {notice && <p role="status" className="login__hint">{notice}</p>}
 
         {mode === "trainee" ? (
           <TraineeLoginForm
@@ -236,6 +259,7 @@ export function Login({
             setName={setName}
             valid={valid}
             busy={busy}
+            error={error}
             onSubmit={submitTrainee}
             onSwitchToInstructor={() => {
               setMode("instructor");
@@ -267,6 +291,9 @@ export function Login({
                   : "Server unreachable"
             }
           />
+          {online === false && (
+            <button className="btn btn--ghost" onClick={checkServer}>Retry connection</button>
+          )}
           {mode === "trainee" && (
             <button className="btn btn--ghost" onClick={checkMic}>
               {micOk == null

@@ -6,6 +6,7 @@ import { Radio } from './Radio';
 import { PivotSocket } from '../ws';
 import type { LoginResponse, RadioState } from '../types';
 import * as audioModule from '../audio';
+import type { MicState } from '../audio';
 
 // Mock the components
 vi.mock('../components/ModeDial', () => ({
@@ -37,8 +38,21 @@ vi.mock('../components/VolumeSlider', () => ({
   ),
 }));
 
-// Mock audio
+// Snapshot identity stays stable until a microphone state change.
+let micState: MicState = { status: 'ready', error: null, deviceId: '' };
+const micListeners = new Set<(state: MicState) => void>();
+const setMicState = (state: MicState) => act(() => {
+  micState = state;
+  micListeners.forEach((listener) => listener(state));
+});
 const mockAudioIO = {
+  getMicState: vi.fn(() => micState),
+  onMicState: vi.fn((listener: (state: MicState) => void) => {
+    micListeners.add(listener);
+    return () => micListeners.delete(listener);
+  }),
+  getInputLevel: vi.fn(() => 0),
+  setInputDevice: vi.fn().mockResolvedValue(undefined),
   setVolume: vi.fn(),
   init: vi.fn().mockResolvedValue(undefined),
   prewarm: vi.fn().mockResolvedValue(undefined),
@@ -79,14 +93,28 @@ describe('Radio', () => {
   let handlers: Record<string, Function>;
 
   const ptt = (name: string) => screen.getByLabelText(`Push to talk on ${name}`);
+  const pointer = (element: HTMLElement, type: string, pointerType = 'mouse') => {
+    const event = new MouseEvent(type, { bubbles: true, button: 0 });
+    Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: pointerType } });
+    fireEvent(element, event);
+  };
 
   beforeEach(() => {
     handlers = {};
+    const listeners = new Map<string, Set<Function>>();
+    micState = { status: 'ready', error: null, deviceId: '' };
+    micListeners.clear();
+    localStorage.clear();
     mockSocket = {
+      connected: true,
+      disconnect: vi.fn(),
+      connect: vi.fn(),
       onAudio: vi.fn(),
       on: vi.fn((event: string, handler: Function) => {
-        handlers[event] = handler;
-        return () => {};
+        if (!listeners.has(event)) listeners.set(event, new Set());
+        listeners.get(event)!.add(handler);
+        handlers[event] = (payload: unknown) => [...listeners.get(event)!].forEach((callback) => callback(payload));
+        return () => listeners.get(event)?.delete(handler);
       }),
       sendAudio: vi.fn(),
       pttStart: vi.fn(),
@@ -212,14 +240,14 @@ describe('Radio', () => {
 
     // Start PTT
     await act(async () => {
-      fireEvent.mouseDown(pttBtn);
+      pointer(pttBtn, 'pointerdown');
     });
 
     expect(mockAudioIO.startCapture).toHaveBeenCalled();
     expect(mockSocket.pttStart).toHaveBeenCalledWith('7.0000 MHz', 'Plain', 'radio1');
 
     // End PTT
-    fireEvent.mouseUp(pttBtn);
+    pointer(pttBtn, 'pointerup');
     expect(mockAudioIO.stopCapture).toHaveBeenCalled();
     expect(mockSocket.pttEnd).toHaveBeenCalledWith('radio1');
   });
@@ -277,7 +305,7 @@ describe('Radio', () => {
 
     // Start PTT and simulate sync
     await act(async () => {
-      fireEvent.mouseDown(pttBtn);
+      pointer(pttBtn, 'pointerdown');
     });
     act(() => {
       handlers['ptt_started']({ sync_applies: true });
@@ -285,51 +313,47 @@ describe('Radio', () => {
     expect(pttBtn).toHaveTextContent('CRYPTO SYNC…');
 
     // Release PTT
-    fireEvent.mouseUp(pttBtn);
+    pointer(pttBtn, 'pointerup');
 
     expect(mockSocket.pttAbort).toHaveBeenCalledWith('radio1');
     expect(mockSocket.pttEnd).not.toHaveBeenCalled();
   });
 
-  it('handles onMouseLeave during PTT', async () => {
+  it('releases on pointer cancellation before the button is released', async () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
     const pttBtn = ptt('ALPHA');
 
     await act(async () => {
-      fireEvent.mouseDown(pttBtn);
+      pointer(pttBtn, 'pointerdown');
     });
     expect(mockSocket.pttStart).toHaveBeenCalled();
     act(() => { handlers['ptt_started']({ sync_applies: false }); });
 
-    fireEvent.mouseLeave(pttBtn);
+    pointer(pttBtn, 'pointercancel');
     expect(mockSocket.pttEnd).toHaveBeenCalledWith('radio1');
   });
 
-  it('responds to websocket state updates correctly', () => {
+  it('applies confirmed radio updates and only acknowledges requested PTT holds', async () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
     const pttBtn = ptt('ALPHA');
-
     act(() => { handlers['tuned']({ frequency_hz: 8000000 }); });
     expect(screen.getByText('8.0000')).toBeInTheDocument();
-
     act(() => { handlers['mode_changed']({ mode: 'Cypher' }); });
     expect(screen.getByTestId('mode-dial')).toHaveTextContent('Cypher');
-
     act(() => { handlers['ptt_started']({ sync_applies: false }); });
-    expect(pttBtn).toHaveTextContent('TX');
-
+    expect(pttBtn).toHaveTextContent('PUSH TO TALK');
+    await act(async () => { pointer(pttBtn, 'pointerdown'); });
     act(() => { handlers['ptt_started']({ sync_applies: true }); });
     expect(pttBtn).toHaveTextContent('CRYPTO SYNC…');
-
     act(() => { handlers['secure_tx']({}); });
     expect(pttBtn).toHaveTextContent('SECURE TX');
-
+    pointer(pttBtn, 'pointerup');
     act(() => { handlers['ptt_ended']({}); });
     expect(pttBtn).toHaveTextContent('PUSH TO TALK');
-
-    // Test that aborting also returns to IDLE state
+    await act(async () => { pointer(pttBtn, 'pointerdown'); });
     act(() => { handlers['ptt_started']({ sync_applies: true }); });
     expect(pttBtn).toHaveTextContent('CRYPTO SYNC…');
+    pointer(pttBtn, 'pointerup');
     act(() => { handlers['ptt_aborted']({}); });
     expect(pttBtn).toHaveTextContent('PUSH TO TALK');
   });
@@ -382,13 +406,13 @@ describe('Radio', () => {
 
     // Keying radio 2 keys only radio 2.
     await act(async () => {
-      fireEvent.mouseDown(ptt('ALPHA/R2'));
+      pointer(ptt('ALPHA/R2'), 'pointerdown');
     });
     expect(mockSocket.pttStart).toHaveBeenCalledWith('145.5125 MHz', 'Plain', 'trainee-1#2');
     act(() => { handlers['ptt_started']({ sync_applies: false, radio_id: 'trainee-1#2' }); });
     expect(ptt('ALPHA/R2')).toHaveTextContent('TX');
     expect(ptt('ALPHA')).toHaveTextContent('PUSH TO TALK');
-    fireEvent.mouseUp(ptt('ALPHA/R2'));
+    pointer(ptt('ALPHA/R2'), 'pointerup');
     expect(mockSocket.pttEnd).toHaveBeenCalledWith('trainee-1#2');
 
     // The radio's own numpad key keys it too.
@@ -416,14 +440,31 @@ describe('Radio', () => {
     expect(screen.getByLabelText('Remove ALPHA/R2')).toBeInTheDocument();
   });
 
-  it('re-declares its extra radios after the socket reconnects', () => {
+  it('waits for authoritative state and restored extra radios before transmitting after reconnect', async () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
     act(() => { handlers['radio_added'](addedRadio({ frequency_hz: 145_500_000, mode: 'Cypher' })); });
-
+    mockSocket.connected = false;
+    act(() => { handlers['close']({}); });
+    expect(screen.getByText(/ALPHA · OFFLINE/)).toBeInTheDocument();
+    expect(ptt('ALPHA')).toBeDisabled();
+    expect(screen.getByLabelText('Tune ALPHA')).toBeDisabled();
     act(() => { handlers['open']({}); });
-
-    // Slot, frequency and mode, so the radio comes back exactly as shown.
+    expect(screen.getByText(/ALPHA · CONNECTING/)).toBeInTheDocument();
+    expect(mockSocket.addRadio).not.toHaveBeenCalled();
+    mockSocket.connected = true;
+    act(() => { handlers['welcome']({ role: 'trainee', frequency_hz: 8_500_000, mode: 'Cypher' }); });
+    expect(screen.getByText('8.5000')).toBeInTheDocument();
+    expect(screen.getAllByTestId('mode-dial')[0]).toHaveTextContent('Cypher');
     expect(mockSocket.addRadio).toHaveBeenCalledWith(2, '145.5000 MHz', 'Cypher');
+    expect(screen.getByText(/ALPHA · RESTORING RADIOS/)).toBeInTheDocument();
+    expect(ptt('ALPHA')).toBeDisabled();
+    await act(async () => { fireEvent.keyDown(window, { code: 'Numpad1' }); });
+    expect(mockSocket.pttStart).not.toHaveBeenCalled();
+    act(() => { handlers['radio_added'](addedRadio({ frequency_hz: 145_500_000, mode: 'Cypher' })); });
+    expect(screen.getByText(/ALPHA · ON NET/)).toBeInTheDocument();
+    expect(ptt('ALPHA')).toBeEnabled();
+    await act(async () => { fireEvent.keyDown(window, { code: 'Numpad1' }); });
+    expect(mockSocket.pttStart).toHaveBeenCalledWith('8.5000 MHz', 'Cypher', 'radio1');
   });
 
   // --- focus (mute every other radio) ------------------------------------- //
@@ -516,18 +557,18 @@ describe('Radio', () => {
     confirmSpy.mockRestore();
   });
 
-  it('handles touch events on PTT button', async () => {
+  it('handles touch pointer events on PTT button', async () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
     const pttBtn = ptt('ALPHA');
 
     await act(async () => {
-      fireEvent.touchStart(pttBtn);
+      pointer(pttBtn, 'pointerdown', 'touch');
     });
     expect(mockAudioIO.startCapture).toHaveBeenCalled();
     expect(mockSocket.pttStart).toHaveBeenCalledWith('7.0000 MHz', 'Plain', 'radio1');
 
     act(() => {
-      fireEvent.touchEnd(pttBtn);
+      pointer(pttBtn, 'pointerup', 'touch');
     });
     expect(mockAudioIO.stopCapture).toHaveBeenCalled();
     expect(mockSocket.pttEnd).toHaveBeenCalledWith('radio1');
@@ -538,10 +579,12 @@ describe('Radio', () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
 
     await act(async () => {
-      fireEvent.mouseDown(ptt('ALPHA'));
+      pointer(ptt('ALPHA'), 'pointerdown');
     });
 
-    expect(mockSocket.pttStart).toHaveBeenCalledWith('7.0000 MHz', 'Plain', 'radio1');
+    expect(mockSocket.pttStart).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Permission denied');
+    expect(mockAudioIO.stopCapture).toHaveBeenCalled();
   });
 
   it('aborts PTT start if ended before audio capture resolves', async () => {
@@ -554,11 +597,11 @@ describe('Radio', () => {
     const pttBtn = ptt('ALPHA');
 
     act(() => {
-      fireEvent.mouseDown(pttBtn);
+      pointer(pttBtn, 'pointerdown');
     });
 
     act(() => {
-      fireEvent.mouseUp(pttBtn);
+      pointer(pttBtn, 'pointerup');
     });
 
     await act(async () => {
@@ -586,13 +629,14 @@ describe('Radio', () => {
 
     expect(screen.getByText('7.0000')).toBeInTheDocument();
     expect(screen.getByTestId('mode-dial')).toHaveTextContent('Plain');
-    expect(screen.queryByText('ON NET')).not.toBeInTheDocument();
+    expect(screen.getByText(/ON NET/)).toBeInTheDocument();
   });
 
   it('disables controls while transmitting', async () => {
     render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
     act(() => { handlers['radio_added'](addedRadio()); });
 
+    await act(async () => { pointer(ptt('ALPHA/R2'), 'pointerdown'); });
     act(() => { handlers['ptt_started']({ radio_id: 'trainee-1#2', sync_applies: false }); });
 
     expect(screen.getByLabelText('Decrease frequency on ALPHA/R2')).toBeDisabled();
@@ -602,4 +646,46 @@ describe('Radio', () => {
     expect(screen.getAllByTestId('mode-dial')[1]).toBeDisabled();
     expect(screen.getByLabelText('Remove ALPHA/R2')).toBeDisabled();
   });
+  it('shows unavailable microphone feedback and blocks both PTT input paths', async () => {
+    micState = { status: 'error', error: 'Allow microphone access in your browser, then retry.', deviceId: '' };
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    expect(screen.getByText('Microphone unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/Allow microphone access/)).toBeInTheDocument();
+    expect(ptt('ALPHA')).toBeDisabled();
+    await act(async () => {
+      pointer(ptt('ALPHA'), 'pointerdown');
+      fireEvent.keyDown(window, { code: 'Numpad1' });
+    });
+    expect(mockAudioIO.startCapture).not.toHaveBeenCalled();
+    expect(mockSocket.pttStart).not.toHaveBeenCalled();
+    setMicState({ status: 'ready', error: null, deviceId: '' });
+    expect(ptt('ALPHA')).toBeEnabled();
+  });
+
+  it('ends the active transmission when its microphone becomes unavailable', async () => {
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    await act(async () => { pointer(ptt('ALPHA'), 'pointerdown'); });
+    act(() => { handlers['ptt_started']({ sync_applies: false }); });
+    expect(ptt('ALPHA')).toHaveTextContent('TX');
+    setMicState({ status: 'error', error: 'Microphone disconnected. Connect a microphone and retry.', deviceId: '' });
+    expect(mockSocket.pttEnd).toHaveBeenCalledWith('radio1');
+    expect(mockAudioIO.stopCapture).toHaveBeenCalled();
+    expect(ptt('ALPHA')).toBeDisabled();
+    expect(ptt('ALPHA')).toHaveTextContent('PUSH TO TALK');
+  });
+
+  it('ends a held net on disconnection and rejects a late transmit acknowledgement', async () => {
+    render(<Radio socket={mockSocket as PivotSocket} login={mockLogin} timezone="UTC" />);
+    await act(async () => { pointer(ptt('ALPHA'), 'pointerdown'); });
+    mockSocket.connected = false;
+    act(() => { handlers['close']({}); });
+    expect(mockAudioIO.stopCapture).toHaveBeenCalled();
+    expect(ptt('ALPHA')).toBeDisabled();
+    expect(screen.getByText(/Connection to the server lost/)).toBeInTheDocument();
+    act(() => { handlers['ptt_started']({ sync_applies: false }); });
+    expect(ptt('ALPHA')).toHaveTextContent('PUSH TO TALK');
+    await act(async () => { fireEvent.keyDown(window, { code: 'Numpad1' }); });
+    expect(mockSocket.pttStart).toHaveBeenCalledTimes(1);
+  });
+
 });

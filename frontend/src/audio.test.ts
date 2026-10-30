@@ -338,13 +338,14 @@ describe("AudioIO", () => {
   });
 
   describe("prewarm", () => {
-    it("swallows exceptions from openMic (e.g., getUserMedia rejection)", async () => {
+    it("reports microphone permission failures during prewarm", async () => {
       const { AudioIO } = await import("./audio");
       vi.mocked(navigator.mediaDevices.getUserMedia).mockRejectedValue(new Error("NotAllowedError"));
       const io = new AudioIO();
 
-      // Should not throw
-      await expect(io.prewarm()).resolves.toBeUndefined();
+      await expect(io.prewarm()).rejects.toThrow("NotAllowedError");
+      expect(io.getMicState().status).toBe("error");
+      expect(io.getMicState().error).toContain("permissions");
     });
 
     it("rejects when navigator.mediaDevices is undefined", async () => {

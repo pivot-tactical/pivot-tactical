@@ -213,4 +213,79 @@ describe('PivotSocket', () => {
 
     expect(handler).not.toHaveBeenCalled();
   });
+  it('requires a welcome snapshot before controls consider the connection ready', () => {
+    const socket = new PivotSocket({});
+    socket.connect();
+    const ws = wsInstances[0];
+    ws.onopen();
+    expect(socket.connected).toBe(false);
+    const snapshot = { role: 'trainee', frequency_hz: 8000000, mode: 'Cypher' };
+    ws.onmessage({ data: JSON.stringify({ type: 'welcome', payload: snapshot }) });
+    expect(socket.connected).toBe(true);
+    expect(socket.welcome).toEqual(snapshot);
+    ws.onclose();
+    expect(socket.connected).toBe(false);
+  });
+
+  it('ignores obsolete socket events after a manual reconnect', () => {
+    const socket = new PivotSocket({});
+    const close = vi.fn();
+    const audio = vi.fn();
+    socket.on('close', close);
+    socket.onAudio(audio);
+    socket.connect();
+    const old = wsInstances[0];
+    old.onopen();
+    socket.disconnect();
+    socket.connect();
+    const current = wsInstances[1];
+    current.onopen();
+    current.onmessage({ data: JSON.stringify({ type: 'welcome', payload: { role: 'trainee' } }) });
+    const closeCount = close.mock.calls.length;
+    old.onclose();
+    old.onopen();
+    old.onmessage({ data: new ArrayBuffer(8) });
+    old.onmessage({ data: JSON.stringify({ type: 'welcome', payload: { role: 'instructor' } }) });
+    expect(socket.connected).toBe(true);
+    expect(socket.welcome).toEqual({ role: 'trainee' });
+    expect(close).toHaveBeenCalledTimes(closeCount);
+    expect(audio).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(10000);
+    expect(wsInstances).toHaveLength(2);
+    expect(current.send).toHaveBeenCalledTimes(1);
+    expect(old.send).not.toHaveBeenCalled();
+  });
+
+  it('detects a half-open connection and reconnects after missing server replies', () => {
+    const socket = new PivotSocket({});
+    const closed = vi.fn();
+    socket.on('close', closed);
+    socket.connect();
+    const ws = wsInstances[0];
+    ws.onopen();
+    ws.onmessage({ data: JSON.stringify({ type: 'welcome', payload: { role: 'trainee' } }) });
+    vi.advanceTimersByTime(30000);
+    expect(socket.connected).toBe(false);
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(ws.close).toHaveBeenCalled();
+    vi.advanceTimersByTime(1500);
+    expect(wsInstances).toHaveLength(2);
+  });
+
+  it('keeps a responsive connection alive and times out an unanswered handshake', () => {
+    const socket = new PivotSocket({});
+    socket.connect();
+    const ws = wsInstances[0];
+    ws.onopen();
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(10000);
+      ws.onmessage({ data: JSON.stringify({ type: 'heartbeat', payload: {} }) });
+    }
+    expect(ws.close).not.toHaveBeenCalled();
+    socket.disconnect();
+    socket.connect();
+    vi.advanceTimersByTime(30000);
+    expect(wsInstances[1].close).toHaveBeenCalled();
+  });
+
 });

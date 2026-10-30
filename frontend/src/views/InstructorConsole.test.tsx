@@ -4,6 +4,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { InstructorConsole } from './InstructorConsole';
 import { api } from '../api';
 import { PivotSocket } from '../ws';
+import { AudioIO } from '../audio';
 
 // A fully-formed EventRow for the running log, overridable per test.
 function makeEvent(overrides: Record<string, unknown> = {}) {
@@ -28,26 +29,32 @@ function makeEvent(overrides: Record<string, unknown> = {}) {
   };
 }
 
-// Mock audio
+// A stable external-store snapshot mirrors AudioIO's readiness subscription.
 vi.mock('../audio', () => ({
-  AudioIO: vi.fn().mockImplementation(() => ({
-    init: vi.fn().mockResolvedValue(undefined),
-    prewarm: vi.fn().mockResolvedValue(undefined),
-    startCapture: vi.fn().mockResolvedValue(undefined),
-    stopCapture: vi.fn(),
-    setVolume: vi.fn(),
-    play: vi.fn(),
-    resume: vi.fn(),
-    pause: vi.fn(),
-    close: vi.fn(),
-    src: ''
-  })),
+  AudioIO: vi.fn().mockImplementation(() => {
+    let state = { status: 'ready', error: null, deviceId: '' };
+    const listeners = new Set<Function>();
+    return {
+      getMicState: () => state,
+      onMicState: (listener: Function) => { listeners.add(listener); return () => listeners.delete(listener); },
+      setMicState: (next: typeof state) => { state = next; listeners.forEach((listener) => listener(state)); },
+      getInputLevel: vi.fn(() => 0),
+      setInputDevice: vi.fn().mockResolvedValue(undefined),
+      init: vi.fn().mockResolvedValue(undefined),
+      prewarm: vi.fn().mockResolvedValue(undefined),
+      startCapture: vi.fn().mockResolvedValue(undefined),
+      stopCapture: vi.fn(),
+      setVolume: vi.fn(),
+      play: vi.fn(),
+      close: vi.fn(),
+    };
+  }),
   loadVolume: vi.fn(() => 1),
   saveVolume: vi.fn(),
   parseTaggedAudio: vi.fn(),
   pcmLevel: vi.fn(),
   playClick: vi.fn(),
-  playSyncTone: vi.fn()
+  playSyncTone: vi.fn(),
 }));
 
 // Mock api
@@ -63,6 +70,8 @@ vi.mock('../api', () => ({
     events: vi.fn().mockResolvedValue([]),
     exportSession: vi.fn().mockResolvedValue(undefined),
     getConfig: vi.fn().mockResolvedValue({}),
+    updateSettings: vi.fn().mockResolvedValue({ applied: {} }),
+    scenario: vi.fn().mockResolvedValue({}),
     bandProfile: vi.fn().mockResolvedValue({ crypto_enabled: true }),
     terminals: vi.fn().mockResolvedValue({ session_active: false, terminals: [] }),
     refreshUpdates: vi.fn().mockResolvedValue({ standing: 'current' }),
@@ -82,34 +91,46 @@ vi.mock('../api', () => ({
   getToken: vi.fn().mockReturnValue('mock-token'),
 }));
 
-// Mock ws
-vi.mock('../ws', () => {
-  return {
-    PivotSocket: vi.fn().mockImplementation(() => {
-      let handlers: Record<string, Function[]> = {};
-      return {
-        on: vi.fn((event, handler) => {
-          if (!handlers[event]) handlers[event] = [];
-          handlers[event].push(handler);
-          return vi.fn(); // return a cleanup function "off"
-        }),
-        onAudio: vi.fn(),
-        connect: vi.fn(),
-        disconnect: vi.fn(),
-        send: vi.fn(),
-        instrPttStart: vi.fn(),
-        instrPttEnd: vi.fn(),
-        instrPttAbort: vi.fn(),
-        instrTune: vi.fn(),
-        instrMode: vi.fn(),
-        instrRxNoise: vi.fn(),
-        // helper to simulate socket events
-        emit: (event: string, payload: any) => {
-          if (handlers[event]) handlers[event].forEach(h => h(payload));
-        }
-      };
-    })
-  };
+// Emulate the authenticated handshake before loading console data.
+vi.mock('../ws', () => ({
+  PivotSocket: vi.fn().mockImplementation(() => {
+    const handlers = new Map<string, Set<Function>>();
+    const socket = {
+      connected: false,
+      on: vi.fn((event: string, handler: Function) => {
+        if (!handlers.has(event)) handlers.set(event, new Set());
+        handlers.get(event)!.add(handler);
+        return () => handlers.get(event)?.delete(handler);
+      }),
+      onAudio: vi.fn(),
+      connect: vi.fn(() => {
+        socket.connected = true;
+        queueMicrotask(() => socket.emit('welcome', { role: 'instructor' }));
+      }),
+      disconnect: vi.fn(() => { socket.connected = false; }),
+      send: vi.fn(),
+      sendAudio: vi.fn(),
+      instrPttStart: vi.fn(),
+      instrPttEnd: vi.fn(),
+      instrPttAbort: vi.fn(),
+      instrTune: vi.fn(),
+      instrMode: vi.fn(),
+      instrRxNoise: vi.fn(),
+      emit: (event: string, payload: unknown) => {
+        if (event === 'close') socket.connected = false;
+        if (event === 'open' || event === 'welcome') socket.connected = true;
+        handlers.get(event)?.forEach((handler) => handler(payload));
+      },
+    };
+    return socket;
+  }),
+}));
+
+beforeEach(() => {
+  localStorage.clear();
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+  vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
 });
 
 // Avoid offsetHeight/Width issues in jsdom by mocking
@@ -562,7 +583,7 @@ describe('running event log timestamps', () => {
       fireEvent.click(screen.getByRole('button', { name: /add radio/i }));
     });
     expect(api.addInstructorRadio).toHaveBeenCalled();
-    expect(await screen.findByText('Radio 1')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Push to talk on Radio 1' })).toBeInTheDocument();
 
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => false);
     const removeBtn = screen.getByRole('button', { name: 'Remove radio Radio 1' });
@@ -578,5 +599,125 @@ describe('running event log timestamps', () => {
     });
     expect(api.removeInstructorRadio).toHaveBeenCalledWith('instr-1');
     confirmSpy.mockRestore();
+  });
+});
+
+
+describe('instructor transmission readiness', () => {
+  const radio = {
+    radio_id: 'instr-ready', name: 'Training radio', is_instructor: true,
+    frequency: '30.0000 MHz', frequency_hz: 30_000_000, band_region: 'VHF',
+    mode: 'Plain', status: 'idle', rx_noise: true,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.instructorRadios).mockResolvedValue([radio] as any);
+    vi.mocked(api.recentEvents).mockResolvedValue([]);
+    vi.mocked(api.sessions).mockResolvedValue([]);
+    vi.mocked(api.terminals).mockResolvedValue({ session_active: false, terminals: [] } as any);
+  });
+  afterEach(cleanup);
+
+  async function openConsole() {
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+    return {
+      socket: (PivotSocket as any).mock.results[0].value,
+      audio: (AudioIO as any).mock.results[0].value,
+      ptt: screen.getByRole('button', { name: 'Push to talk on Training radio' }),
+    };
+  }
+
+  it('blocks keyboard transmission without a microphone and releases a hold when input is lost', async () => {
+    const { socket, audio, ptt } = await openConsole();
+    await act(async () => audio.setMicState({ status: 'error', error: 'Microphone permission is blocked.', deviceId: '' }));
+    expect(ptt).toBeDisabled();
+    expect(screen.getByText('Microphone permission is blocked.')).toBeInTheDocument();
+    await act(async () => fireEvent.keyDown(window, { code: 'Numpad1' }));
+    expect(audio.startCapture).not.toHaveBeenCalled();
+    expect(socket.instrPttStart).not.toHaveBeenCalled();
+
+    await act(async () => audio.setMicState({ status: 'ready', error: null, deviceId: '' }));
+    await act(async () => fireEvent.keyDown(window, { code: 'Numpad1' }));
+    expect(socket.instrPttStart).toHaveBeenCalledWith('instr-ready', '30.0000 MHz', 'Plain');
+    await act(async () => socket.emit('ptt_started', { radio_id: 'instr-ready', sync_applies: false }));
+    expect(ptt).toHaveAttribute('aria-pressed', 'true');
+    await act(async () => audio.setMicState({ status: 'error', error: 'Microphone disconnected.', deviceId: '' }));
+    expect(socket.instrPttEnd).toHaveBeenCalledWith('instr-ready');
+    expect(audio.stopCapture).toHaveBeenCalled();
+    expect(ptt).toBeDisabled();
+    expect(ptt).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('ends an active transmission on disconnect and requires a new hold after reconnecting', async () => {
+    const { socket, audio, ptt } = await openConsole();
+    await act(async () => fireEvent.keyDown(window, { code: 'Numpad1' }));
+    await act(async () => socket.emit('ptt_started', { radio_id: 'instr-ready', sync_applies: false }));
+    expect(ptt).toHaveAttribute('aria-pressed', 'true');
+    await act(async () => socket.emit('close', {}));
+    expect(socket.instrPttEnd).toHaveBeenCalledWith('instr-ready');
+    expect(audio.stopCapture).toHaveBeenCalled();
+    expect(ptt).toBeDisabled();
+    expect(screen.getByText(/Connection to the server lost/)).toBeInTheDocument();
+    socket.instrPttStart.mockClear();
+    await act(async () => socket.emit('welcome', { role: 'instructor' }));
+    expect(ptt).not.toBeDisabled();
+    expect(ptt).toHaveAttribute('aria-pressed', 'false');
+    expect(socket.instrPttStart).not.toHaveBeenCalled();
+    await act(async () => fireEvent.keyDown(window, { code: 'Numpad1' }));
+    expect(socket.instrPttStart).toHaveBeenCalledTimes(1);
+    await act(async () => fireEvent.keyUp(window, { code: 'Numpad1' }));
+  });
+});
+
+
+describe('instructor request failures', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.instructorRadios).mockResolvedValue([]);
+    vi.mocked(api.recentEvents).mockResolvedValue([]);
+    vi.mocked(api.sessions).mockResolvedValue([]);
+    vi.mocked(api.terminals).mockResolvedValue({ session_active: false, terminals: [] } as any);
+    vi.mocked(api.getConfig).mockResolvedValue({});
+    vi.mocked(api.updateSettings).mockResolvedValue({ applied: {} });
+  });
+  afterEach(cleanup);
+
+  it('retries console loading rather than reporting an empty successful session', async () => {
+    vi.mocked(api.instructorRadios).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={false} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+    expect(screen.getByRole('button', { name: 'Start Session' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Cannot reach the server');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Retry console data' })));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start Session' })).not.toBeDisabled();
+  });
+
+  it('keeps settings disabled until a failed load is retried successfully', async () => {
+    vi.mocked(api.getConfig).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={true} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+    expect(screen.getByRole('button', { name: 'Save Settings' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Cannot reach the server');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Retry settings' })));
+    expect(screen.getByRole('button', { name: 'Save Settings' })).not.toBeDisabled();
+  });
+
+  it('reports failed saves without claiming success and allows retry', async () => {
+    vi.mocked(api.updateSettings).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await act(async () => {
+      render(<InstructorConsole timezone="UTC" mustChangePassword={true} onTimezone={vi.fn()} onLogout={vi.fn()} />);
+    });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save Settings' })));
+    expect(screen.getByRole('alert')).toHaveTextContent('Cannot reach the server');
+    expect(screen.queryByRole('button', { name: 'Saved ✓' })).not.toBeInTheDocument();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save Settings' })));
+    expect(screen.getByRole('button', { name: 'Saved ✓' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

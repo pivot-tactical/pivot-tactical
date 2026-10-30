@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import type { ReleaseInfo, UpdateStatus } from "../api";
-import { AudioIO, parseTaggedAudio, pcmLevel, playClick, playSyncTone } from "../audio";
+import { AudioIO, parseTaggedAudio, pcmLevel } from "../audio";
 import { ConnectionBanner } from "../components/ConnectionBanner";
 import { InstrRadioCard } from "../components/InstrRadioCard";
 import type { ConnState } from "../components/ConnectionBanner";
 import { SevenSegmentClock } from "../components/SevenSegmentClock";
 import { netKey, snapToGrid } from "../freq";
-import type { EventRow, LogEntry, NetScenario, RadioState, SessionLogMarker, SessionSummary, Terminal, TxPhase } from "../types";
+import type { EventRow, LogEntry, NetScenario, RadioState, SessionLogMarker, SessionSummary, Terminal } from "../types";
 import { PivotSocket } from "../ws";
+import { AudioControls, useMicState } from "../components/AudioControls";
+import { PttShortcuts } from "../components/PttShortcuts";
+import { usePtt, shortcutLabel } from "../usePtt";
+import { AarReview } from "./AarReview";
+import { errorMessage } from "../errors";
 
 type Tab = "radios" | "monitor" | "aar" | "settings";
 
@@ -74,7 +79,33 @@ function useInstructorConsoleData() {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionName, setSessionName] = useState("");
-  const [conn, setConn] = useState<ConnState>("online");
+  const [conn, setConn] = useState<ConnState>("connecting");
+  const [dataError, setDataError] = useState("");
+  const [loadingData, setLoadingData] = useState(true);
+  const [sessionBusy, setSessionBusy] = useState(false);
+  const [sessionError, setSessionError] = useState("");
+  const sessionLock = useRef(false);
+  const loadEpoch = useRef(0);
+  const reloadData = useCallback(async () => {
+    const epoch = ++loadEpoch.current;
+    setLoadingData(true);
+    setDataError("");
+    try {
+      const [radioRows, history, sessions, state] = await Promise.all([
+        api.instructorRadios(), api.recentEvents(), api.sessions(), api.terminals(),
+      ]);
+      if (loadEpoch.current !== epoch) return;
+      setRadios(radioRows);
+      setEntries((prev) => mergeHistoryAndSessions(history, sessions, prev));
+      setSessionActive(state.session_active);
+      if (state.session_name) setSessionName(state.session_name);
+      setTerminals(state.terminals.filter((t) => !t.is_instructor));
+    } catch (cause) {
+      if (loadEpoch.current === epoch) setDataError(errorMessage(cause, "Could not load console data. Retry to refresh the radios and event log."));
+    } finally {
+      if (loadEpoch.current === epoch) setLoadingData(false);
+    }
+  }, []);
   const restartingRef = useRef(false);
   const restartPollRef = useRef<number | undefined>(undefined);
   const socketRef = useRef<PivotSocket | null>(null);
@@ -100,7 +131,17 @@ function useInstructorConsoleData() {
 
   useEffect(() => {
     const sock = new PivotSocket(() => ({}));
-    sock.on("open", () => setConn("online"));
+    sock.on("open", () => setConn("connecting"));
+    sock.on("welcome", (p) => {
+      if (p.role !== "instructor") {
+        setConn("offline");
+        setDataError("Your instructor session has expired. Log out and sign in again.");
+        return;
+      }
+      setConn("online");
+      void reloadData();
+    });
+    sock.on("error", (p) => setSessionError(p?.detail || "The radio command failed. Please try again."));
     sock.on("close", () => {
       if (restartingRef.current) { setConn("restarting"); startRestartPoll(); }
       else setConn("offline");
@@ -165,25 +206,12 @@ function useInstructorConsoleData() {
     window.addEventListener("pointerdown", enable, { once: true });
     window.addEventListener("keydown", enable, { once: true });
 
-    api.instructorRadios().then(setRadios).catch(() => {});
-    // Seed the running log from the DB so entries (and session start/stop
-    // dividers) recorded before a refresh, a server restart or an update are
-    // still listed — with clips playable and transcripts visible. Live
-    // broadcasts may land before this resolves, so merge by key with the live
-    // entries kept in place.
-    Promise.all([api.recentEvents(), api.sessions()]).then(([history, sessions]) => {
-      setEntries((prev) => mergeHistoryAndSessions(history, sessions, prev));
-    }).catch(() => {});
-    api.terminals().then((t) => {
-      setSessionActive(t.session_active);
-      // Restore the running scenario's name after a refresh or a server restart
-      // (a resumed session has no session_started broadcast to carry it).
-      if (t.session_name) setSessionName(t.session_name);
-      setTerminals(t.terminals.filter((x) => !x.is_instructor));
-    }).catch(() => {});
 
     return () => {
+      loadEpoch.current++;
       sock.disconnect();
+      window.removeEventListener("pointerdown", enable);
+      window.removeEventListener("keydown", enable);
       io.close();
       window.clearInterval(restartPollRef.current);
     };
@@ -211,15 +239,22 @@ function useInstructorConsoleData() {
   }, []);
 
   const toggleSession = useCallback(async () => {
-    if (sessionActive) {
-      if (!window.confirm("Are you sure you want to stop the current session?")) return;
-      await api.endSession();
-      setSessionActive(false);
-    } else {
-      await api.startSession(sessionName.trim() || "Untitled Exercise");
-      setSessionActive(true);
+    if (sessionLock.current || conn !== "online" || loadingData || dataError) return;
+    if (sessionActive && !window.confirm("Are you sure you want to stop the current session?")) return;
+    sessionLock.current = true;
+    setSessionBusy(true);
+    setSessionError("");
+    try {
+      if (sessionActive) await api.endSession();
+      else await api.startSession(sessionName.trim() || "Untitled Exercise");
+      setSessionActive(!sessionActive);
+    } catch (cause) {
+      setSessionError(errorMessage(cause, "Could not change the session. Please try again."));
+    } finally {
+      sessionLock.current = false;
+      setSessionBusy(false);
     }
-  }, [sessionActive, sessionName]);
+  }, [sessionActive, sessionName, conn, loadingData, dataError]);
 
   return {
     radios, setRadios,
@@ -235,6 +270,7 @@ function useInstructorConsoleData() {
     updateEvent,
     enterRestarting,
     toggleSession,
+    dataError, loadingData, reloadData, sessionBusy, sessionError,
   };
 }
 
@@ -264,6 +300,7 @@ export function InstructorConsole({
     updateEvent,
     enterRestarting,
     toggleSession,
+    dataError, loadingData, reloadData, sessionBusy, sessionError,
   } = useInstructorConsoleData();
 
   return (
@@ -280,14 +317,18 @@ export function InstructorConsole({
             disabled={sessionActive}
             onChange={(e) => setSessionName(e.target.value)}
           />
-          <button className={`btn ${sessionActive ? "btn--danger" : "btn--primary"}`} onClick={toggleSession}>
-            {sessionActive ? "Stop Session" : "Start Session"}
+          <button className={`btn ${sessionActive ? "btn--danger" : "btn--primary"}`} onClick={toggleSession} disabled={sessionBusy || conn !== "online" || loadingData || !!dataError}>
+            {sessionBusy ? "Saving…" : sessionActive ? "Stop Session" : "Start Session"}
           </button>
         </div>
         <SevenSegmentClock timezone={timezone} />
         <button className="btn btn--ghost" onClick={onLogout}>Log out</button>
       </header>
 
+      {loadingData && <p role="status" className="muted">Loading console data…</p>}
+      {dataError && <div role="alert" className="login__hint">{dataError} <button className="btn" onClick={() => void reloadData()}>Retry console data</button></div>}
+      {sessionError && <p role="alert" className="login__hint">{sessionError}</p>}
+      <AudioControls audio={audio.current} />
       <nav className="console__tabs" role="tablist" aria-label="Console views">
         {(["radios", "monitor", "aar", "settings"] as Tab[]).map((t) => (
           <button
@@ -305,9 +346,9 @@ export function InstructorConsole({
       </nav>
 
       <main className="console__body" role="tabpanel" id="tabpanel" aria-labelledby={`tab-${tab}`}>
-        {tab === "radios" && <RadiosTab radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} entries={entries} timezone={timezone} netScenarios={netScenarios} rxLevels={rxLevels} onEventUpdate={updateEvent} />}
-        {tab === "monitor" && <MonitorTab terminals={terminals} />}
-        {tab === "aar" && <AarTab timezone={timezone} />}
+        {tab === "radios" && <RadiosTab connected={conn === "online" && !loadingData && !dataError} radios={radios} socket={socketRef.current} audio={audio.current} onChange={setRadios} entries={entries} timezone={timezone} netScenarios={netScenarios} rxLevels={rxLevels} onEventUpdate={updateEvent} />}
+        {tab === "monitor" && <MonitorTab terminals={terminals} disabled={conn !== "online" || loadingData || !!dataError} />}
+        {tab === "aar" && <AarReview timezone={timezone} />}
         {tab === "settings" && <SettingsTab mustChangePassword={mustChangePassword} onTimezone={onTimezone} socket={socketRef.current} onRestart={enterRestarting} sessionActive={sessionActive} />}
       </main>
     </div>
@@ -327,6 +368,7 @@ function scenarioFor(netScenarios: NetScenario[], hz: number): NetScenario | und
 type RxLevels = { current: Record<string, number> };
 
 interface RadiosTabProps {
+  connected: boolean;
   radios: RadioState[];
   socket: PivotSocket | null;
   audio: AudioIO;
@@ -338,112 +380,51 @@ interface RadiosTabProps {
   onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
 }
 
-function useInstructorPtt(
-  socket: PivotSocket | null,
-  audio: AudioIO,
-  radios: RadioState[],
-  onChange: (r: RadioState[]) => void,
-) {
-  // TX phase per keyed radio (absent = IDLE). Several radios can be keyed at
-  // once — the one mic feeds them all, and each runs its own PTT/crypto-sync
-  // lifecycle on the server (ptt_* messages carry the radio_id).
-  const [phases, setPhases] = useState<Record<string, TxPhase>>({});
-  // Radios this console is currently holding keyed: gates duplicate key-downs
-  // and decides when the last release stops the shared mic capture. A ref —
-  // start/end fire from event handlers and must see the live set.
-  const keyed = useRef<Set<string>>(new Set());
-
+function RadiosTab({ connected, radios, socket, audio, onChange, entries, timezone, netScenarios, rxLevels, onEventUpdate }: RadiosTabProps) {
+  const mic = useMicState(audio);
+  const canTransmit = connected && mic.status === "ready";
+  const { phases, start, end, shortcuts, setShortcut, error: pttError } = usePtt({
+    audio, socket, enabled: canTransmit, instructor: true,
+    radios: radios.map((r) => ({ id: r.radio_id, frequency: r.frequency, mode: r.mode })),
+  });
+  const [actionError, setActionError] = useState("");
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!socket) return;
-    const setPhase = (id: string, ph: TxPhase) =>
-      setPhases((prev) => ({ ...prev, [id]: ph }));
-    const clearPhase = (id: string) =>
-      setPhases((prev) => { const next = { ...prev }; delete next[id]; return next; });
     const offs = [
-      socket.on("ptt_started", (p) => {
-        if (!p.radio_id) return;
-        setPhase(p.radio_id, p.sync_applies ? "CRYPTO_SYNC" : "TX");
-        if (p.sync_applies) playSyncTone();
-      }),
-      socket.on("secure_tx", (p) => { if (p.radio_id) setPhase(p.radio_id, "SECURE_TX"); }),
-      socket.on("ptt_ended", (p) => { if (p.radio_id) clearPhase(p.radio_id); }),
-      socket.on("ptt_aborted", (p) => { if (p.radio_id) clearPhase(p.radio_id); }),
       socket.on("tuned", (r) => onChange(updateRadio(radios, r))),
       socket.on("mode_changed", (r) => onChange(updateRadio(radios, r))),
     ];
-    return () => offs.forEach((o) => o && o());
+    return () => offs.forEach((off) => off());
   }, [socket, radios, onChange]);
-
-  const startTx = useCallback(async (r: RadioState) => {
-    if (!socket || keyed.current.has(r.radio_id)) return;
-    playClick();
-    keyed.current.add(r.radio_id);
-    try {
-      await audio.startCapture((pcm) => socket.sendAudio(pcm));
-    } catch {
-      /* mic blocked: control proceeds, no audio reaches the net */
-    }
-    // A quick tap can release before the mic finished opening — don't key a
-    // radio whose end has already been sent.
-    if (!keyed.current.has(r.radio_id)) return;
-    socket.instrPttStart(r.radio_id, r.frequency, r.mode);
-  }, [socket, audio]);
-
-  const endTx = useCallback((r: RadioState) => {
-    if (!socket || !keyed.current.has(r.radio_id)) return;
-    keyed.current.delete(r.radio_id);
-    playClick(700);
-    if (keyed.current.size === 0) audio.stopCapture();
-    if (phases[r.radio_id] === "CRYPTO_SYNC") socket.instrPttAbort(r.radio_id);
-    else socket.instrPttEnd(r.radio_id);
-  }, [socket, phases, audio]);
-
-  // Per-radio PTT hotkey: the numpad key with the radio's number (§3.4.5) — one
-  // key per radio, laid out like a keying panel under the operating hand. Each
-  // card shows its own key so there is no ambiguity about which radio keys up.
-  // Matched on e.code, which is the physical key, so it works with Num Lock off.
-  useEffect(() => {
-    const numbered = (e: KeyboardEvent): RadioState | undefined => {
-      const m = e.code.match(/^Numpad([1-9])$/);
-      return m ? radios[parseInt(m[1], 10) - 1] : undefined;
-    };
-    const down = (e: KeyboardEvent) => {
-      if (e.repeat || typing(e)) return;
-      const r = numbered(e);
-      if (r) { e.preventDefault(); startTx(r); }
-    };
-    const up = (e: KeyboardEvent) => {
-      if (typing(e)) return;
-      const r = numbered(e);
-      if (r) { e.preventDefault(); endTx(r); }
-    };
-    window.addEventListener("keydown", down); window.addEventListener("keyup", up);
-    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
-  }, [radios, startTx, endTx]);
-
-  return { phases, startTx, endTx };
-}
-
-function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScenarios, rxLevels, onEventUpdate }: RadiosTabProps) {
-  const { phases, startTx, endTx } = useInstructorPtt(socket, audio, radios, onChange);
 
   async function addRadio() {
     // Omit the frequency so the server applies the operator-configured
     // default start frequency (Settings → Default start frequency).
-    const r = await api.addInstructorRadio();
-    onChange([...radios, r]);
+    if (busy || !connected) return;
+    setBusy(true); setActionError("");
+    try {
+      const r = await api.addInstructorRadio();
+      onChange([...radios, r]);
+    } catch (cause) { setActionError(errorMessage(cause, "Could not add the radio. Please try again.")); }
+    finally { setBusy(false); }
   }
   async function removeRadio(id: string) {
     if (!window.confirm("Are you sure you want to remove this radio?")) return;
-    await api.removeInstructorRadio(id);
-    delete rxLevels.current[id];
-    // Local filter for snappiness; the server's instructor_radios broadcast
-    // follows with the surviving radios renumbered (Radio 1…N in order).
-    onChange(radios.filter((r) => r.radio_id !== id));
+    if (busy || !connected) return;
+    setBusy(true); setActionError("");
+    try {
+      await api.removeInstructorRadio(id);
+      delete rxLevels.current[id];
+      onChange(radios.filter((r) => r.radio_id !== id));
+    } catch (cause) { setActionError(errorMessage(cause, "Could not remove the radio. Please try again.")); }
+    finally { setBusy(false); }
   }
 
   return (
     <div className="radios-layout">
+      {(actionError || pttError) && <p role="alert" className="login__hint">{actionError || pttError}</p>}
+      <PttShortcuts radios={radios.map((r) => ({ id: r.radio_id, name: r.name }))} shortcuts={shortcuts} onChange={setShortcut} />
       <div className="instr-radios">
         {radios.map((r, i) => (
           <InstrRadioCard
@@ -455,15 +436,18 @@ function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScen
             phase={phases[r.radio_id] ?? "IDLE"}
             scenario={scenarioFor(netScenarios, r.frequency_hz)}
             rxLevels={rxLevels}
-            onStart={startTx}
-            onEnd={endTx}
+            onStart={(radio) => start(radio.radio_id)}
+            onEnd={(radio) => end(radio.radio_id)}
+            pttDisabled={!canTransmit}
+            controlsDisabled={!connected || busy}
+            shortcutLabel={shortcutLabel(shortcuts[i])}
             onRemove={removeRadio}
           />
         ))}
       </div>
       {/* Below the radios, right-aligned — out of the way, but never scrolled
           out of sight like a grid tile would be when a row is exactly full. */}
-      <button className="instr-radios__add" onClick={addRadio}>+ Add Radio</button>
+      <button className="instr-radios__add" onClick={addRadio} disabled={!connected || busy}>+ Add Radio</button>
       <LiveLogTab entries={entries} timezone={timezone} onEventUpdate={onEventUpdate} />
     </div>
   );
@@ -476,17 +460,25 @@ function LiveLogTab({ entries, timezone, onEventUpdate }: {
   onEventUpdate: (ev: Partial<EventRow> & { event_id: string }) => void;
 }) {
   const [audio] = useState(() => new Audio());
+  const [playError, setPlayError] = useState("");
+  useEffect(() => {
+    const failed = () => setPlayError("Could not play the recording. Check the connection and try again.");
+    audio.addEventListener("error", failed);
+    return () => { audio.pause(); audio.removeEventListener("error", failed); };
+  }, [audio]);
   // Two independent playbacks of the one stored recording: "clean" is the raw
   // pre-DSP capture (no noise); "dirty" re-renders it through the original DSP
   // profile so the instructor hears it as it was received over the air.
   function play(ev: EventRow, mode: "clean" | "dirty") {
+    setPlayError("");
     audio.pause();
     audio.src = api.eventAudioUrl(ev.event_id, mode, "cypher");
-    audio.play().catch(() => {});
+    audio.play().catch(() => setPlayError("Could not play the recording. Check the connection and try again."));
   }
   return (
     <section className="card pad logcard">
       <h3>Running Event Log</h3>
+      {playError && <p role="alert" className="login__hint">{playError}</p>}
       {entries.length === 0 && <p className="muted">Transmissions will appear here as they happen.</p>}
       <div className="log">
         {entries.map((entry) => {
@@ -741,14 +733,20 @@ function renderDiff(original: string | null, edited: string): React.ReactNode {
   return words.map((n, idx) => <span key={idx}>{idx > 0 ? " " : ""}{n}</span>);
 }
 
-function MonitorTab({ terminals }: { terminals: Terminal[] }) {
+function MonitorTab({ terminals, disabled }: { terminals: Terminal[]; disabled: boolean }) {
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   async function kick(id: string) {
-    if (!window.confirm("Are you sure you want to kick this trainee?")) return;
-    await api.scenario({ kick_trainee_id: id });
+    if (disabled || busy || !window.confirm("Are you sure you want to kick this trainee?")) return;
+    setBusy(true); setError("");
+    try { await api.scenario({ kick_trainee_id: id }); }
+    catch (cause) { setError(errorMessage(cause, "Could not disconnect the trainee. Please try again.")); }
+    finally { setBusy(false); }
   }
   return (
     <section className="card pad">
       <h3>Connected Terminals ({terminals.length})</h3>
+      {error && <p role="alert" className="login__hint">{error}</p>}
       <table className="tbl">
         <thead><tr><th>Callsign</th><th>Frequency</th><th>Mode</th><th>Status</th><th>Last</th><th></th></tr></thead>
         <tbody>
@@ -759,7 +757,7 @@ function MonitorTab({ terminals }: { terminals: Terminal[] }) {
               <td>{t.mode}</td>
               <td>{t.status}</td>
               <td className="mono muted">{t.last_activity.slice(11, 19)}</td>
-              <td><button className="btn btn--ghost" onClick={() => kick(t.radio_id)}>Kick</button></td>
+              <td><button className="btn btn--ghost" onClick={() => kick(t.radio_id)} disabled={disabled || busy}>Kick</button></td>
             </tr>
           ))}
           {terminals.length === 0 && <tr><td colSpan={6} className="muted">No trainees connected.</td></tr>}
@@ -769,30 +767,7 @@ function MonitorTab({ terminals }: { terminals: Terminal[] }) {
   );
 }
 
-// Performance optimization: cache Intl.DateTimeFormat instances by timezone
-// to avoid the ~0.14ms instantiation cost per row when rendering large AAR lists.
 const _fmtCache = new Map<string, Intl.DateTimeFormat>();
-
-// Format a stored UTC timestamp in the configured display timezone (§3.8). Used
-// for the AAR session list; falls back to a bare slice if the browser rejects
-// the timezone name.
-function fmtDateTime(iso: string, tz: string): string {
-  try {
-    let fmt = _fmtCache.get(tz);
-    if (!fmt) {
-      fmt = new Intl.DateTimeFormat([], {
-        timeZone: tz,
-        year: "numeric", month: "short", day: "2-digit",
-        hour: "2-digit", minute: "2-digit", hour12: false,
-      });
-      _fmtCache.set(tz, fmt);
-    }
-    return fmt.format(new Date(iso));
-  } catch {
-    return iso.slice(0, 16).replace("T", " ");
-  }
-}
-
 const _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -840,130 +815,6 @@ function fmtLogStamp(iso: string, tz: string): { date: string; time: string } {
       time: iso.slice(11, 19),
     };
   }
-}
-
-// After Action Review (§3.6.4): pick a past session on the left, review its
-// transmissions on the right, and export the whole thing as plain text, CSV, or
-// a ZIP that also bundles every WAV recording. The export endpoints and the
-// per-format wiring live in api.ts; this tab is their home in the console.
-function AarTab({ timezone }: { timezone: string }) {
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [events, setEvents] = useState<EventRow[]>([]);
-  const [loadingEvents, setLoadingEvents] = useState(false);
-  // Which export format is currently downloading (buttons disable while busy).
-  const [busy, setBusy] = useState<"zip" | "text" | "csv" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Load the session list once; newest first so the most recent exercise is at
-  // the top and pre-selected.
-  useEffect(() => {
-    api.sessions().then((rows) => {
-      const sorted = [...rows].sort((a, b) => b.started_at.localeCompare(a.started_at));
-      setSessions(sorted);
-      setSelectedId((cur) => cur ?? sorted[0]?.id ?? null);
-    }).catch(() => {});
-  }, []);
-
-  // Pull the selected session's transmissions for the review timeline.
-  useEffect(() => {
-    if (!selectedId) { setEvents([]); return; }
-    let cancelled = false;
-    setLoadingEvents(true);
-    api.events(selectedId)
-      .then((rows) => { if (!cancelled) setEvents(rows); })
-      .catch(() => { if (!cancelled) setEvents([]); })
-      .finally(() => { if (!cancelled) setLoadingEvents(false); });
-    return () => { cancelled = true; };
-  }, [selectedId]);
-
-  const selected = sessions.find((s) => s.id === selectedId) ?? null;
-
-  async function doExport(fmt: "zip" | "text" | "csv") {
-    if (!selected) return;
-    setBusy(fmt);
-    setError(null);
-    try {
-      await api.exportSession(selected.id, fmt, selected.name);
-    } catch {
-      setError("Export failed — please try again.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  return (
-    <section className="aar">
-      <div className="aar__bar">
-        <h2 className="mono">{selected ? selected.name : "After Action Review"}</h2>
-        <div className="aar__toggles">
-          <button className="btn" disabled={!selected || busy !== null} onClick={() => doExport("text")} title={!selected ? "Select a session to export" : "Export transcript as text"}>
-            {busy === "text" ? "Exporting…" : "Export Text"}
-          </button>
-          <button className="btn" disabled={!selected || busy !== null} onClick={() => doExport("csv")} title={!selected ? "Select a session to export" : "Export transcript as CSV"}>
-            {busy === "csv" ? "Exporting…" : "Export CSV"}
-          </button>
-          <button className="btn btn--primary" disabled={!selected || busy !== null} onClick={() => doExport("zip")} title={!selected ? "Select a session to export" : "Export audio and transcript as ZIP"}>
-            {busy === "zip" ? "Exporting…" : "Export ZIP + audio"}
-          </button>
-        </div>
-      </div>
-      {error && <div className="aar__error">{error}</div>}
-      <div className="aar__body">
-        <div className="aar__sessions">
-          {sessions.length === 0 && <p className="muted" style={{ padding: 10 }}>No sessions recorded yet. Start a session in the Radios tab to begin recording.</p>}
-          {sessions.map((s) => (
-            <button
-              key={s.id}
-              className={`session ${s.id === selectedId ? "session--active" : ""}`}
-              onClick={() => setSelectedId(s.id)}
-            >
-              <div className="session__name">{s.name}</div>
-              <div className="session__meta">
-                {fmtDateTime(s.started_at, timezone)}
-                {s.event_count != null && ` · ${s.event_count} tx`}
-                {s.ended_at == null && " · live"}
-              </div>
-            </button>
-          ))}
-        </div>
-        <div className="aar__timeline">
-          {loadingEvents && <p className="muted">Loading transmissions…</p>}
-          {!loadingEvents && selected && events.length === 0 && (
-            <p className="muted">No transmissions in this session.</p>
-          )}
-          {!loadingEvents && events.map((ev) => <AarRow key={ev.event_id} ev={ev} />)}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// One read-only transmission in the AAR timeline: timestamp, callsign, channel,
-// crypto mode, who copied it (audibility), the transcript and its duration. A
-// machine transcription below the confidence threshold is tinted amber, an
-// empty one is shown as a muted placeholder, and a hand-corrected one is flagged
-// (§3.5.3) — matching the running log without the inline editing.
-function AarRow({ ev }: { ev: EventRow }) {
-  const low = !ev.transcription_edited &&
-    ev.transcription_confidence != null && ev.transcription_confidence < 0.8;
-  const text = ev.transcription?.trim();
-  const durS = (ev.duration_ms / 1000).toFixed(1);
-  return (
-    <div className="event event--readonly">
-      <span className="event__time mono">{ev.timestamp_start.slice(11, 19)}</span>
-      <span className="mono">{ev.trainee_name}</span>
-      <span className="event__freq mono">{ev.frequency} <small>{ev.band_region}</small></span>
-      <span className="event__mode" title={ev.tx_mode}>{ev.tx_mode === "Cypher" ? "🔒" : "◌"}</span>
-      <span className={`event__aud aud--${ev.audibility.split("-")[0].toLowerCase()}`}>{ev.audibility}</span>
-      <span className={`event__text ${low ? "text--amber" : ""} ${text ? "" : "text--none"}`}>
-        {ev.jammed && <span className="event__jammed" title="Channel was jammed">JAMMED</span>}
-        {text || "(no transcription)"}
-        {ev.transcription_edited && <span className="muted"> [edited]</span>}
-      </span>
-      <span className="event__dur mono">{durS}s</span>
-    </div>
-  );
 }
 
 function fmtBytes(n: number): string {
@@ -1249,7 +1100,12 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
     }
   }
 
-  useEffect(() => { api.getConfig().then(setCfg).catch(() => {}); }, []);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsLoadError, setSettingsLoadError] = useState("");
+  const [settingsError, setSettingsError] = useState("");
+  const [settingsAttempt, setSettingsAttempt] = useState(0);
+  const [cryptoBusy, setCryptoBusy] = useState(false);
   const set = (k: string, v: any) => setCfg((c) => ({ ...c, [k]: v }));
 
   // Live crypto kill switch (formerly on the Scenario tab). Initialised from
@@ -1257,10 +1113,29 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
   // saved setting.
   const [cryptoOn, setCryptoOn] = useState(true);
   useEffect(() => {
-    api.bandProfile().then((p) => setCryptoOn(!!p.crypto_enabled)).catch(() => {});
-  }, []);
+    let cancelled = false;
+    setSettingsLoading(true); setSettingsLoadError("");
+    Promise.all([api.getConfig(), api.bandProfile()]).then(([config, profile]) => {
+      if (cancelled) return;
+      setCfg(config); setCryptoOn(!!profile.crypto_enabled);
+    }).catch((cause) => {
+      if (!cancelled) setSettingsLoadError(errorMessage(cause, "Could not load settings. Please try again."));
+    }).finally(() => { if (!cancelled) setSettingsLoading(false); });
+    return () => { cancelled = true; };
+  }, [settingsAttempt]);
+
+  async function toggleCrypto(enabled: boolean) {
+    if (cryptoBusy) return;
+    setCryptoBusy(true); setSettingsError("");
+    try { await api.scenario({ crypto_enabled: enabled }); setCryptoOn(enabled); }
+    catch (cause) { setSettingsError(errorMessage(cause, "Could not change crypto availability. Please try again.")); }
+    finally { setCryptoBusy(false); }
+  }
 
   async function save() {
+    if (settingsSaving || settingsLoading || settingsLoadError) return;
+    setSettingsSaving(true); setSettingsError("");
+    try {
     const keys = ["whisper_model", "whisper_compute_type", "transcription_confidence_threshold",
       "transcription_skip_under_seconds", "display_timezone", "crypto_delay_ms",
       "default_frequency_hz", "update_channel", "auto_update", "update_check_on_startup"];
@@ -1272,6 +1147,9 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
     setCfg((c) => ({ ...c, ...applied }));
     onTimezone(String(cfg.display_timezone || "UTC"));
     setSaved(true); setTimeout(() => setSaved(false), 1500);
+    } catch (cause) {
+      setSettingsError(errorMessage(cause, "Could not save settings. Please try again."));
+    } finally { setSettingsSaving(false); }
   }
 
   async function changePassword() {
@@ -1280,8 +1158,8 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
       await api.changePassword(pw.current, pw.next);
       setPwMsg("Password changed. Use it next time you log in.");
       setPw({ current: "", next: "" });
-    } catch {
-      setPwMsg("Could not change password (check the current one).");
+    } catch (cause) {
+      setPwMsg(errorMessage(cause, "Could not change password (check the current one)."));
     }
   }
 
@@ -1290,6 +1168,10 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
       <div className="settings-col">
       <section className="card pad">
         <h3>Settings</h3>
+        {settingsLoading && <p role="status">Loading settings…</p>}
+        {settingsLoadError && <div role="alert" className="login__hint">{settingsLoadError} <button className="btn" onClick={() => setSettingsAttempt((n) => n + 1)}>Retry settings</button></div>}
+        {settingsError && <p role="alert" className="login__hint">{settingsError}</p>}
+        <fieldset disabled={settingsLoading || settingsSaving || cryptoBusy || !!settingsLoadError} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <Field label="Update channel">
           <select className="input" value={cfg.update_channel || "stable"}
             onChange={(e) => set("update_channel", e.target.value)}>
@@ -1319,10 +1201,7 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
         </Field>
         <label className="row gap" style={{ marginBottom: 12 }}>
           <input type="checkbox" checked={cryptoOn}
-            onChange={(e) => {
-              setCryptoOn(e.target.checked);
-              api.scenario({ crypto_enabled: e.target.checked }).catch(() => {});
-            }} />
+            onChange={(e) => void toggleCrypto(e.target.checked)} />
           Crypto available to all radios (applies immediately)
         </label>
         <Field label="Crypto sync delay (ms)">
@@ -1351,7 +1230,8 @@ function SettingsTab({ mustChangePassword, onTimezone, socket, onRestart, sessio
             {timezoneOptions.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
           </select>
         </Field>
-        <button className="btn btn--primary" onClick={save}>{saved ? "Saved ✓" : "Save Settings"}</button>
+        <button className="btn btn--primary" onClick={save}>{settingsSaving ? "Saving…" : saved ? "Saved ✓" : "Save Settings"}</button>
+        </fieldset>
       </section>
 
       <section className="card pad">
@@ -1657,8 +1537,4 @@ function relTime(iso: string): string {
 
 function updateRadio(radios: RadioState[], r: RadioState): RadioState[] {
   return radios.map((x) => (x.radio_id === r.radio_id ? r : x));
-}
-function typing(e: KeyboardEvent) {
-  const el = e.target as HTMLElement;
-  return el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
 }

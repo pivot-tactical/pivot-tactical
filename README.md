@@ -77,9 +77,9 @@ To uninstall the portable version, just delete the folder — it leaves no syste
 ## Using PIVOT
 
 **Instructor (browser, password-protected).** Start a session, then operate one
-or more radios on chosen frequencies, key up with the **PTT** button (or the
-spacebar), and toggle each radio between **Plain** and **Cypher**. A **running
-log of events** shows every transmission live with its transcript and a play
+or more radios on chosen frequencies, key up with the **PTT** button or its
+keyboard shortcut, and toggle each radio between **Plain** and **Cypher**. A
+**running log of events** shows every transmission live with its transcript and a play
 button for the audio. Controls let you worsen or improve band conditions, inject
 noise or jamming on a frequency or span, watch every connected terminal
 (callsign, frequency, mode, status), kick a terminal, change settings, and change
@@ -101,16 +101,35 @@ click it again to bring them back. (The instructor doesn't need Focus — an
 instructor radio can drop the channel noise from its own receive with
 **RX Noise**.)
 
-**PTT keys.** Every radio — trainee or instructor — is keyed by the **numpad key
-with its number**: numpad 1 keys radio 1, numpad 2 keys radio 2, and so on, up to 9. One key per radio, held down like a pressel, so any open net can be answered
-without reaching for the mouse. Each PTT control shows its own key.
+**Audio readiness.** Both radio screens show microphone status, a microphone
+selector and an input-level meter. Choose a device, click **Test microphone**,
+and speak to check the level. If permission is blocked or the device disconnects,
+PTT is disabled until the microphone is ready; the status explains how to recover
+and offers **Retry microphone**.
+
+**Connection status.** A banner reports a lost connection while PIVOT reconnects
+automatically. Radio controls are disabled until the connection and radio state
+have been restored. Trainees see **ON NET** only after the server confirms their
+connection.
+
+**PTT keys.** By default, each trainee or instructor radio is keyed by the
+**numpad key with its number**, from 1 to 9. Open **PTT keyboard shortcuts** to
+assign a letter or a top-row number instead, including on laptops without a
+numpad; the selection is saved in that browser. Each PTT control shows its key.
+You can also focus a PTT button and hold **Space** or **Enter**. Release to stop;
+PIVOT also releases PTT when the window loses focus, the tab is hidden, or a
+pointer or touch gesture is cancelled. Keyboard shortcuts do not key a radio
+while you are typing in a field.
 
 **After Action Review (AAR).** Open the AAR from the browser to replay a session:
 a timeline of every transmission with timestamp, callsign, frequency, who copied
 it, crypto mode and the transcribed text (low-confidence lines flagged amber).
-Toggle **Clean/Dirty** to hear the raw voice or the radio-processed audio, and
-**Plain/Cypher** to hear cypher transmissions as clear voice or as the encrypted
-hash. Export a session as text, CSV, or a ZIP with all audio.
+Filter transmissions by callsign, frequency or transcript confidence, then click
+**Play** to open a recording with pause and seeking controls. Choose **Clean**
+audio for the original microphone capture or **Dirty** for radio effects. With
+Dirty audio, set the playback receiver to **Cypher** for decoded voice or **Plain** to hear cypher
+transmissions as encrypted hash. Only one recording plays at a time. Export a
+session as text, CSV, or a ZIP with all audio; exports include the whole session.
 
 ## Updating
 

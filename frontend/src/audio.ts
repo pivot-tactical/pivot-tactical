@@ -132,39 +132,76 @@ export function saveVolume(key: string, volume: number): void {
   localStorage.setItem(`pivot.vol.${key}`, String(Math.max(0, Math.min(1, volume))));
 }
 
-/**
- * Streaming voice I/O over the WebSocket. One 16 kHz AudioContext handles both
- * mic capture (while keyed) and playback (always). Must be initialised from a
- * user gesture (join / first PTT) to satisfy browser autoplay rules.
- */
+export interface MicState {
+  status: "idle" | "opening" | "ready" | "error";
+  error: string | null;
+  deviceId: string;
+}
+
+function microphoneError(error: unknown): string {
+  const name = error && typeof error === "object" && "name" in error ? String(error.name) : "";
+  if (name === "NotAllowedError" || name === "SecurityError")
+    return "Microphone permission is blocked. Allow microphone access in your browser, then retry.";
+  if (name === "NotFoundError" || name === "OverconstrainedError")
+    return "The selected microphone is unavailable. Connect it or choose another microphone, then retry.";
+  if (name === "NotReadableError")
+    return "The microphone could not be opened. Check that another application is not using it, then retry.";
+  if (!navigator.mediaDevices?.getUserMedia)
+    return "Microphone access requires HTTPS or localhost. Open the instructor's HTTPS address, then retry.";
+  return "Microphone or audio setup failed. Check your device and browser permissions, then retry.";
+}
+
+/** Streaming voice I/O. The mic stays warm; only keyed frames leave the browser. */
 export class AudioIO {
   private ctx: AudioContext | null = null;
   private player: AudioWorkletNode | null = null;
+  private initPromise: Promise<void> | null = null;
   private mic: {
     stream: MediaStream;
     src: MediaStreamAudioSourceNode;
     node: AudioWorkletNode;
     mute: GainNode;
+    cleanup: () => void;
   } | null = null;
-  // The mic is opened once and kept warm for the whole session, not reopened
-  // per transmission: opening it (getUserMedia + worklet spin-up) takes long
-  // enough that doing it on every key-up clipped the first fraction of a second
-  // off each transmission. Instead the stream stays hot and we merely gate
-  // whether its frames are forwarded to the net (`sending`). Concurrent opens
-  // (several radios keyed at once) join `micPromise`; `micEpoch` lets an open
-  // still in flight notice it has since been closed.
   private micPromise: Promise<void> | null = null;
   private micEpoch = 0;
+  private captureEpoch = 0;
   private sending = false;
   private onFrame: ((pcm: ArrayBuffer) => void) | null = null;
-  // Per-radio output gain for the headset volume sliders. The instructor mixes
-  // several radios into this one player, so gain is applied per frame keyed by
-  // the source radio_id; a trainee has a single radio and uses the default.
+  private micState: MicState = { status: "idle", error: null, deviceId: "" };
+  private micListeners = new Set<(state: MicState) => void>();
+  private inputLevel = 0;
+  private inputLevelAt = 0;
   private volumes = new Map<string, number>();
   private defaultVolume = 1;
 
-  // Set the playback volume (0–1). Pass a radio_id to scope it to one of the
-  // instructor's radios; omit it for the single trainee radio.
+  constructor() {
+    try { this.micState.deviceId = localStorage.getItem("pivot.mic.device") ?? ""; } catch { /* storage may be disabled */ }
+  }
+
+  getMicState = (): MicState => this.micState;
+
+  onMicState = (listener: (state: MicState) => void): (() => void) => {
+    this.micListeners.add(listener);
+    return () => this.micListeners.delete(listener);
+  };
+
+  private setMicState(status: MicState["status"], error: string | null = null) {
+    this.micState = { ...this.micState, status, error };
+    this.micListeners.forEach((listener) => listener(this.micState));
+  }
+
+  getInputLevel(): number {
+    return this.micState.status === "ready" && Date.now() - this.inputLevelAt < 250 ? this.inputLevel : 0;
+  }
+
+  async setInputDevice(deviceId: string): Promise<void> {
+    this.releaseMic();
+    this.micState = { ...this.micState, deviceId };
+    try { localStorage.setItem("pivot.mic.device", deviceId); } catch { /* storage may be disabled */ }
+    await this.prewarm();
+  }
+
   setVolume(volume: number, radioId?: string): void {
     const v = Math.max(0, Math.min(1, volume));
     if (radioId) this.volumes.set(radioId, v);
@@ -172,114 +209,183 @@ export class AudioIO {
   }
 
   async init(): Promise<void> {
-    // Guard on player (not ctx): if a previous call created the ctx but then
-    // threw before creating the player (e.g. addModule 404), this.ctx is truthy
-    // but this.player is null. Checking only ctx would return early and leave
-    // audio permanently broken with no way to recover across user gestures.
     if (this.player) {
       if (this.ctx?.state === "suspended") await this.ctx.resume();
       return;
     }
-    if (!this.ctx) {
-      this.ctx = new AudioContext({ sampleRate: SR });
-    }
-    await this.ctx.audioWorklet.addModule("/pivot-mic-worklet.js");
-    await this.ctx.audioWorklet.addModule("/pivot-player-worklet.js");
-    this.player = new AudioWorkletNode(this.ctx, "pivot-player");
-    this.player.connect(this.ctx.destination);
+    if (this.initPromise) return this.initPromise;
+    if (!this.ctx) this.ctx = new AudioContext({ sampleRate: SR });
+    const ctx = this.ctx;
+    const p = (async () => {
+      await ctx.audioWorklet.addModule("/pivot-mic-worklet.js");
+      await ctx.audioWorklet.addModule("/pivot-player-worklet.js");
+      if (this.ctx !== ctx) throw new DOMException("Audio setup was cancelled", "AbortError");
+      this.player = new AudioWorkletNode(ctx, "pivot-player");
+      this.player.connect(ctx.destination);
+      if (ctx.state === "suspended") await ctx.resume();
+    })();
+    this.initPromise = p;
+    try { await p; } finally { if (this.initPromise === p) this.initPromise = null; }
   }
 
-  // Open the mic stream + worklet once and keep it warm. Idempotent: a mic
-  // already open resolves immediately, and concurrent callers join the same
-  // open rather than racing a second getUserMedia.
   private async openMic(): Promise<void> {
-    if (this.mic) return;
-    if (this.micPromise) return this.micPromise;
-    const epoch = this.micEpoch;
-    const p: Promise<void> = (async () => {
-      await this.init();
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Microphone access requires a secure context (HTTPS or localhost)");
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: true },
-      });
-      if (this.micEpoch !== epoch) {
-        // close() ran while the mic was being opened: release the stream
-        // instead of leaving an orphaned capture.
-        stream.getTracks().forEach((t) => t.stop());
+    if (this.mic) {
+      const track = this.mic.stream.getAudioTracks()[0];
+      if (!track || track.readyState === "ended") this.releaseMic();
+      else if (track?.muted || !track?.enabled) {
+        this.stopCapture();
+        this.setMicState("error", "Microphone is muted or unavailable. Check your device, then retry.");
+        throw new Error(this.micState.error!);
+      } else {
+        try {
+          await this.init();
+          if (this.micState.status !== "ready") this.setMicState("ready");
+        } catch (error) {
+          this.stopCapture();
+          this.setMicState("error", microphoneError(error));
+          throw error;
+        }
         return;
       }
-      const src = this.ctx!.createMediaStreamSource(stream);
-      const node = new AudioWorkletNode(this.ctx!, "pivot-mic");
-      // Frames flow continuously while the mic is warm; forward them to the net
-      // only while actually keyed (§6.3).
-      node.port.onmessage = (e) => {
-        if (this.sending && this.onFrame) this.onFrame(floatToPcm16(e.data as Float32Array));
-      };
-      // Route through a muted gain so the graph pulls the worklet without us
-      // hearing our own mic.
-      const mute = this.ctx!.createGain();
-      mute.gain.value = 0;
-      src.connect(node);
-      node.connect(mute);
-      mute.connect(this.ctx!.destination);
-      this.mic = { stream, src, node, mute };
+    }
+    if (this.micPromise) return this.micPromise;
+    const epoch = this.micEpoch;
+    this.setMicState("opening");
+    const p: Promise<void> = (async () => {
+      if (!navigator.mediaDevices?.getUserMedia)
+        throw new Error("Microphone access requires a secure context (HTTPS or localhost)");
+      await this.init();
+      if (this.micEpoch !== epoch) throw new DOMException("Microphone setup was cancelled", "AbortError");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: true,
+          ...(this.micState.deviceId ? { deviceId: { exact: this.micState.deviceId } } : {}),
+        },
+      });
+      if (this.micEpoch !== epoch) {
+        stream.getTracks().forEach((track) => track.stop());
+        throw new DOMException("Microphone setup was cancelled", "AbortError");
+      }
+      let src: MediaStreamAudioSourceNode | null = null;
+      let node: AudioWorkletNode | null = null;
+      let mute: GainNode | null = null;
+      try {
+        const track = stream.getAudioTracks()[0];
+        if (!track || track.readyState === "ended") throw new DOMException("No active microphone", "NotFoundError");
+        src = this.ctx!.createMediaStreamSource(stream);
+        node = new AudioWorkletNode(this.ctx!, "pivot-mic");
+        mute = this.ctx!.createGain();
+        mute.gain.value = 0;
+        src.connect(node);
+        node.connect(mute);
+        mute.connect(this.ctx!.destination);
+        node.port.onmessage = (event) => {
+          if (this.mic?.stream !== stream) return;
+          const frame = event.data as Float32Array;
+          let sum = 0;
+          for (const sample of frame) sum += sample * sample;
+          this.inputLevel = frame.length ? Math.min(1, Math.sqrt(sum / frame.length) * 3) : 0;
+          this.inputLevelAt = Date.now();
+          if (this.sending && this.onFrame && this.micState.status === "ready")
+            this.onFrame(floatToPcm16(frame));
+        };
+        const ended = () => {
+          if (this.mic?.stream !== stream) return;
+          this.releaseMic();
+          this.setMicState("error", "Microphone disconnected. Connect it or choose another microphone, then retry.");
+        };
+        const muted = () => {
+          if (this.mic?.stream !== stream) return;
+          this.stopCapture();
+          this.setMicState("error", "Microphone is muted or unavailable. Check your device, then retry.");
+        };
+        const unmuted = () => {
+          if (this.mic?.stream === stream) this.setMicState("ready");
+        };
+        track.addEventListener("ended", ended);
+        track.addEventListener("mute", muted);
+        track.addEventListener("unmute", unmuted);
+        this.mic = { stream, src, node, mute, cleanup: () => {
+          track.removeEventListener("ended", ended);
+          track.removeEventListener("mute", muted);
+          track.removeEventListener("unmute", unmuted);
+        } };
+        if (track.muted || !track.enabled) muted();
+        else this.setMicState("ready");
+        if (this.micState.status !== "ready") throw new Error(this.micState.error!);
+      } catch (error) {
+        if (this.mic?.stream === stream) {
+          this.mic.cleanup();
+          this.mic = null;
+        }
+        stream.getTracks().forEach((track) => track.stop());
+        src?.disconnect();
+        node?.disconnect();
+        mute?.disconnect();
+        throw error;
+      }
     })();
     this.micPromise = p;
-    p.catch(() => { if (this.micPromise === p) this.micPromise = null; });
-    return p;
-  }
-
-  // Pre-open the mic so the first key-up is instant. Call on the first user
-  // gesture (alongside init()). A denied permission surfaces later at the real
-  // PTT, so it is swallowed here.
-  async prewarm(): Promise<void> {
     try {
-      await this.openMic();
-    } catch {
-      /* permission denied: handled when the operator actually keys up */
+      await p;
+    } catch (error) {
+      if (this.micEpoch === epoch) {
+        this.stopCapture();
+        this.setMicState("error", microphoneError(error));
+      }
+      throw error;
+    } finally {
+      if (this.micPromise === p) this.micPromise = null;
     }
   }
 
-  // Key up: start forwarding mic frames to the net, opening the mic first if it
-  // was not already pre-warmed.
+  async prewarm(): Promise<void> { await this.openMic(); }
+
   async startCapture(onFrame: (pcm: ArrayBuffer) => void): Promise<void> {
+    const epoch = this.captureEpoch;
+    await this.openMic();
+    if (this.captureEpoch !== epoch || this.micState.status !== "ready")
+      throw new DOMException("Transmission was cancelled", "AbortError");
     this.onFrame = onFrame;
     this.sending = true;
-    await this.openMic();
   }
 
-  // Key down: stop forwarding, but keep the mic warm for the next transmission
-  // so the following key-up does not pay the open latency again.
   stopCapture(): void {
+    this.captureEpoch++;
     this.sending = false;
+    this.onFrame = null;
   }
 
   play(pcm: ArrayBuffer, radioId?: string): void {
     if (!this.player) return;
-    // Browsers suspend the AudioContext when the tab goes to background. Resume
-    // it so hash and voice frames don't vanish when the user alt-tabs back.
-    if (this.ctx?.state === "suspended") this.ctx.resume();
+    if (this.ctx?.state === "suspended") void this.ctx.resume().catch(() => {});
     const gain = radioId ? this.volumes.get(radioId) ?? this.defaultVolume : this.defaultVolume;
     const f32 = pcm16ToFloat(pcm, gain);
     this.player.port.postMessage(f32, [f32.buffer]);
   }
 
-  close(): void {
-    this.sending = false;
-    this.onFrame = null;
-    this.micEpoch++;        // signal any in-flight openMic to release its stream
+  private releaseMic(): void {
+    this.stopCapture();
+    this.micEpoch++;
     this.micPromise = null;
+    this.inputLevel = 0;
     if (this.mic) {
-      this.mic.stream.getTracks().forEach((t) => t.stop());
-      this.mic.src.disconnect();
-      this.mic.node.disconnect();
-      this.mic.mute.disconnect();
+      const mic = this.mic;
       this.mic = null;
+      mic.cleanup();
+      mic.stream.getTracks().forEach((track) => track.stop());
+      mic.src.disconnect();
+      mic.node.disconnect();
+      mic.mute.disconnect();
     }
-    this.ctx?.close();
+  }
+
+  close(): void {
+    this.releaseMic();
+    void this.ctx?.close().catch(() => {});
     this.ctx = null;
     this.player = null;
+    this.initPromise = null;
+    this.setMicState("idle");
   }
 }
