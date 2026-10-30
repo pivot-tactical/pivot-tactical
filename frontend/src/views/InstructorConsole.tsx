@@ -318,8 +318,8 @@ export function InstructorConsole({
 
 // Two frequencies on the same net index share a net — and therefore share one
 // per-net scenario override.
-function scenarioFor(netScenarios: NetScenario[], hz: number): NetScenario | undefined {
-  return netScenarios.find((s) => netKey(s.freq_hz) === netKey(hz));
+function scenarioFor(scenarioMap: Map<number, NetScenario>, hz: number): NetScenario | undefined {
+  return scenarioMap.get(netKey(hz));
 }
 
 // The per-radio receive levels live in a ref shared with the socket's audio
@@ -427,6 +427,14 @@ function useInstructorPtt(
 function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScenarios, rxLevels, onEventUpdate }: RadiosTabProps) {
   const { phases, startTx, endTx } = useInstructorPtt(socket, audio, radios, onChange);
 
+  const scenarioMap = useMemo(() => {
+    const map = new Map<number, NetScenario>();
+    for (const s of netScenarios) {
+      map.set(netKey(s.freq_hz), s);
+    }
+    return map;
+  }, [netScenarios]);
+
   async function addRadio() {
     // Omit the frequency so the server applies the operator-configured
     // default start frequency (Settings → Default start frequency).
@@ -453,7 +461,7 @@ function RadiosTab({ radios, socket, audio, onChange, entries, timezone, netScen
             socket={socket}
             audio={audio}
             phase={phases[r.radio_id] ?? "IDLE"}
-            scenario={scenarioFor(netScenarios, r.frequency_hz)}
+            scenario={scenarioFor(scenarioMap, r.frequency_hz)}
             rxLevels={rxLevels}
             onStart={startTx}
             onEnd={endTx}
