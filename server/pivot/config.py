@@ -51,9 +51,10 @@ class Settings(BaseSettings):
     # NOT inside the data dir (§3.7.7). Resolved relative to the app folder.
     versions_dir: Path = Field(default=Path("versions"))
 
-    # Trusted proxy IP addresses / networks for ProxyHeadersMiddleware (e.g. "127.0.0.1,::1,testclient").
-    # Defaults to local loopback IPs + testclient to prevent IP spoofing attacks via X-Forwarded-For headers.
-    trusted_proxies: str = "127.0.0.1, ::1, testclient"
+    # Comma-separated proxy addresses whose X-Forwarded-For header is trusted
+    # (ProxyHeadersMiddleware). Loopback only by default, so a LAN client cannot
+    # spoof its IP to dodge login rate limiting.
+    trusted_proxies: str = "127.0.0.1, ::1"
 
     @property
     def db_path(self) -> Path:
