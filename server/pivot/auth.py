@@ -31,7 +31,12 @@ from pivot.db.database import Database
 
 # Default instructor password, seeded on first run. The UI nudges the instructor
 # to change it while it is still the default (see AuthService.is_default).
-DEFAULT_INSTRUCTOR_PASSWORD = "instructor"
+# Can be configured via PIVOT_DEFAULT_INSTRUCTOR_PASSWORD or PIVOT_INSTRUCTOR_PASSWORD env vars.
+DEFAULT_INSTRUCTOR_PASSWORD = (
+    os.environ.get("PIVOT_DEFAULT_INSTRUCTOR_PASSWORD")
+    or os.environ.get("PIVOT_INSTRUCTOR_PASSWORD")
+    or "instructor"
+)
 
 _PBKDF2_ROUNDS = 200_000
 _CONFIG_KEY = "instructor_password_hash"
@@ -122,12 +127,21 @@ class AuthService:
 
     # -- password ---------------------------------------------------------- #
 
-    def ensure_default(self, default_password: str = DEFAULT_INSTRUCTOR_PASSWORD) -> None:
+    def ensure_default(self, default_password: str | None = None) -> None:
         """Seed the instructor password hash on first run if not already set."""
+        pwd = (
+            default_password
+            if default_password is not None
+            else (
+                os.environ.get("PIVOT_DEFAULT_INSTRUCTOR_PASSWORD")
+                or os.environ.get("PIVOT_INSTRUCTOR_PASSWORD")
+                or DEFAULT_INSTRUCTOR_PASSWORD
+            )
+        )
         with self.db.session() as s:
             cfg = ConfigStore(s)
             if not cfg.get(_CONFIG_KEY):
-                cfg.set(_CONFIG_KEY, hash_password(default_password))
+                cfg.set(_CONFIG_KEY, hash_password(pwd))
 
     def _stored_hash(self) -> str:
         with self.db.session() as s:
@@ -146,8 +160,8 @@ class AuthService:
         self._revoked.clear()
 
     def is_default(self) -> bool:
-        """True while the password is still the shipped default (UI warns)."""
-        return self.verify(DEFAULT_INSTRUCTOR_PASSWORD)
+        """True while the password is still the shipped default ('instructor') (UI warns)."""
+        return self.verify("instructor")
 
     # -- token signing secret ---------------------------------------------- #
 

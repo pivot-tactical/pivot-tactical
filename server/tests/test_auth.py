@@ -167,3 +167,23 @@ def test_rate_limit_map_does_not_grow_without_bound(database):
     auth._failed_attempts["10.0.1.1"] = [time.time() - RATE_LIMIT_WINDOW_SECONDS - 1]
     assert not auth.is_rate_limited("10.0.1.1")
     assert "10.0.1.1" not in auth._failed_attempts
+
+
+def test_ensure_default_with_env_override(database, monkeypatch):
+    monkeypatch.setenv("PIVOT_DEFAULT_INSTRUCTOR_PASSWORD", "env-secret-pass")
+    auth = AuthService(database)
+    auth.ensure_default()
+    assert auth.verify("env-secret-pass") is True
+    # Setting an env var password means custom credentials were set, so is_default is False
+    assert auth.is_default() is False
+    assert auth.verify("instructor") is False
+
+
+def test_ensure_default_with_instructor_password_env(database, monkeypatch):
+    monkeypatch.delenv("PIVOT_DEFAULT_INSTRUCTOR_PASSWORD", raising=False)
+    monkeypatch.setenv("PIVOT_INSTRUCTOR_PASSWORD", "alt-env-pass")
+    auth = AuthService(database)
+    auth.ensure_default()
+    assert auth.verify("alt-env-pass") is True
+    assert auth.is_default() is False
+    assert auth.verify("instructor") is False

@@ -26,3 +26,8 @@
 **Vulnerability:** Flawed test assertion in path traversal test for session zip export compared `zf.namelist()` against `{session_id}/...` instead of the human-readable `{session_dir_name}/...` top folder name, masking potential exfiltration false passes.
 **Learning:** Archive top-level folder naming conventions must match exact production path rendering in security tests to prevent false-negative test passes during security audits.
 **Prevention:** Compute top-level archive path names dynamically using production helpers in test assertions, and use `PureWindowsPath(wav_path.name).name` on `arcname` to strip cross-platform directory components when packaging files into ZIP archives.
+
+## 2026-10-17 - [Configurable Default Instructor Credentials]
+**Vulnerability:** Hardcoded default instructor password (`"instructor"`) could lead to static default credentials in production deployments if unchanged.
+**Learning:** Hardcoded default passwords in authentication services pose security risks if operators cannot configure initial credentials via environment variables during deployment.
+**Prevention:** Always support environment variable overrides (`PIVOT_DEFAULT_INSTRUCTOR_PASSWORD` / `PIVOT_INSTRUCTOR_PASSWORD`) for default credentials seeded on first run.
