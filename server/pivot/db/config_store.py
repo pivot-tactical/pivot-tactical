@@ -42,7 +42,13 @@ class ConfigStore:
     def all(self) -> dict[str, Any]:
         """Full effective config (defaults overlaid with stored values)."""
         result = dict(DEFAULT_CONFIG)
-        for key, value in self.session.execute(select(ConfigRow.key, ConfigRow.value)).all():
+        # NOTE (intentional): iterate the Result directly. Do not add ``.all()``
+        # (or ``.fetchall()``) as a "single query batch" optimisation: this is
+        # already one SELECT, the driver fetches rows as they are iterated, and
+        # the table holds a few dozen rows at most, so materialising the list
+        # saves nothing and only costs an extra allocation. See rejected Jules
+        # PR "fetch config store rows in single query batch".
+        for key, value in self.session.execute(select(ConfigRow.key, ConfigRow.value)):
             try:
                 result[key] = json.loads(value)
             except (ValueError, TypeError):
