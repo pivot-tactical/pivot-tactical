@@ -528,6 +528,54 @@ def test_instructor_login_rate_limiting(raw_client):
     assert "too many failed login attempts" in r.json()["detail"].lower()
 
 
+def test_instructor_login_rate_limiting_with_x_forwarded_for(settings):
+    # TestClient's peer address is "testclient", so trust it as the proxy here.
+    app = create_app(settings.model_copy(update={"trusted_proxies": "testclient"}))
+    with TestClient(app) as c:
+        _assert_forwarded_ips_limited_separately(c)
+
+
+def test_untrusted_peer_cannot_spoof_x_forwarded_for(raw_client):
+    # By default only loopback proxies are trusted, so a forwarded header from
+    # any other peer is ignored and both "clients" share one rate-limit bucket.
+    for _ in range(5):
+        raw_client.post(
+            "/api/login",
+            json={"role": "instructor", "password": "wrong"},
+            headers={"X-Forwarded-For": "203.0.113.195"},
+        )
+    r = raw_client.post(
+        "/api/login",
+        json={"role": "instructor", "password": "wrong"},
+        headers={"X-Forwarded-For": "203.0.113.196"},
+    )
+    assert r.status_code == 429
+
+
+def _assert_forwarded_ips_limited_separately(raw_client):
+    headers_client1 = {"X-Forwarded-For": "203.0.113.195"}
+    headers_client2 = {"X-Forwarded-For": "203.0.113.196"}
+
+    # Fail 5 times for client 1
+    for _ in range(5):
+        r = raw_client.post(
+            "/api/login", json={"role": "instructor", "password": "wrong"}, headers=headers_client1
+        )
+        assert r.status_code == 401
+
+    # 6th attempt for client 1 is rate limited
+    r = raw_client.post(
+        "/api/login", json={"role": "instructor", "password": "wrong"}, headers=headers_client1
+    )
+    assert r.status_code == 429
+
+    # Client 2 is on a different forwarded IP and should NOT be rate limited
+    r = raw_client.post(
+        "/api/login", json={"role": "instructor", "password": "wrong"}, headers=headers_client2
+    )
+    assert r.status_code == 401
+
+
 def test_change_password_and_relogin(raw_client):
     raw_client.post(
         "/api/login", json={"role": "instructor", "password": DEFAULT_INSTRUCTOR_PASSWORD}

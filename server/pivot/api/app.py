@@ -204,6 +204,8 @@ def create_app(
     # or typical local/LAN addresses, rather than a global wildcard.
     # PIVOT is a self-hosted LAN tool, so we allow local origins.
 
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
     from pivot.api.ws import _ALLOW_ORIGIN_REGEX_STR, _ALLOW_ORIGINS
 
     # Restrict CORS origins strictly to local development addresses and RFC1918 private LAN ranges
@@ -214,6 +216,9 @@ def create_app(
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization"],
     )
+    # Safely update client IP from X-Forwarded-For when behind local reverse proxies/load balancers
+    trusted_hosts = [p.strip() for p in cfg.trusted_proxies.split(",") if p.strip()]
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=trusted_hosts)
 
     app.include_router(rest.router)
     app.include_router(ws.router)
