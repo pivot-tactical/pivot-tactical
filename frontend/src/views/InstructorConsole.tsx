@@ -897,13 +897,13 @@ function AarTab({ timezone }: { timezone: string }) {
       <div className="aar__bar">
         <h2 className="mono">{selected ? selected.name : "After Action Review"}</h2>
         <div className="aar__toggles">
-          <button className="btn" disabled={!selected || busy !== null} onClick={() => doExport("text")}>
+          <button className="btn" disabled={!selected || busy !== null} onClick={() => doExport("text")} title={!selected ? "Select a session to export" : "Export transcript as text"}>
             {busy === "text" ? "Exporting…" : "Export Text"}
           </button>
-          <button className="btn" disabled={!selected || busy !== null} onClick={() => doExport("csv")}>
+          <button className="btn" disabled={!selected || busy !== null} onClick={() => doExport("csv")} title={!selected ? "Select a session to export" : "Export transcript as CSV"}>
             {busy === "csv" ? "Exporting…" : "Export CSV"}
           </button>
-          <button className="btn btn--primary" disabled={!selected || busy !== null} onClick={() => doExport("zip")}>
+          <button className="btn btn--primary" disabled={!selected || busy !== null} onClick={() => doExport("zip")} title={!selected ? "Select a session to export" : "Export audio and transcript as ZIP"}>
             {busy === "zip" ? "Exporting…" : "Export ZIP + audio"}
           </button>
         </div>
@@ -911,7 +911,7 @@ function AarTab({ timezone }: { timezone: string }) {
       {error && <div className="aar__error">{error}</div>}
       <div className="aar__body">
         <div className="aar__sessions">
-          {sessions.length === 0 && <p className="muted" style={{ padding: 10 }}>No sessions recorded yet.</p>}
+          {sessions.length === 0 && <p className="muted" style={{ padding: 10 }}>No sessions recorded yet. Start a session in the Radios tab to begin recording.</p>}
           {sessions.map((s) => (
             <button
               key={s.id}

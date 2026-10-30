@@ -398,7 +398,7 @@ describe('InstructorConsole', () => {
       fireEvent.click(screen.getByRole('tab', { name: 'AAR' }));
     });
 
-    expect(await screen.findByText('No sessions recorded yet.')).toBeInTheDocument();
+    expect(await screen.findByText('No sessions recorded yet. Start a session in the Radios tab to begin recording.')).toBeInTheDocument();
   });
 });
 
