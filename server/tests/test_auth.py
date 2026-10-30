@@ -187,3 +187,19 @@ def test_ensure_default_with_instructor_password_env(database, monkeypatch):
     assert auth.verify("alt-env-pass") is True
     assert auth.is_default() is False
     assert auth.verify("instructor") is False
+
+
+def test_env_override_does_not_leak_into_default_constant(monkeypatch):
+    # The constant is printed in the startup "still the default" note, so the
+    # operator's secret must never end up in it.
+    import importlib
+
+    import pivot.auth
+
+    monkeypatch.setenv("PIVOT_DEFAULT_INSTRUCTOR_PASSWORD", "env-secret-pass")
+    reloaded = importlib.reload(pivot.auth)
+    try:
+        assert reloaded.DEFAULT_INSTRUCTOR_PASSWORD == "instructor"
+    finally:
+        monkeypatch.delenv("PIVOT_DEFAULT_INSTRUCTOR_PASSWORD")
+        importlib.reload(pivot.auth)

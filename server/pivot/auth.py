@@ -31,12 +31,20 @@ from pivot.db.database import Database
 
 # Default instructor password, seeded on first run. The UI nudges the instructor
 # to change it while it is still the default (see AuthService.is_default).
-# Can be configured via PIVOT_DEFAULT_INSTRUCTOR_PASSWORD or PIVOT_INSTRUCTOR_PASSWORD env vars.
-DEFAULT_INSTRUCTOR_PASSWORD = (
-    os.environ.get("PIVOT_DEFAULT_INSTRUCTOR_PASSWORD")
-    or os.environ.get("PIVOT_INSTRUCTOR_PASSWORD")
-    or "instructor"
-)
+DEFAULT_INSTRUCTOR_PASSWORD = "instructor"
+
+
+def _seed_password() -> str:
+    """Password to seed on first run: the operator's env override, else the default.
+
+    Read at call time (not import time) so the override never ends up in the
+    module constant, which is printed in the startup "still the default" note.
+    """
+    return (
+        os.environ.get("PIVOT_DEFAULT_INSTRUCTOR_PASSWORD")
+        or os.environ.get("PIVOT_INSTRUCTOR_PASSWORD")
+        or DEFAULT_INSTRUCTOR_PASSWORD
+    )
 
 _PBKDF2_ROUNDS = 200_000
 _CONFIG_KEY = "instructor_password_hash"
@@ -129,15 +137,7 @@ class AuthService:
 
     def ensure_default(self, default_password: str | None = None) -> None:
         """Seed the instructor password hash on first run if not already set."""
-        pwd = (
-            default_password
-            if default_password is not None
-            else (
-                os.environ.get("PIVOT_DEFAULT_INSTRUCTOR_PASSWORD")
-                or os.environ.get("PIVOT_INSTRUCTOR_PASSWORD")
-                or DEFAULT_INSTRUCTOR_PASSWORD
-            )
-        )
+        pwd = default_password if default_password is not None else _seed_password()
         with self.db.session() as s:
             cfg = ConfigStore(s)
             if not cfg.get(_CONFIG_KEY):
@@ -160,8 +160,8 @@ class AuthService:
         self._revoked.clear()
 
     def is_default(self) -> bool:
-        """True while the password is still the shipped default ('instructor') (UI warns)."""
-        return self.verify("instructor")
+        """True while the password is still the shipped default (UI warns)."""
+        return self.verify(DEFAULT_INSTRUCTOR_PASSWORD)
 
     # -- token signing secret ---------------------------------------------- #
 
