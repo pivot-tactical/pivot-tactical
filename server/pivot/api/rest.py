@@ -545,10 +545,14 @@ def _shape_update_status(snap: dict, manager) -> dict:
 def _live_update_check(manager) -> dict:
     """One-shot live check used when the background service isn't running."""
 
+    # Note: manager.get_config() executes a single SQL query (ConfigStore.all())
+    # returning a dict of all config values. Subsequent .get() calls are fast
+    # in-memory dictionary lookups.
     cfg = manager.get_config()
     repo = str(cfg.get("github_repo") or "")
     token = str(cfg.get("github_token") or "") or None
     channel = str(cfg.get("update_channel", "stable"))
+    auto_update = bool(cfg.get("auto_update", False))
     include_pre = channel == "include_prereleases"
 
     # One verified download + staged swap on every platform and channel.
@@ -560,7 +564,7 @@ def _live_update_check(manager) -> dict:
     result = {
         "current_version": version_info.version,
         "channel": channel,
-        "auto_update": bool(cfg.get("auto_update", False)),
+        "auto_update": auto_update,
         "updater": updater,
         "reachable": True,
         "error": None,
