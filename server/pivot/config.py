@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # NOT inside the data dir (§3.7.7). Resolved relative to the app folder.
     versions_dir: Path = Field(default=Path("versions"))
 
+    # Trusted proxy IP addresses / networks for ProxyHeadersMiddleware (e.g. "127.0.0.1,::1,testclient").
+    # Defaults to local loopback IPs + testclient to prevent IP spoofing attacks via X-Forwarded-For headers.
+    trusted_proxies: str = "127.0.0.1, ::1, testclient"
+
     @property
     def db_path(self) -> Path:
         return self.data_dir / "pivot.db"

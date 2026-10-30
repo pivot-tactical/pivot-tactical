@@ -528,6 +528,30 @@ def test_instructor_login_rate_limiting(raw_client):
     assert "too many failed login attempts" in r.json()["detail"].lower()
 
 
+def test_instructor_login_rate_limiting_with_x_forwarded_for(raw_client):
+    headers_client1 = {"X-Forwarded-For": "203.0.113.195"}
+    headers_client2 = {"X-Forwarded-For": "203.0.113.196"}
+
+    # Fail 5 times for client 1
+    for _ in range(5):
+        r = raw_client.post(
+            "/api/login", json={"role": "instructor", "password": "wrong"}, headers=headers_client1
+        )
+        assert r.status_code == 401
+
+    # 6th attempt for client 1 is rate limited
+    r = raw_client.post(
+        "/api/login", json={"role": "instructor", "password": "wrong"}, headers=headers_client1
+    )
+    assert r.status_code == 429
+
+    # Client 2 is on a different forwarded IP and should NOT be rate limited
+    r = raw_client.post(
+        "/api/login", json={"role": "instructor", "password": "wrong"}, headers=headers_client2
+    )
+    assert r.status_code == 401
+
+
 def test_change_password_and_relogin(raw_client):
     raw_client.post(
         "/api/login", json={"role": "instructor", "password": DEFAULT_INSTRUCTOR_PASSWORD}
