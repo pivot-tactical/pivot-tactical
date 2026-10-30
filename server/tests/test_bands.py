@@ -240,3 +240,47 @@ def test_net_key_for():
     assert net_key_for(100.0) == net_key_for(MIN_FREQ_HZ) == 16000
     # Clamping above MAX_FREQ_HZ (3 GHz -> index 30000000)
     assert net_key_for(9e9) == net_key_for(MAX_FREQ_HZ) == 30_000_000
+
+
+def test_apply_jamming_not_jammed():
+    """When jammed is False, _apply_jamming returns the input SNR unchanged."""
+    profile = BandProfile()
+    assert profile._apply_jamming(14_250_000.0, snr=15.0, jammed=False) == 15.0
+
+
+def test_apply_jamming_empty_spans_fallback_default():
+    """When jammed is True but self.jamming is empty or contains no spans covering the
+    frequency, max() falls back to default=1.0 without raising ValueError."""
+    from pivot.core.bands import _JAM_SNR_CEIL_DB, _JAM_SNR_SPAN_DB
+
+    profile = BandProfile(jamming=[])
+    snr = 20.0
+    expected = min(snr, _JAM_SNR_CEIL_DB) - _JAM_SNR_SPAN_DB * 1.0
+    assert profile._apply_jamming(14_250_000.0, snr=snr, jammed=True) == expected
+
+    # Also when jamming spans exist but none cover the frequency
+    profile_other_span = BandProfile(jamming=[JammingSpan(10_000_000, 11_000_000, intensity=0.5)])
+    assert profile_other_span._apply_jamming(14_250_000.0, snr=snr, jammed=True) == expected
+
+
+def test_apply_jamming_span_intensities():
+    """When one or more JammingSpans cover the frequency, _apply_jamming uses the maximum intensity."""
+    from pivot.core.bands import _JAM_SNR_CEIL_DB, _JAM_SNR_SPAN_DB
+
+    freq = 14_250_000.0
+    snr = 20.0
+
+    # Single span with intensity 0.5
+    profile_single = BandProfile(jamming=[JammingSpan(14_200_000, 14_300_000, intensity=0.5)])
+    expected_single = min(snr, _JAM_SNR_CEIL_DB) - _JAM_SNR_SPAN_DB * 0.5
+    assert profile_single._apply_jamming(freq, snr=snr, jammed=True) == expected_single
+
+    # Multiple spans covering frequency with intensities 0.3 and 0.8 -> max is 0.8
+    profile_multi = BandProfile(
+        jamming=[
+            JammingSpan(14_200_000, 14_300_000, intensity=0.3),
+            JammingSpan(14_100_000, 14_400_000, intensity=0.8),
+        ]
+    )
+    expected_multi = min(snr, _JAM_SNR_CEIL_DB) - _JAM_SNR_SPAN_DB * 0.8
+    assert profile_multi._apply_jamming(freq, snr=snr, jammed=True) == expected_multi
