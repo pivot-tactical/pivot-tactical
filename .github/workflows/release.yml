@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # publish release assets
+  contents: read
 
 jobs:
   build:
@@ -28,16 +28,22 @@ jobs:
           - os: ubuntu-22.04
             artifact: linux-x86_64
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write # publish release assets
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       # Identical build to the prereleases: same shared action, so a stable
       # release and a dev prerelease are byte-for-byte the same in form and
       # update through the same verified, channel-aware staged path.
       - name: Version from tag
         shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          ver="${{ github.ref_name }}"
+          ver="$REF_NAME"
           if [[ "$ver" =~ ^v[0-9] ]]; then ver="${ver#v}"; else ver="0.0.0-dev"; fi
           echo "REL_VERSION=$ver" >> "$GITHUB_ENV"
 
@@ -56,7 +62,7 @@ jobs:
       # updater verifies before staging.
       - name: Publish to release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: |
             PIVOT-Tactical-win64.zip
@@ -82,29 +88,37 @@ jobs:
     needs: [build]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the version bump to main
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: main
 
       - name: Compute next patch version
         id: next
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          ver="${{ github.ref_name }}"
+          ver="$REF_NAME"
           ver="${ver#v}"
           IFS='.' read -r major minor patch <<< "$ver"
           echo "next=${major}.${minor}.$((patch + 1))" >> "$GITHUB_OUTPUT"
 
       - name: Bump version files
+        env:
+          NEXT: ${{ steps.next.outputs.next }}
         run: |
-          next="${{ steps.next.outputs.next }}"
+          next="$NEXT"
           sed -i "s/^__version__ = \".*\"/__version__ = \"$next\"/" server/pivot/version.py
           sed -i "s/^version = \".*\"/version = \"$next\"/" server/pyproject.toml
           (cd frontend && npm version "$next" --no-git-tag-version --allow-same-version)
 
       - name: Commit and push to main
+        env:
+          NEXT: ${{ steps.next.outputs.next }}
         run: |
-          next="${{ steps.next.outputs.next }}"
+          next="$NEXT"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add server/pivot/version.py server/pyproject.toml frontend/package.json frontend/package-lock.json

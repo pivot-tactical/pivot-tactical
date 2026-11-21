@@ -33,18 +33,21 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: "3.11"
 
     - name: Resolve version
       shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        RUN_NUMBER: ${{ github.run_number }}
       run: |
-        if [ -n "${{ inputs.version }}" ]; then
-          ver="${{ inputs.version }}"
+        if [ -n "$INPUT_VERSION" ]; then
+          ver="$INPUT_VERSION"
         else
           base=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('server/pivot/version.py').read_text()).group(1))")
-          ver="${base}-dev.${{ github.run_number }}"
+          ver="${base}-dev.${RUN_NUMBER}"
         fi
         echo "PIVOT_VERSION=$ver" >> "$GITHUB_ENV"
 
@@ -55,7 +58,7 @@ runs:
       shell: bash
       run: PIVOT_BUILD_VERSION="$PIVOT_VERSION" python packaging/gen_buildinfo.py
 
-    - uses: actions/setup-node@v4
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: "22"
 
@@ -116,15 +119,18 @@ runs:
     - name: Code-sign installer (Authenticode)
       if: runner.os == 'Windows' && inputs.windows_certificate != ''
       shell: pwsh
+      env:
+        CERT_B64: ${{ inputs.windows_certificate }}
+        CERT_PASSWORD: ${{ inputs.windows_certificate_password }}
       run: |
         $pfx = Join-Path $env:RUNNER_TEMP "pivot-codesign.pfx"
-        [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String("${{ inputs.windows_certificate }}"))
+        [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_B64))
         $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
           Sort-Object FullName -Descending | Select-Object -First 1
         if (-not $signtool) { throw "signtool.exe not found in the Windows SDK" }
         try {
           & $signtool.FullName sign `
-            /f $pfx /p "${{ inputs.windows_certificate_password }}" `
+            /f $pfx /p "$env:CERT_PASSWORD" `
             /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
             "PIVOT-Tactical-Setup.exe"
           if ($LASTEXITCODE -ne 0) { throw "signtool failed ($LASTEXITCODE)" }
@@ -149,7 +155,7 @@ runs:
         done
 
     - name: Upload build artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: prerelease-${{ inputs.artifact }}
         path: |
