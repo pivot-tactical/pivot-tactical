@@ -383,9 +383,10 @@ def test_download_rejects_bad_signature(tmp_path, monkeypatch):
     assert not (mgr.versions_dir / "_staging" / "1.1.0" / "a.zip").exists()
 
 
-def test_download_allows_unsigned_release_when_no_sig_published(tmp_path, monkeypatch):
-    # A release without a .sig sidecar (e.g. pre-rollout) still installs on the
-    # SHA-256 check alone, so enabling signing doesn't brick older releases.
+def test_download_rejects_unsigned_release_when_key_configured(tmp_path, monkeypatch):
+    # With a trust anchor configured, a release without a .sig sidecar must not
+    # install on the SHA-256 check alone: the feed repo is instructor-settable,
+    # so that would let any repository ship an unverified build.
     archive = b"PIVOT bundle bytes"
     pub_b64, _ = _make_signed(archive)
     monkeypatch.setenv("PIVOT_EDDSA_PUBLIC_KEY", pub_b64)
@@ -399,8 +400,9 @@ def test_download_allows_unsigned_release_when_no_sig_published(tmp_path, monkey
         sha256_url="http://x/a.zip.sha256",
         sig_url="",
     )  # no signature
-    dest = mgr.download(rel)
-    assert dest.read_bytes() == archive
+    with pytest.raises(ValueError, match="not signed"):
+        mgr.download(rel)
+    assert not (mgr.versions_dir / "_staging" / "1.1.0" / "a.zip").exists()
 
 
 def test_stage_is_idempotent_on_restage(tmp_path):

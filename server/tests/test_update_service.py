@@ -220,6 +220,8 @@ def test_default_apply_reports_download_progress(tmp_path):
     with (
         mock.patch.object(mgrmod, "_http_download", fake_download),
         mock.patch.object(mgrmod.UpdateManager, "stage", lambda self, path, rel: self.versions_dir),
+        # Signature checking is covered in test_updates; this test is about progress.
+        mock.patch.object(mgrmod, "_verify_signature", lambda dest, rel, token: None),
     ):
         svc._default_apply(
             Release(tag="1.1.0", asset_url="http://x/a.zip", asset_name="a.zip"), cfg={}
