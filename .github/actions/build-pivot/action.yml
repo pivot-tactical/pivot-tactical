@@ -38,6 +38,7 @@ runs:
         python-version: "3.11"
 
     - name: Resolve version
+      id: version
       shell: bash
       env:
         INPUT_VERSION: ${{ inputs.version }}
@@ -49,13 +50,17 @@ runs:
           base=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('server/pivot/version.py').read_text()).group(1))")
           ver="${base}-dev.${RUN_NUMBER}"
         fi
-        echo "PIVOT_VERSION=$ver" >> "$GITHUB_ENV"
+        # A step output, not $GITHUB_ENV: the version reaches only the steps
+        # below that name it, and cannot leak into later steps' environment.
+        echo "version=$ver" >> "$GITHUB_OUTPUT"
 
     # Generate _buildinfo BEFORE installing the package, so the version is baked
     # into the source that gets installed/bundled (else the app reports the base
     # version and the prerelease update channel sees no updates).
     - name: Embed build info
       shell: bash
+      env:
+        PIVOT_VERSION: ${{ steps.version.outputs.version }}
       run: PIVOT_BUILD_VERSION="$PIVOT_VERSION" python packaging/gen_buildinfo.py
 
     - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -107,6 +112,8 @@ runs:
     - name: Build installer (Inno Setup)
       if: runner.os == 'Windows'
       shell: pwsh
+      env:
+        PIVOT_VERSION: ${{ steps.version.outputs.version }}
       run: |
         choco install innosetup --no-progress -y
         $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"

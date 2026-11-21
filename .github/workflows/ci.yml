@@ -242,7 +242,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: ./.github/actions/build-pivot
+      - uses: $/.github/actions/build-pivot
         with:
           artifact: win64
           version: ${{ needs.prerelease-version.outputs.version }}
@@ -262,7 +262,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: ./.github/actions/build-pivot
+      - uses: $/.github/actions/build-pivot
         with:
           artifact: linux-x86_64
           version: ${{ needs.prerelease-version.outputs.version }}
@@ -297,15 +297,23 @@ jobs:
           path: dist-artifacts
           merge-multiple: true
 
+      # The runner's own `gh` CLI rather than a third-party release action. The
+      # tag already exists (claimed by the prerelease-version job); --target only
+      # matters if it somehow does not. failglob makes a missing artifact fail
+      # the step, as fail_on_unmatched_files did.
       - name: Publish prerelease
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
-        with:
-          tag_name: v${{ env.PIVOT_VERSION }}
-          name: PIVOT v${{ env.PIVOT_VERSION }} (prerelease)
-          prerelease: true
-          target_commitish: ${{ github.event.pull_request.head.sha }}
-          files: dist-artifacts/PIVOT-Tactical-*
-          fail_on_unmatched_files: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          shopt -s failglob
+          tag="v${PIVOT_VERSION}"
+          gh release create "$tag" dist-artifacts/PIVOT-Tactical-* \
+            --title "PIVOT ${tag} (prerelease)" \
+            --prerelease \
+            --target "$HEAD_SHA"
 
       - name: Comment the prerelease on the PR
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
