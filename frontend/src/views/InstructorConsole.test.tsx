@@ -31,7 +31,7 @@ function makeEvent(overrides: Record<string, unknown> = {}) {
 
 // A stable external-store snapshot mirrors AudioIO's readiness subscription.
 vi.mock('../audio', () => ({
-  AudioIO: vi.fn().mockImplementation(() => {
+  AudioIO: vi.fn().mockImplementation(function () {
     let state = { status: 'ready', error: null, deviceId: '' };
     const listeners = new Set<Function>();
     return {
@@ -93,7 +93,7 @@ vi.mock('../api', () => ({
 
 // Emulate the authenticated handshake before loading console data.
 vi.mock('../ws', () => ({
-  PivotSocket: vi.fn().mockImplementation(() => {
+  PivotSocket: vi.fn().mockImplementation(function () {
     const handlers = new Map<string, Set<Function>>();
     const socket = {
       connected: false,

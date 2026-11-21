@@ -4,7 +4,8 @@
 pytest>=8.0          # MIT
 pytest-asyncio>=0.23 # Apache-2.0
 httpx>=0.27          # BSD-3-Clause (TestClient transport)
+certifi>=2026.10.18  # MPL-2.0 (not used directly: floor past known advisories for httpx's CA bundle)
 ruff>=0.4            # MIT
-cryptography>=42.0   # Apache-2.0 OR BSD-3-Clause (Ed25519 appcast signing, build/release only)
+cryptography>=50.0.0 # Apache-2.0 OR BSD-3-Clause (Ed25519 appcast signing, build/release only)
 pyinstaller>=6.0     # GPL-2.0-with-linking-exception (build tool only)
 pip-licenses>=4.0    # MIT (licence inventory generation, spec §13.7)

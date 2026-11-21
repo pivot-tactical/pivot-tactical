@@ -30,13 +30,13 @@ describe("microphone readiness and capture", () => {
     track = new MicTrack();
     getUserMedia = vi.fn().mockResolvedValue(streamFor(track));
     vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
-    vi.stubGlobal("AudioContext", vi.fn().mockImplementation(() => ({
+    vi.stubGlobal("AudioContext", vi.fn().mockImplementation(function () { return ({
       audioWorklet: { addModule: vi.fn().mockResolvedValue(undefined) },
       destination: {}, state: "running", close: vi.fn().mockResolvedValue(undefined),
       createMediaStreamSource: vi.fn(() => ({ connect: vi.fn(), disconnect: vi.fn() })),
       createGain: vi.fn(() => ({ gain: { value: 0 }, connect: vi.fn(), disconnect: vi.fn() })),
-    })));
-    vi.stubGlobal("AudioWorkletNode", vi.fn().mockImplementation((_context, name: string) => {
+    }); }));
+    vi.stubGlobal("AudioWorkletNode", vi.fn().mockImplementation(function (_context, name: string) {
       const node = { name, connect: vi.fn(), disconnect: vi.fn(), port: { onmessage: null, postMessage: vi.fn() } };
       nodes.push(node);
       return node;

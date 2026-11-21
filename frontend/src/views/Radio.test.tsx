@@ -63,7 +63,7 @@ const mockAudioIO = {
 };
 
 vi.mock('../audio', () => ({
-  AudioIO: vi.fn(() => mockAudioIO),
+  AudioIO: vi.fn(function () { return mockAudioIO; }),
   loadVolume: vi.fn(() => 0.5),
   saveVolume: vi.fn(),
   pcmLevel: vi.fn(() => 0.5),
