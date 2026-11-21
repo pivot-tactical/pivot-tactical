@@ -9,7 +9,7 @@ describe('PivotSocket', () => {
     vi.useFakeTimers();
     wsInstances = [];
 
-    MockWebSocket = vi.fn(() => {
+    MockWebSocket = vi.fn(function () {
       const instance = {
         send: vi.fn(),
         close: vi.fn(),

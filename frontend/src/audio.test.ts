@@ -139,7 +139,7 @@ describe("playSyncTone", () => {
 
     mockOscillators = [];
 
-    mockAudioContext = vi.fn().mockImplementation(() => ({
+    mockAudioContext = vi.fn().mockImplementation(function () { return ({
       currentTime: 100,
       createGain: vi.fn().mockReturnValue(mockGain),
       createOscillator: vi.fn().mockImplementation(() => {
@@ -154,7 +154,7 @@ describe("playSyncTone", () => {
         return osc;
       }),
       destination: {},
-    }));
+    }); });
 
     vi.stubGlobal("AudioContext", mockAudioContext);
     vi.stubGlobal("webkitAudioContext", undefined);
@@ -260,12 +260,12 @@ describe("playClick", () => {
       stop: vi.fn(),
     };
 
-    mockAudioContext = vi.fn().mockImplementation(() => ({
+    mockAudioContext = vi.fn().mockImplementation(function () { return ({
       currentTime: 100,
       createGain: vi.fn().mockReturnValue(mockGain),
       createOscillator: vi.fn().mockReturnValue(mockOscillator),
       destination: {},
-    }));
+    }); });
 
     vi.stubGlobal("AudioContext", mockAudioContext);
     vi.stubGlobal("webkitAudioContext", undefined);
@@ -312,18 +312,18 @@ describe("AudioIO", () => {
   let mockAudioContext: any;
 
   beforeEach(() => {
-    mockAudioContext = vi.fn().mockImplementation(() => ({
+    mockAudioContext = vi.fn().mockImplementation(function () { return ({
       audioWorklet: { addModule: vi.fn().mockResolvedValue(undefined) },
       destination: {},
       createMediaStreamSource: vi.fn().mockReturnValue({}),
       state: "running",
       resume: vi.fn().mockResolvedValue(undefined),
-    }));
+    }); });
     vi.stubGlobal("AudioContext", mockAudioContext);
-    vi.stubGlobal("AudioWorkletNode", vi.fn().mockImplementation(() => ({
+    vi.stubGlobal("AudioWorkletNode", vi.fn().mockImplementation(function () { return ({
       connect: vi.fn(),
       port: { onmessage: null, postMessage: vi.fn() }
-    })));
+    }); }));
 
     // Mock navigator
     vi.stubGlobal("navigator", {
