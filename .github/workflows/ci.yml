@@ -28,9 +28,11 @@ jobs:
     name: Backend tests & licence
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
 
@@ -66,9 +68,11 @@ jobs:
     name: Frontend build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
 
@@ -101,8 +105,9 @@ jobs:
     outputs:
       code: ${{ steps.detect.outputs.code }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
           fetch-depth: 0
       - id: detect
         shell: bash
@@ -159,9 +164,11 @@ jobs:
     outputs:
       version: ${{ steps.compute.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - id: compute
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const fs = require('fs');
@@ -232,8 +239,10 @@ jobs:
       needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-pivot
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/build-pivot
         with:
           artifact: win64
           version: ${{ needs.prerelease-version.outputs.version }}
@@ -250,8 +259,10 @@ jobs:
       needs.changes.outputs.code == 'true'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-pivot
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/build-pivot
         with:
           artifact: linux-x86_64
           version: ${{ needs.prerelease-version.outputs.version }}
@@ -268,32 +279,44 @@ jobs:
       contents: write # publish prerelease + tags
       pull-requests: write # post the version↔commit comment
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       # Same version computed in the prerelease-version job, so the published tag
       # matches the version already baked into the artifacts.
       - name: Resolve prerelease version
         shell: bash
-        run: echo "PIVOT_VERSION=${{ needs.prerelease-version.outputs.version }}" >> "$GITHUB_ENV"
+        env:
+          VERSION: ${{ needs.prerelease-version.outputs.version }}
+        run: echo "PIVOT_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Collect artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist-artifacts
           merge-multiple: true
 
+      # The runner's own `gh` CLI rather than a third-party release action. The
+      # tag already exists (claimed by the prerelease-version job); --target only
+      # matters if it somehow does not. failglob makes a missing artifact fail
+      # the step, as fail_on_unmatched_files did.
       - name: Publish prerelease
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ env.PIVOT_VERSION }}
-          name: PIVOT v${{ env.PIVOT_VERSION }} (prerelease)
-          prerelease: true
-          target_commitish: ${{ github.event.pull_request.head.sha }}
-          files: dist-artifacts/PIVOT-Tactical-*
-          fail_on_unmatched_files: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          shopt -s failglob
+          tag="v${PIVOT_VERSION}"
+          gh release create "$tag" dist-artifacts/PIVOT-Tactical-* \
+            --title "PIVOT ${tag} (prerelease)" \
+            --prerelease \
+            --target "$HEAD_SHA"
 
       - name: Comment the prerelease on the PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           # One new comment per build, left in place. Every prerelease still
           # exists, so its announcement stays in the thread as a running history,
@@ -314,7 +337,7 @@ jobs:
             });
 
       - name: Prune old dev prereleases (keep newest 10)
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const { data: releases } = await github.rest.repos.listReleases({ ...context.repo, per_page: 100 });

@@ -442,9 +442,20 @@ def admin_mode_instructor_radio(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+# Config keys whose stored value is a credential: never sent back to the browser.
+# A set value is reported as REDACTED_PLACEHOLDER; an unset one stays "" so the UI can still
+# tell the two apart. Posting REDACTED_PLACEHOLDER back means "leave it unchanged".
+_SECRET_KEYS = {"github_token"}
+REDACTED_PLACEHOLDER = "********"
+
+
 @router.get("/admin/config", dependencies=[Depends(require_instructor)])
 def admin_config(manager=Depends(get_manager)) -> dict:
-    return manager.get_config()
+    cfg = dict(manager.get_config())
+    for key in _SECRET_KEYS:
+        if cfg.get(key):
+            cfg[key] = REDACTED_PLACEHOLDER
+    return cfg
 
 
 @router.post("/admin/settings", dependencies=[Depends(require_instructor)])
@@ -457,6 +468,8 @@ def admin_update_settings(updates: dict = Body(...), manager=Depends(get_manager
         for key, value in updates.items():
             if key not in _SETTABLE_KEYS:
                 continue
+            if key in _SECRET_KEYS and value == REDACTED_PLACEHOLDER:
+                continue  # the masked value read back from /admin/config: keep the stored one
             # The start frequency must be one the radios can actually tune to,
             # so snap it to the tuning grid before persisting.
             stored = snap_frequency(float(value)) if key == "default_frequency_hz" else value

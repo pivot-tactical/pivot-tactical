@@ -381,4 +381,6 @@ class UpdateService:
             try:
                 self._on_change(snap)
             except Exception:
-                pass
+                # Never let a listener break status tracking, but don't hide it:
+                # a failing callback means the console stops seeing updates.
+                log.warning("update-status listener failed", exc_info=True)

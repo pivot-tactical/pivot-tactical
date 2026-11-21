@@ -115,7 +115,8 @@ def _make_link(target: Path, link: Path) -> None:
             # cmd.exe /c requires manual quoting. Passing a single string bypasses
             # subprocess.list2cmdline which fails to quote shell operators (like &).
             cmd_line = f'cmd /c mklink /J "{link_str}" "{target_str}"'
-            subprocess.run(
+            # Security review, accepted by the repository owner 2026-11-21: paths are the app's own version dirs, rejected if they hold shell metacharacters.
+            subprocess.run(  # noqa: S603
                 cmd_line,
                 check=True,
                 creationflags=0x08000000,  # CREATE_NO_WINDOW

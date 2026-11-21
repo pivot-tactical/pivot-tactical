@@ -66,7 +66,10 @@ target-version = "py311"
 # ruff upgrade can introduce new findings without a code change here; the three
 # PL rules below are switched off permanently because they fight decisions this
 # codebase makes deliberately, not because the cleanup is outstanding.
-select = ["E", "F", "I", "UP", "B", "PL"]
+# S = flake8-bandit security checks. Each finding in pivot/ was reviewed and,
+# where accepted, carries `# noqa: S...` with the reason on the line above.
+# Never add one unattended (see AGENTS.md).
+select = ["E", "F", "I", "UP", "B", "PL", "S"]
 ignore = [
     "E501",
     # Imports inside functions are load-bearing here. The native extras

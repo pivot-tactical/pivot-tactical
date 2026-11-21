@@ -1786,6 +1786,39 @@ def test_admin_config_mocked(client, monkeypatch):
 def test_admin_config_requires_instructor(raw_client):
     r = raw_client.get("/api/admin/config")
     assert r.status_code == 401
+
+
+def test_admin_config_masks_github_token(client):
+    """The stored GitHub token is never sent to the browser; the update code
+    still reads the real value internally."""
+    manager = client.app.state.manager
+    with manager.db.session() as s:
+        ConfigStore(s).set("github_token", "ghp_realsecretvalue")
+
+    cfg = client.get("/api/admin/config").json()
+    assert cfg["github_token"] == "********"
+    assert "ghp_realsecretvalue" not in client.get("/api/admin/config").text
+    assert manager.get_config()["github_token"] == "ghp_realsecretvalue"
+
+
+def test_admin_config_leaves_unset_github_token_empty(client):
+    assert client.get("/api/admin/config").json().get("github_token", "") == ""
+
+
+def test_admin_settings_ignores_masked_github_token(client):
+    """Posting the masked value back (a round-tripped config) keeps the real
+    token; posting a new value replaces it."""
+    manager = client.app.state.manager
+    with manager.db.session() as s:
+        ConfigStore(s).set("github_token", "ghp_realsecretvalue")
+
+    r = client.post("/api/admin/settings", json={"github_token": "********"})
+    assert r.status_code == 200
+    assert "github_token" not in r.json()["applied"]
+    assert manager.get_config()["github_token"] == "ghp_realsecretvalue"
+
+    client.post("/api/admin/settings", json={"github_token": "ghp_newvalue"})
+    assert manager.get_config()["github_token"] == "ghp_newvalue"
 def test_admin_remove_instructor_radio_success_and_404(client):
     # Create an instructor radio via POST
     radio = client.post("/api/admin/instructor-radios", json={"frequency": "30.000 MHz"}).json()

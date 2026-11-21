@@ -11,6 +11,7 @@ router's job (§6.3); this class owns the control decisions and the recording ta
 """
 
 import asyncio
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -656,7 +657,8 @@ class SessionManager:
     def _emit_to_sink(sink, data: bytes) -> None:
         try:
             sink(data)
-        except Exception:  # a slow/closed sink must never break the loop
+        # Security review, accepted by the repository owner 2026-11-21: runs per audio frame; a slow/closed sink must not break or flood the loop.
+        except Exception:  # a slow/closed sink must never break the loop  # noqa: S110
             pass
 
     def ptt_end(self, radio_id: str, audio: np.ndarray | None = None) -> dict | None:
@@ -746,7 +748,9 @@ class SessionManager:
             try:
                 cb()
             except Exception:  # a broken watcher must not block the change
-                pass
+                logging.getLogger("pivot.runtime.manager").warning(
+                    "instructor-radio watcher failed", exc_info=True
+                )
         # Keep every open instructor console in step (labels renumber on
         # removal, and another tab/REST client may have made the change).
         self.broadcast("instructor_radios", self.instructor_radios())

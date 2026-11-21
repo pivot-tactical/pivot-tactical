@@ -141,7 +141,8 @@ _opener = urllib.request.build_opener(_SafeRedirectHandler())
 def _http_get(url: str, token: str | None = None, timeout: float = 30.0) -> bytes:
     if not _is_safe_github_url(url):
         raise ValueError("Invalid or unsafe URL")
-    req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
+    # Security review, accepted by the repository owner 2026-11-21: URL checked by _is_safe_github_url (https GitHub hosts only), as are redirects.
+    req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})  # noqa: S310
     if token:
         req.add_header("Authorization", f"Bearer {token}")
 
@@ -169,7 +170,8 @@ def _http_download(
     """
     if not _is_safe_github_url(url):
         raise ValueError("Invalid or unsafe URL")
-    req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})
+    # Security review, accepted by the repository owner 2026-11-21: URL checked by _is_safe_github_url (https GitHub hosts only), as are redirects.
+    req = urllib.request.Request(url, headers={"User-Agent": "PIVOT-Updater"})  # noqa: S310
     if token:
         req.add_header("Authorization", f"Bearer {token}")
 
@@ -560,10 +562,15 @@ class UpdateManager:
                 for member in tf.getmembers():
                     if not (extracted_res / member.name).resolve().is_relative_to(extracted_res):
                         raise ValueError(f"Path traversal detected in archive: {member.name}")
-                if hasattr(tarfile, "data_filter"):
-                    tf.extractall(extracted, filter="data")
-                else:
-                    tf.extractall(extracted)
+                # The 'data' filter also blocks links pointing outside the
+                # target, device files and unsafe permissions, which the path
+                # check above does not. Without it (Python < 3.11.4) refuse the
+                # update rather than extract unfiltered.
+                if not hasattr(tarfile, "data_filter"):
+                    raise ValueError(
+                        "Python 3.11.4 or newer is required to install updates safely"
+                    )
+                tf.extractall(extracted, filter="data")
         elif asset_path.name.endswith(".zip"):
             with zipfile.ZipFile(asset_path) as zf:
                 for member in zf.infolist():
@@ -573,7 +580,8 @@ class UpdateManager:
                         .is_relative_to(extracted_res)
                     ):
                         raise ValueError(f"Path traversal detected in archive: {member.filename}")
-                zf.extractall(extracted)
+                # Security review, accepted by the repository owner 2026-11-21: every member's path is checked above to stay inside the target, and zipfile itself strips absolute paths and '..' components.
+                zf.extractall(extracted)  # noqa: S202
 
         bundle = self._bundle_root(extracted)
         if bundle is None:

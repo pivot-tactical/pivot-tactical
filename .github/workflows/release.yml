@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # publish release assets
+  contents: read
 
 jobs:
   build:
@@ -28,20 +28,26 @@ jobs:
           - os: ubuntu-22.04
             artifact: linux-x86_64
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write # publish release assets
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       # Identical build to the prereleases: same shared action, so a stable
       # release and a dev prerelease are byte-for-byte the same in form and
       # update through the same verified, channel-aware staged path.
       - name: Version from tag
         shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          ver="${{ github.ref_name }}"
+          ver="$REF_NAME"
           if [[ "$ver" =~ ^v[0-9] ]]; then ver="${ver#v}"; else ver="0.0.0-dev"; fi
           echo "REL_VERSION=$ver" >> "$GITHUB_ENV"
 
-      - uses: ./.github/actions/build-pivot
+      - uses: $/.github/actions/build-pivot
         with:
           artifact: ${{ matrix.artifact }}
           version: ${{ env.REL_VERSION }}
@@ -54,18 +60,33 @@ jobs:
       # names give a stable releases/latest/download URL; each archive ships its
       # .sha256 (integrity) and .sig (Ed25519 authenticity) which the in-app
       # updater verifies before staging.
+      #
+      # Uses the runner's own `gh` CLI rather than a third-party release action.
+      # Both matrix jobs publish to the same tag: whichever gets there first
+      # creates the release (with generated notes) and the other uploads its
+      # files to it. A file this platform does not build is simply skipped.
       - name: Publish to release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            PIVOT-Tactical-win64.zip
-            PIVOT-Tactical-linux-x86_64.tar.gz
-            PIVOT-Tactical-*.sha256
-            PIVOT-Tactical-*.sig
-            PIVOT-Tactical-Setup.exe
-          fail_on_unmatched_files: false
-          generate_release_notes: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          shopt -s nullglob
+          files=(PIVOT-Tactical-win64.zip PIVOT-Tactical-linux-x86_64.tar.gz \
+                 PIVOT-Tactical-*.sha256 PIVOT-Tactical-*.sig PIVOT-Tactical-Setup.exe)
+          present=()
+          for f in "${files[@]}"; do [ -e "$f" ] && present+=("$f"); done
+          if [ ${#present[@]} -eq 0 ]; then
+            echo "::warning::No release assets found to upload."
+            exit 0
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1 \
+             || ! gh release create "$TAG" "${present[@]}" --title "$TAG" --generate-notes --verify-tag; then
+            # Already exists, or the other matrix job created it a moment ago.
+            gh release upload "$TAG" "${present[@]}" --clobber
+          fi
 
   # Bumps __version__ (and friends) on `main` to the next patch the moment a
   # stable tag ships, so development immediately starts targeting the right
@@ -82,29 +103,46 @@ jobs:
     needs: [build]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the version bump to main
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: main
+          # The token is passed only to the push/fetch below (gitauth), not
+          # left in .git/config for the npm step to read.
+          persist-credentials: false
 
       - name: Compute next patch version
         id: next
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          ver="${{ github.ref_name }}"
+          ver="$REF_NAME"
           ver="${ver#v}"
           IFS='.' read -r major minor patch <<< "$ver"
           echo "next=${major}.${minor}.$((patch + 1))" >> "$GITHUB_OUTPUT"
 
       - name: Bump version files
+        env:
+          NEXT: ${{ steps.next.outputs.next }}
         run: |
-          next="${{ steps.next.outputs.next }}"
+          next="$NEXT"
           sed -i "s/^__version__ = \".*\"/__version__ = \"$next\"/" server/pivot/version.py
           sed -i "s/^version = \".*\"/version = \"$next\"/" server/pyproject.toml
           (cd frontend && npm version "$next" --no-git-tag-version --allow-same-version)
 
       - name: Commit and push to main
+        env:
+          NEXT: ${{ steps.next.outputs.next }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          next="${{ steps.next.outputs.next }}"
+          next="$NEXT"
+          # Authenticate just these git commands with the workflow token, the
+          # same way actions/checkout does, without storing it in .git/config.
+          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$AUTH"
+          gitauth() { git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" "$@"; }
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add server/pivot/version.py server/pyproject.toml frontend/package.json frontend/package-lock.json
@@ -114,8 +152,8 @@ jobs:
           fi
           git commit -m "Bump development version to $next [skip ci]"
           for attempt in 1 2 3 4 5; do
-            if git push origin HEAD:main; then exit 0; fi
-            git fetch origin main
+            if gitauth push origin HEAD:main; then exit 0; fi
+            gitauth fetch origin main
             git rebase origin/main
             sleep $((attempt * 3))
           done

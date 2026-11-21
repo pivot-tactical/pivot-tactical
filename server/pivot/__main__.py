@@ -26,7 +26,7 @@ print("PIVOT is starting — please wait…", flush=True)
 import uvicorn  # noqa: E402
 
 from pivot.api.app import create_app  # noqa: E402
-from pivot.auth import DEFAULT_INSTRUCTOR_PASSWORD, AuthService  # noqa: E402
+from pivot.auth import AuthService  # noqa: E402
 from pivot.config import Settings  # noqa: E402
 from pivot.db.database import init_database  # noqa: E402
 from pivot.runtime.manager import SessionManager  # noqa: E402
@@ -368,7 +368,9 @@ def _print_startup_message(
         )
     if is_default_password:
         print(
-            f"  NOTE: instructor password is the default ('{DEFAULT_INSTRUCTOR_PASSWORD}'). "
+            # The value itself is not printed: console output often ends up in
+            # logs, and the default is documented in the README.
+            "  NOTE: the instructor password is still the shipped default. "
             "Change it in Settings after logging in."
         )
     return url

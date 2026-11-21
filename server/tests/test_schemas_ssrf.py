@@ -12,7 +12,7 @@ def test_apply_update_request_valid_github_urls():
         sha256_url="https://api.github.com/repos/pivot/releases/assets/123",
         sig_url="https://objects.githubusercontent.com/github-production-release-asset-2e65be/...",
     )
-    assert req.asset_url.startswith("https://github.com")
+    assert req.asset_url == "https://github.com/pivot-tactical/pivot/releases/download/v1.0.0/PIVOT.zip"
 
 
 def test_apply_update_request_invalid_urls():

@@ -138,7 +138,8 @@ def _read_buildinfo() -> tuple[str, str, str | None] | None:
 def _discover_git_sha() -> str:
     try:
         out = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+            # Security review, accepted by the repository owner 2026-11-21: fixed `git rev-parse HEAD`; git is looked up on PATH deliberately.
+            ["git", "rev-parse", "HEAD"],  # noqa: S607
             cwd=Path(__file__).resolve().parent,
             capture_output=True,
             text=True,
@@ -147,7 +148,8 @@ def _discover_git_sha() -> str:
         )
         if out.returncode == 0:
             return out.stdout.strip()
-    except Exception:
+    # Security review, accepted by the repository owner 2026-11-21: packaged builds have no git; the version then reports 'unknown'.
+    except Exception:  # noqa: S110
         pass
     return "unknown"
 

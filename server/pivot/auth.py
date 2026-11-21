@@ -31,7 +31,8 @@ from pivot.db.database import Database
 
 # Default instructor password, seeded on first run. The UI nudges the instructor
 # to change it while it is still the default (see AuthService.is_default).
-DEFAULT_INSTRUCTOR_PASSWORD = "instructor"
+# Security review, accepted by the repository owner 2026-11-21: shipped first-run default by design; the UI prompts the instructor to change it.
+DEFAULT_INSTRUCTOR_PASSWORD = "instructor"  # noqa: S105
 
 
 def _seed_password() -> str:
@@ -48,7 +49,8 @@ def _seed_password() -> str:
 
 _PBKDF2_ROUNDS = 200_000
 _CONFIG_KEY = "instructor_password_hash"
-_SECRET_KEY = "instructor_token_secret"
+# Security review, accepted by the repository owner 2026-11-21: the name of a config-table key, not a secret value.
+_SECRET_KEY = "instructor_token_secret"  # noqa: S105
 
 # How long an issued token stays valid. Short by design — long enough to bridge a
 # refresh or a restart (and to be refreshed while the console is open), not a

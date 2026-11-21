@@ -38,7 +38,8 @@ class Settings(BaseSettings):
 
     # FastAPI bind. LAN-only by default; instructor controls are gated to the
     # local machine in the API layer (§8.4).
-    host: str = "0.0.0.0"
+    # Security review, accepted by the repository owner 2026-11-21: LAN server: trainee terminals on other machines must be able to connect.
+    host: str = "0.0.0.0"  # noqa: S104
     port: int = 8080
 
     sample_rate: int = RECORDING_SAMPLE_RATE

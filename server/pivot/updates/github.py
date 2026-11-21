@@ -67,7 +67,8 @@ def fetch_releases(repo: str, token: str | None = None, timeout: float = 10.0) -
     Raises on network/HTTP errors; the caller decides how to present them.
     """
     url = f"{GITHUB_API}/repos/{repo}/releases?per_page=100"
-    req = urllib.request.Request(
+    # Security review, accepted by the repository owner 2026-11-21: URL is built from the fixed https://api.github.com prefix.
+    req = urllib.request.Request(  # noqa: S310
         url,
         headers={
             "Accept": "application/vnd.github+json",

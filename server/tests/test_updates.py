@@ -428,6 +428,50 @@ def test_stage_is_idempotent_on_restage(tmp_path):
     assert (second / "PIVOT-Tactical.exe").exists()
 
 
+def _make_tar_bundle(path):
+    import io
+    import tarfile
+
+    with tarfile.open(path, "w:gz") as tf:
+        for name, data in (
+            ("PIVOT-Tactical/_internal/watchfiles/x.txt", b"data"),
+            ("PIVOT-Tactical/PIVOT-Tactical", b"binary"),
+        ):
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+
+
+def test_stage_extracts_tar_bundle_with_data_filter(tmp_path):
+    versions = tmp_path / "versions"
+    staging = versions / "_staging" / "1.1.0"
+    staging.mkdir(parents=True)
+    asset = staging / "PIVOT-Tactical-v1.1.0-linux-x86_64.tar.gz"
+    _make_tar_bundle(asset)
+
+    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    staged = mgr.stage(asset, Release(tag="1.1.0", asset_name=asset.name))
+    assert (staged / "_internal" / "watchfiles" / "x.txt").read_bytes() == b"data"
+
+
+def test_stage_refuses_tar_without_data_filter(tmp_path, monkeypatch):
+    """Without tarfile's 'data' filter (Python < 3.11.4) an update is refused
+    rather than extracted unfiltered: the path check alone does not stop links
+    that point outside the target."""
+    import tarfile
+
+    versions = tmp_path / "versions"
+    staging = versions / "_staging" / "1.1.0"
+    staging.mkdir(parents=True)
+    asset = staging / "PIVOT-Tactical-v1.1.0-linux-x86_64.tar.gz"
+    _make_tar_bundle(asset)
+    monkeypatch.delattr(tarfile, "data_filter")
+
+    mgr = UpdateManager("1.0.0", versions_dir=versions)
+    with pytest.raises(ValueError, match="3.11.4"):
+        mgr.stage(asset, Release(tag="1.1.0", asset_name=asset.name))
+
+
 def test_download_and_stage_skips_redownload_when_already_staged(tmp_path, monkeypatch):
     """The two auto-update triggers (background poll + console /updates/check)
     both stage the newest release. The second to run must short-circuit on the
