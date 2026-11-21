@@ -565,7 +565,7 @@ class UpdateManager:
                 if hasattr(tarfile, "data_filter"):
                     tf.extractall(extracted, filter="data")
                 else:
-                    # Security review, accepted by the repository owner 2026-11-21: every member is checked to stay inside the target, then the 'data' filter applies.
+                    # Security review, accepted by the repository owner 2026-11-21: fallback for Python < 3.11.4 only (no 'data' filter there); every member's path is checked above to stay inside the target.
                     tf.extractall(extracted)  # noqa: S202
         elif asset_path.name.endswith(".zip"):
             with zipfile.ZipFile(asset_path) as zf:
@@ -576,7 +576,7 @@ class UpdateManager:
                         .is_relative_to(extracted_res)
                     ):
                         raise ValueError(f"Path traversal detected in archive: {member.filename}")
-                # Security review, accepted by the repository owner 2026-11-21: fallback for Python < 3.11.4 only; members are still checked to stay inside.
+                # Security review, accepted by the repository owner 2026-11-21: every member's path is checked above to stay inside the target, and zipfile itself strips absolute paths and '..' components.
                 zf.extractall(extracted)  # noqa: S202
 
         bundle = self._bundle_root(extracted)
