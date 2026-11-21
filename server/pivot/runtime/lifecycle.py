@@ -18,6 +18,7 @@ when we can prove it (systemd sets ``INVOCATION_ID``), so we never exit into a
 dead state expecting a relaunch that will not come.
 """
 
+import logging
 import os
 import subprocess
 import sys
@@ -73,7 +74,8 @@ def publish_install_mutex() -> None:
         handle = ctypes.windll.kernel32.CreateMutexW(None, False, _SINGLE_INSTANCE_MUTEX)
         if handle:
             _mutex_handle = handle
-    except Exception:
+    # Security review, accepted by the repository owner 2026-11-21: Windows-only best effort; the app runs fine without the installer mutex.
+    except Exception:  # noqa: S110
         pass
 
 
@@ -167,7 +169,12 @@ def _relauncher_exe(settings) -> str:
         if staged_exe is not None:
             return str(staged_exe)
     except Exception:
-        pass
+        # Still fall back to the running exe, but say so: otherwise a staged
+        # update that cannot be located is silently never applied.
+        logging.getLogger("pivot.runtime.lifecycle").warning(
+            "could not locate the staged update's executable; relaunching the current one",
+            exc_info=True,
+        )
     return sys.executable
 
 
@@ -191,13 +198,15 @@ def spawn_relauncher(settings=None) -> None:
     # started from a shortcut pointing into `current`.
     try:
         kwargs["cwd"] = str(install_root())
-    except Exception:
+    # Security review, accepted by the repository owner 2026-11-21: best effort; the helper still runs if the cwd cannot be set.
+    except Exception:  # noqa: S110
         pass
     if sys.platform == "win32":  # pragma: no cover - Windows-only
         kwargs["creationflags"] = _DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW
     else:
         kwargs["start_new_session"] = True
-    subprocess.Popen([str(exe_path), "--relaunch-after", str(os.getpid())], **kwargs)
+    # Security review, accepted by the repository owner 2026-11-21: argument list, no shell; the exe is resolved and checked with is_file().
+    subprocess.Popen([str(exe_path), "--relaunch-after", str(os.getpid())], **kwargs)  # noqa: S603
 
 
 def app_exe(settings=None) -> str:
@@ -259,7 +268,8 @@ def spawn_app(exe: str | None = None) -> None:
         kwargs["creationflags"] = _CREATE_NEW_CONSOLE
     else:
         kwargs["start_new_session"] = True
-    subprocess.Popen([str(target_path)], **kwargs)
+    # Security review, accepted by the repository owner 2026-11-21: argument list, no shell; the exe is resolved and checked with is_file().
+    subprocess.Popen([str(target_path)], **kwargs)  # noqa: S603
 
 
 def perform_relaunch(settings=None) -> None:
@@ -274,7 +284,8 @@ def perform_relaunch(settings=None) -> None:
     if mode == "systemd":
         return
     if mode == "exec":
-        os.execv(sys.executable, [sys.executable, *sys.argv])  # pragma: no cover
+        # Security review, accepted by the repository owner 2026-11-21: re-execs the same interpreter with this process's own argv.
+        os.execv(sys.executable, [sys.executable, *sys.argv])  # pragma: no cover  # noqa: S606
         return
     spawn_relauncher(settings)
 
