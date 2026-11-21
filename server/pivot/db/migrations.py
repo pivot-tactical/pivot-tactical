@@ -34,7 +34,8 @@ def _migrate_v2_net_scenarios(conn) -> None:
     if "atmospheric_multiplier" in cols:
         try:
             conn.execute(text("ALTER TABLE band_profile DROP COLUMN atmospheric_multiplier"))
-        except Exception:  # pre-3.35 SQLite: the unused column stays, harmlessly
+        # Security review, accepted by the repository owner 2026-11-21: pre-3.35 SQLite cannot drop the column; the unused column is harmless.
+        except Exception:  # pre-3.35 SQLite: the unused column stays, harmlessly  # noqa: S110
             pass
 
 

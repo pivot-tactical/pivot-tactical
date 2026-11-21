@@ -37,6 +37,8 @@ def open_in_file_manager(path: Path) -> None:
         # server-owned path — no injection surface.
         os.startfile(target)  # type: ignore[attr-defined]  # noqa: S606
     elif sys.platform == "darwin":
-        subprocess.run(["open", target], check=True)
+        # Security review, accepted by the repository owner 2026-11-21: argument list, no shell; target is the server's own resolved directory.
+        subprocess.run(["open", target], check=True)  # noqa: S603, S607
     else:
-        subprocess.run(["xdg-open", target], check=True)
+        # Security review, accepted by the repository owner 2026-11-21: argument list, no shell; target is the server's own resolved directory.
+        subprocess.run(["xdg-open", target], check=True)  # noqa: S603, S607
