@@ -337,17 +337,21 @@ def _verify_signature(dest: Path, release: Release, token: str | None) -> None:
     Authenticity (not just the SHA-256 integrity check): the release workflow
     signs every asset with the project's private key, and the running app trusts
     only that key. A published signature that fails verification is fatal —
-    the download is deleted and an error raised. A *missing* signature is
-    tolerated only while no key is configured (or the release predates signing),
-    so the rollout never bricks the updater; once assets are signed the check is
-    enforced for everyone.
+    the download is deleted and an error raised. A *missing* signature is just
+    as fatal while a key is configured: the release feed is chosen by the
+    instructor-settable ``github_repo``, so accepting an unsigned asset would let
+    any repository serve code that the updater installs with no authenticity
+    check at all. Every official build (CI and release) publishes a ``.sig``.
     """
     from pivot.updates import signing
 
     if not signing.is_configured():
         return  # no trust anchor -> integrity-only (SHA-256) as before
     if not release.sig_url:
-        return  # unsigned release (e.g. pre-rollout) -> accept on SHA-256 alone
+        dest.unlink(missing_ok=True)
+        raise ValueError(
+            f"Update is not signed — refusing to install an unverified build ({release.asset_name})"
+        )
     try:
         sig_b64 = _http_get(release.sig_url, token).decode().strip()
     except Exception as exc:  # signature published but unreachable -> refuse
